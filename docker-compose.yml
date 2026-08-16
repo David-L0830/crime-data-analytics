@@ -1,0 +1,36 @@
+# Local development composition.
+#
+# NOTE: Supabase is used as a hosted Postgres instance (Supabase Cloud) —
+# it is intentionally NOT containerized here. Point DB_HOST/DB_* and
+# SUPABASE_* env vars in backend/.env and .env at your Supabase project.
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - cdars
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - cdars
+
+networks:
+  cdars:
+    driver: bridge

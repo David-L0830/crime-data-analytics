@@ -1,0 +1,11 @@
+{
+  "name": "@cdars/backend",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "php artisan serve",
+    "build": "echo 'no JS build step for Laravel backend'",
+    "test": "php artisan test",
+    "lint": "./vendor/bin/pint --test"
+  }
+}
