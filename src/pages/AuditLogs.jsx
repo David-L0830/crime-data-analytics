@@ -71,7 +71,7 @@ export default function AuditLogs() {
   return (
     <section className="module">
       <div className="module-toolbar">
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><Icons.Report size={18} strokeWidth={2} /> Audit Logs</h2>
+        <h2 className="module-toolbar-title"><Icons.Report size={18} strokeWidth={2} /> Audit Logs</h2>
         <Button
           variant="secondary"
           onClick={() => { if (exportCSV(filtered, `audit_logs_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Audit logs exported', 'success'); }}
