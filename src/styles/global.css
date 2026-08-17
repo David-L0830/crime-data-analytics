@@ -349,7 +349,7 @@ h1, h2, h3, h4, h5, h6 {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--orange), var(--indigo));
+  background: linear-gradient(90deg, var(--accent), var(--orange), var(--info));
 }
 
 .login-header {
@@ -1418,6 +1418,21 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateY(-3px);
   box-shadow: var(--shadow-md);
 }
+.kpi-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.kpi-card-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.kpi-card-link:active {
+  transform: translateY(-1px);
+}
 
 .kpi-value {
   font-size: 1.85rem;
@@ -1448,8 +1463,8 @@ h1, h2, h3, h4, h5, h6 {
 .kpi-card.danger::after { background: var(--danger); }
 .kpi-card.danger .kpi-value { color: var(--danger); }
 
-.kpi-card.info::after { background: var(--indigo); }
-.kpi-card.info .kpi-value { color: var(--indigo); }
+.kpi-card.info::after { background: var(--info); }
+.kpi-card.info .kpi-value { color: var(--info); }
 
 .kpi-card.orange::after { background: var(--orange); }
 .kpi-card.orange .kpi-value { color: var(--orange); }
@@ -1464,11 +1479,45 @@ h1, h2, h3, h4, h5, h6 {
 
 .chart-card {
   background: var(--bg-card);
+  position: relative;
 }
 
 .chart-card canvas {
   max-height: 280px;
   width: 100% !important;
+}
+
+.chart-card-interactive {
+  cursor: pointer;
+}
+
+.chart-card-interactive:hover {
+  box-shadow: var(--shadow-md);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.chart-card-interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chart-card-hint {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0;
+  transition: opacity var(--transition);
+  pointer-events: none;
+}
+
+.chart-card-interactive:hover .chart-card-hint,
+.chart-card-interactive:focus-visible .chart-card-hint {
+  opacity: 1;
 }
 
 /* ===== Tables ===== */
@@ -1568,7 +1617,7 @@ tbody tr:last-child td {
 .status-Archived { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
 .status-Active { background: rgba(16, 185, 129, 0.12); color: var(--success); }
 .status-Wanted { background: rgba(200, 16, 46, 0.12); color: var(--danger); }
-.status-Incarcerated { background: rgba(99, 102, 241, 0.12); color: var(--indigo); }
+.status-Incarcerated { background: rgba(14, 165, 233, 0.12); color: var(--info); }
 .status-Released { background: rgba(14, 165, 233, 0.12); color: var(--info); }
 .status-Deceased, .status-Transferred, .status-Inactive { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
 
@@ -2035,6 +2084,38 @@ select {
 
 .modal-lg { max-width: 850px; }
 
+.chart-summary-description {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 18px;
+}
+
+.chart-summary-insight {
+  background: var(--accent-light);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.chart-summary-insight p {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.chart-summary-kpis {
+  margin-bottom: 8px;
+}
+
+.chart-summary-breakdown-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 22px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -2246,7 +2327,7 @@ select {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--orange), var(--indigo));
+  background: linear-gradient(90deg, var(--accent), var(--orange), var(--info));
 }
 
 .dashboard-welcome h2 {
@@ -2564,31 +2645,18 @@ select {
 
 @page {
   size: A4 portrait;
-  margin: 14mm 12mm 16mm 12mm;
+  margin: 34mm 12mm 16mm 12mm;
 }
 
 @media print {
-.sidebar, .topbar, .filters-bar, .export-bar, .module-toolbar,
+  .sidebar, .topbar, .filters-bar, .export-bar, .module-toolbar,
   .menu-toggle, .theme-toggle, .sidebar-collapse-btn,
   .modal-header, .modal-footer, .modal-close, .dashboard-welcome { display: none !important; }
   .main-content { margin-left: 0; }
   .modal { position: static; background: #fff; padding: 0; backdrop-filter: none; overflow: visible; }
   .modal-content { max-width: 100%; max-height: none; overflow: visible; box-shadow: none; border: none; padding: 0; }
   .module { display: block !important; }
-  /* Checkpoint 27 — individual-record PDF export (e.g. Crime Data
-     Collection's VIEW -> Export PDF). IncidentViewModal (and any future
-     view-modal built the same way) renders its `.modal` as a sibling of
-     the page's own record list/table inside `.module`, not in a portal —
-     so without this rule, printing while the modal is open would print
-     the single-record modal AND the full underlying table behind it. When
-     a `.modal` is present, hide every other direct child of `.module` so
-     only the modal's own single-record content reaches the printed page.
-     Pages with no open modal (Dashboard, Analytics, etc. — the
-     intentionally-aggregate reports) are unaffected: :has(> .modal) simply
-     never matches for them. */
   .module:has(> .modal) > *:not(.modal) { display: none !important; }
-  /* Fallback for browsers without :has() support — see Modal.jsx's
-     `.modal-open` body class effect. */
   body.modal-open .module > *:not(.modal) { display: none !important; }
   body { background: #fff; color: #000; }
   .card { border: 1px solid #ccc; break-inside: avoid; box-shadow: none; }
@@ -2598,15 +2666,21 @@ select {
   .print-only { display: block; }
   .print-report { margin-bottom: 18px; }
   .print-report-header {
+    position: fixed;
+    top: 2mm;
+    left: 12mm;
+    right: 12mm;
     display: flex;
     align-items: center;
     gap: 14px;
+    background: #fff;
     border-bottom: 2px solid #22291F;
-    padding-bottom: 10px;
+    padding-bottom: 8px;
+    z-index: 9999;
   }
   .print-report-logo {
-    width: 56px;
-    height: 56px;
+    width: 48px;
+    height: 48px;
     object-fit: cover;
     border-radius: 50%;
     flex-shrink: 0;
@@ -2660,9 +2734,31 @@ select {
   .print-page-number::after {
     content: counter(page);
   }
-}
 
-/* ===== Responsive ===== */
+  /* Print pagination fix — Chrome does not fragment CSS Grid rows well
+     during print: if one card in a grid row can't fit the remaining
+     space on a page, the browser reserves the row's full height anyway
+     and pushes the whole row to the next page, leaving a blank gap.
+     Switching these containers to block layout for print only lets each
+     card flow and break independently, closing those gaps. */
+  .kpi-grid, .chart-grid, .table-grid, .stats-summary,
+  .profile-grid, .stat-measures, .detail-grid {
+    display: block !important;
+  }
+  .kpi-grid > *, .chart-grid > *, .table-grid > *, .stats-summary > *,
+  .profile-grid > *, .stat-measures > *, .detail-grid > * {
+    break-inside: avoid;
+    margin-bottom: 14px;
+  }
+
+  /* min-height: 100vh only matters for filling the browser viewport on
+     screen. In print it reserves a full blank page's worth of extra
+     height after the real content ends — remove it for print only. */
+  body, .app, .main-content {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .sidebar,
   .main-content,
@@ -3390,4 +3486,14 @@ select {
   color: var(--login-error-text, var(--danger));
   font-size: 0.75rem;
   margin-top: 5px;
+}
+.table-row-clickable {
+  cursor: pointer;
+}
+.table-row-clickable:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.03));
+}
+.table-row-clickable:focus-visible {
+  outline: 2px solid var(--accent, #2f8f4e);
+  outline-offset: -2px;
 }

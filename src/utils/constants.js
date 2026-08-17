@@ -46,8 +46,8 @@ export const COLORS = {
   white: '#FFFFFF',
   greenLight: 'rgba(46, 139, 71, 0.15)',
   orangeLight: 'rgba(255, 138, 61, 0.15)',
-  chartPalette: ['#2E8B47', '#FF8A3D', '#C0392B', '#6366F1', '#0EA5E9', '#8B5CF6'],
-  statusPalette: ['#2E8B47', '#FF8A3D', '#C0392B', '#94A3B8', '#6366F1'],
+  chartPalette: ['#2E8B47', '#FF8A3D', '#0EA5E9', '#C0392B'],
+  statusPalette: ['#2E8B47', '#FF8A3D', '#C0392B', '#94A3B8', '#0EA5E9'],
 };
 
 // Three account types: Administrator (full access), Encoder (restricted to
