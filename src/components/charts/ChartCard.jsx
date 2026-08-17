@@ -6,7 +6,8 @@ import { Icons } from '../icons';
 // Wraps Chart.js in a React component so every page can declare a chart with
 // plain data instead of manually managing canvas refs / chart teardown.
 // `type`: 'line' | 'bar' | 'doughnut' | 'pie'  `labels`: string[]  `datasets`: Chart.js dataset[]
-export default function ChartCard({ title, type, labels, datasets, options = {}, height = 260 }) {
+export default function ChartCard({ title, type, labels, datasets, options = {}, height = 260, onOpenSummary }) {
+  console.log('ChartCard render:', title, '— onOpenSummary is', typeof onOpenSummary);
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
   const { theme } = useTheme();
@@ -56,9 +57,27 @@ export default function ChartCard({ title, type, labels, datasets, options = {},
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, JSON.stringify(labels), JSON.stringify(datasets), theme, isEmpty]);
 
+  const interactive = typeof onOpenSummary === 'function';
+
+  const handleKeyDown = (e) => {
+    if (!interactive) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpenSummary();
+    }
+  };
+
   return (
-    <div className="card chart-card">
+    <div
+      className={`card chart-card${interactive ? ' chart-card-interactive' : ''}`}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? `View summary for ${title}` : undefined}
+      onClick={interactive ? onOpenSummary : undefined}
+      onKeyDown={handleKeyDown}
+    >
       {title && <h3>{title}</h3>}
+      {interactive && <span className="chart-card-hint">View summary</span>}
       {isEmpty ? (
         <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="empty-state" style={{ padding: '16px 24px' }}>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
@@ -6,9 +7,14 @@ import FilterBar from '../components/ui/FilterBar';
 import KpiCard from '../components/ui/KpiCard';
 import Table from '../components/ui/Table';
 import ChartCard from '../components/charts/ChartCard';
+import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import Button from '../components/ui/Button';
 import PrintReport from '../components/ui/PrintReport';
-import { filterRecords, countBy, formatDate, exportCSV, today } from '../utils/helpers';
+import { filterRecords, countBy, formatDate, exportCSV, today, monthLabelToRange, SOLVED_STATUSES, PENDING_STATUSES } from '../utils/helpers';
+import {
+  buildCrimeTrendInsight, buildCategoryInsight, buildSitioInsight,
+  buildCrimeTypeInsight, buildResolutionInsight, buildStatusInsight,
+} from '../utils/chartInsights';
 import { COLORS } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -19,7 +25,9 @@ export default function Dashboard() {
   } = useData();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState({});
+  const [selectedChart, setSelectedChart] = useState(null);
 
   const filtered = useMemo(
     () => filterRecords(records.filter((r) => r.status !== 'Archived'), {
@@ -36,8 +44,8 @@ export default function Dashboard() {
   );
 
   const total = filtered.length;
-  const solved = filtered.filter((r) => ['Solved', 'Closed'].includes(r.status)).length;
-  const unsolved = filtered.filter((r) => ['Open', 'Under Investigation'].includes(r.status)).length;
+  const solved = filtered.filter((r) => SOLVED_STATUSES.includes(r.status)).length;
+  const unsolved = filtered.filter((r) => PENDING_STATUSES.includes(r.status)).length;
   const active = filtered.filter((r) => r.status === 'Under Investigation').length;
   const resolution = total ? ((solved / total) * 100).toFixed(1) : 0;
   const crimeRate = settings.population ? ((total / settings.population) * 1000).toFixed(2) : 0;
@@ -47,27 +55,69 @@ export default function Dashboard() {
   // Checkpoint 26 — human-readable description of the currently-applied
   // date range, used in the KPI hover hints below so hovering a card tells
   // you exactly which records it's counting.
+  // Phase 7 — human-readable summary of every active Dashboard filter, for
+  // the chart summary's printed/PDF output ("Active filters" line in the
+  // spec). Only lists filters that are actually set, in the same order
+  // they appear on the FilterBar.
+  
+  
   const rangeLabel = (() => {
-    const from = filters['dash-dateFrom'];
-    const to = filters['dash-dateTo'];
-    if (from && to) return `${formatDate(from)} – ${formatDate(to)}`;
-    if (from) return `on or after ${formatDate(from)}`;
-    if (to) return `on or before ${formatDate(to)}`;
-    return 'all recorded dates';
+     const from = filters['dash-dateFrom'];
+     const to = filters['dash-dateTo'];
+     if (from && to) return `${formatDate(from)} – ${formatDate(to)}`;
+     if (from) return `on or after ${formatDate(from)}`;
+     if (to) return `on or before ${formatDate(to)}`;
+     return 'all recorded dates';
+   })();
+  
+  const activeFiltersLabel = (() => {
+    const parts = [];
+    if (filters['dash-dateFrom'] || filters['dash-dateTo']) parts.push(`Date: ${rangeLabel}`);
+    if (filters['dash-crimeType']) parts.push(`Crime Type: ${filters['dash-crimeType']}`);
+    if (filters['dash-sitio']) parts.push(`Sitio: ${filters['dash-sitio']}`);
+    if (filters['dash-status']) parts.push(`Status: ${filters['dash-status']}`);
+    return parts.length ? parts.join(' | ') : 'None applied';
   })();
 
-  const kpis = [
-    { label: 'Total Incidents', value: total, cls: 'accent', hint: `All non-archived incidents for ${rangeLabel}.` },
-    { label: 'Solved Cases', value: solved, cls: 'success', hint: `Incidents marked Solved or Closed for ${rangeLabel}.` },
-    { label: 'Pending Cases', value: unsolved, cls: 'danger', hint: `Incidents marked Open or Under Investigation for ${rangeLabel}.` },
-    { label: 'Active Investigations', value: active, cls: 'warning' },
-    { label: 'Resolution Rate', value: `${resolution}%`, cls: 'success' },
-    { label: 'Crime Rate /1K', value: crimeRate, cls: 'accent' },
-    { label: "Today's Incidents", value: todayCount, cls: 'orange' },
-    { label: 'This Month', value: monthCount, cls: 'info' },
-    { label: 'Today Imported', value: getTodayImportedCount(), cls: 'accent', hint: 'Records received via sync today — tracks sync activity, independent of the date range filter above.' },
-    { label: 'Month Imported', value: getThisMonthImportedCount(), cls: 'info', hint: 'Records received via sync this calendar month — tracks sync activity, independent of the date range filter above.' },
+  const baseFilters = {
+  crimeType: filters['dash-crimeType'],
+  sitio: filters['dash-sitio'],
+  status: filters['dash-status'],
+  dateFrom: filters['dash-dateFrom'],
+  dateTo: filters['dash-dateTo'],
+};
+
+const monthStart = `${today().slice(0, 7)}-01`;
+
+  const allKpis = [
+    { label: 'Total Incidents', value: total, cls: 'accent', hint: `All non-archived incidents for ${rangeLabel}.`,
+      to: '/incident-feed', state: { filters: baseFilters } },
+    { label: 'Solved Cases', value: solved, cls: 'success', hint: `Incidents marked Solved or Closed for ${rangeLabel}.`,
+      to: '/incident-feed', state: { filters: baseFilters, statusGroup: 'solved' } },
+    { label: 'Pending Cases', value: unsolved, cls: 'danger', hint: `Incidents marked Open or Under Investigation for ${rangeLabel}.`,
+      to: '/incident-feed', state: { filters: baseFilters, statusGroup: 'pending' } },
+    { label: 'Active Investigations', value: active, cls: 'warning',
+      to: '/incident-feed', state: { filters: { ...baseFilters, status: 'Under Investigation' } } },
+    { label: 'Resolution Rate', value: `${resolution}%`, cls: 'success',
+      to: '/analytics', state: { filters: { dateFrom: filters['dash-dateFrom'], dateTo: filters['dash-dateTo'], sitio: filters['dash-sitio'] } } },
+    { label: 'Crime Rate /1K', value: crimeRate, cls: 'accent',
+      to: '/analytics', state: { filters: { dateFrom: filters['dash-dateFrom'], dateTo: filters['dash-dateTo'], sitio: filters['dash-sitio'] } } },
+    { label: "Today's Incidents", value: todayCount, cls: 'orange',
+      to: '/incident-feed', state: { filters: { ...baseFilters, dateFrom: today(), dateTo: today() } } },
+    { label: 'This Month', value: monthCount, cls: 'info',
+      to: '/incident-feed', state: { filters: { ...baseFilters, dateFrom: monthStart, dateTo: undefined } } },
+    { label: 'Today Imported', value: getTodayImportedCount(), cls: 'accent', hint: 'Records received via sync today — tracks sync activity, independent of the date range filter above.',
+      to: '/audit-logs', state: { filters: { action: 'SYNC_COMPLETED', dateFrom: today(), dateTo: today() } } },
+    { label: 'Month Imported', value: getThisMonthImportedCount(), cls: 'info', hint: 'Records received via sync this calendar month — tracks sync activity, independent of the date range filter above.',
+      to: '/audit-logs', state: { filters: { action: 'SYNC_COMPLETED', dateFrom: monthStart, dateTo: undefined } } },
   ];
+
+  // Phase 4 — visual hierarchy split only. Same KPI objects as above (no
+  // calculation, label, or data change) — just grouped into a primary row
+  // (headline stats) and a secondary row (supporting stats) for layout.
+  const PRIMARY_KPI_LABELS = ['Total Incidents', 'Solved Cases', 'Pending Cases', 'Resolution Rate'];
+  const primaryKpis = allKpis.filter((k) => PRIMARY_KPI_LABELS.includes(k.label));
+  const secondaryKpis = allKpis.filter((k) => !PRIMARY_KPI_LABELS.includes(k.label));
 
   // ===== Charts =====
   const monthly = countBy(filtered, (r) => r.date.slice(0, 7));
@@ -114,25 +164,132 @@ export default function Dashboard() {
         onApply={setFilters}
       />
 
-      <div className="kpi-grid">
-        {kpis.map((k) => <KpiCard key={k.label} {...k} />)}
+      <div className="kpi-grid kpi-grid-primary">
+        {primaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
+      </div>
+
+      <div className="kpi-secondary-label">Additional Statistics</div>
+      <div className="kpi-grid kpi-grid-secondary">
+        {secondaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
       </div>
 
       <div className="chart-grid">
         <ChartCard title="Crime Trend (Monthly)" type="line" labels={months}
-          datasets={[{ label: 'Incidents', data: months.map((m) => monthly[m]), borderColor: COLORS.green, backgroundColor: COLORS.greenLight, fill: true, tension: 0.3 }]} />
+          datasets={[{ label: 'Incidents', data: months.map((m) => monthly[m]), borderColor: COLORS.green, backgroundColor: COLORS.greenLight, fill: true, tension: 0.3 }]}
+          onOpenSummary={() => {
+            const values = months.map((m) => monthly[m]);
+            const { insight, kpis } = buildCrimeTrendInsight(months, values);
+            setSelectedChart({
+              title: 'Crime Trend (Monthly)',
+              description: 'Monthly incident volume for the currently applied filters.',
+              drillField: 'month',
+              rowLabel: 'Month', valueLabel: 'Incidents',
+              labels: months,
+              datasets: [{ data: values }],
+              insight, kpis,
+            });
+          }} />
         <ChartCard title="Crimes by Category" type="doughnut" labels={Object.keys(byCat)}
-          datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]} />
+          datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]}
+          onOpenSummary={() => {
+            const labels = Object.keys(byCat);
+            const values = Object.values(byCat);
+            const { insight, kpis } = buildCategoryInsight(labels, values);
+            setSelectedChart({
+              title: 'Crimes by Category',
+              description: 'Distribution of incidents across crime categories.',
+              drillField: 'category',
+              rowLabel: 'Category', valueLabel: 'Incidents',
+              labels, datasets: [{ data: values }],
+              insight, kpis,
+            });
+          }} />
         <ChartCard title="Crimes by Sitio" type="bar" labels={sitiosSorted.map((s) => s[0])}
-          datasets={[{ label: 'Incidents', data: sitiosSorted.map((s) => s[1]), backgroundColor: COLORS.green }]} />
+          datasets={[{ label: 'Incidents', data: sitiosSorted.map((s) => s[1]), backgroundColor: COLORS.green }]}
+          onOpenSummary={() => {
+            const labels = sitiosSorted.map((s) => s[0]);
+            const values = sitiosSorted.map((s) => s[1]);
+            const { insight, kpis } = buildSitioInsight(labels, values);
+            setSelectedChart({
+              title: 'Crimes by Sitio',
+              description: 'Incident volume by sitio for the currently applied filters.',
+              drillField: 'sitio',
+              rowLabel: 'Sitio', valueLabel: 'Incidents',
+              labels, datasets: [{ data: values }],
+              insight, kpis,
+            });
+          }} />
         <ChartCard title="Top Crime Types" type="bar" labels={typesSorted.map((t) => t[0])}
           datasets={[{ label: 'Count', data: typesSorted.map((t) => t[1]), backgroundColor: COLORS.orange }]}
-          options={{ indexAxis: 'y' }} />
+          options={{ indexAxis: 'y' }}
+          onOpenSummary={() => {
+            const labels = typesSorted.map((t) => t[0]);
+            const values = typesSorted.map((t) => t[1]);
+            const { insight, kpis } = buildCrimeTypeInsight(labels, values);
+            setSelectedChart({
+              title: 'Top Crime Types',
+              description: 'Most frequently recorded crime types for the currently applied filters.',
+              drillField: 'crimeType',
+              rowLabel: 'Crime Type', valueLabel: 'Count',
+              labels, datasets: [{ data: values }],
+              insight, kpis,
+            });
+          }} />
         <ChartCard title="Resolution Rate Trend" type="line" labels={months}
-          datasets={[{ label: 'Resolution %', data: resolutionByMonth, borderColor: COLORS.green, tension: 0.3 }]} />
+          datasets={[{ label: 'Resolution %', data: resolutionByMonth, borderColor: COLORS.green, tension: 0.3 }]}
+          onOpenSummary={() => {
+            const { insight, kpis } = buildResolutionInsight(months, resolutionByMonth);
+            setSelectedChart({
+              title: 'Resolution Rate Trend',
+              description: 'Monthly case resolution rate for the currently applied filters.',
+              drillField: 'month',
+              rowLabel: 'Month', valueLabel: 'Resolution %',
+              labels: months,
+              datasets: [{ data: resolutionByMonth }],
+              insight, kpis,
+            });
+          }} />
         <ChartCard title="Incident Status Distribution" type="bar" labels={Object.keys(byStatus)}
-          datasets={[{ label: 'Count', data: Object.values(byStatus), backgroundColor: COLORS.statusPalette }]} />
+          datasets={[{ label: 'Count', data: Object.values(byStatus), backgroundColor: COLORS.statusPalette }]}
+          onOpenSummary={() => {
+            const labels = Object.keys(byStatus);
+            const values = Object.values(byStatus);
+            const { insight, kpis } = buildStatusInsight(labels, values);
+            setSelectedChart({
+              title: 'Incident Status Distribution',
+              description: 'Current status breakdown of recorded incidents.',
+              drillField: 'status',
+              rowLabel: 'Status', valueLabel: 'Count',
+              labels, datasets: [{ data: values }],
+              insight, kpis,
+            });
+          }} />
       </div>
+
+      <ChartSummaryModal
+        open={!!selectedChart}
+        onClose={() => setSelectedChart(null)}
+        activeFiltersLabel={activeFiltersLabel}
+        {...selectedChart}
+        onDrillDown={selectedChart?.drillField ? (label) => {
+          const drillFilters = { ...baseFilters };
+          if (selectedChart.drillField === 'month') {
+            const { dateFrom, dateTo } = monthLabelToRange(label);
+            drillFilters.dateFrom = dateFrom;
+            drillFilters.dateTo = dateTo;
+          } else if (selectedChart.drillField === 'category') {
+            drillFilters.category = label;
+          } else if (selectedChart.drillField === 'sitio') {
+            drillFilters.sitio = label;
+          } else if (selectedChart.drillField === 'crimeType') {
+            drillFilters.crimeType = label;
+          } else if (selectedChart.drillField === 'status') {
+            drillFilters.status = label;
+          }
+          setSelectedChart(null);
+          navigate('/incident-feed', { state: { filters: drillFilters } });
+        } : undefined}
+      />
 
       <div className="table-grid dashboard-lower-grid">
         <div className="card">

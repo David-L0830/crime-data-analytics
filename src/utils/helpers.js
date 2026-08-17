@@ -22,6 +22,17 @@ export function formatTime(t) {
 export function today() {
   return new Date().toISOString().split('T')[0];
 }
+// Converts a 'YYYY-MM' label (as produced by Dashboard's monthly grouping)
+// into an inclusive { dateFrom, dateTo } range for filtering records.
+export function monthLabelToRange(monthLabel) {
+  if (!monthLabel || !/^\d{4}-\d{2}$/.test(monthLabel)) return { dateFrom: undefined, dateTo: undefined };
+  const [year, month] = monthLabel.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate(); // day 0 of next month = last day of this month
+  return {
+    dateFrom: `${monthLabel}-01`,
+    dateTo: `${monthLabel}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
 
 export function uid(prefix = 'UID') {
   return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -173,6 +184,12 @@ export function countBy(arr, key) {
 // naturally inclusive: '2026-08-14' <= '2026-08-14' is true for FROM, and
 // '2026-08-14' <= '2026-08-14' is true for TO, exactly as required (see
 // the "records exactly on the FROM/TO date" edge case).
+
+
+export const SOLVED_STATUSES = ['Solved', 'Closed'];
+export const PENDING_STATUSES = ['Open', 'Under Investigation'];
+
+
 export function filterRecords(records, filters) {
   return records.filter((r) => {
     if (filters.dateFrom && r.date < filters.dateFrom) return false;

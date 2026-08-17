@@ -6,9 +6,13 @@
 // render on top of each other and cover the card's content. Scoping the
 // hover target to the icon, and the tooltip to a fixed position relative
 // to it, keeps the card's own value/label always readable.
-export default function KpiCard({ label, value, cls = 'accent', hint }) {
+import { Link } from 'react-router-dom';
+
+export default function KpiCard({ label, value, cls = 'accent', hint, to, state }) {
+  const Tag = to ? Link : 'div';
+  const tagProps = to ? { to, state } : {};
   return (
-    <div className={`kpi-card ${cls}`}>
+    <Tag className={`kpi-card ${cls} ${to ? 'kpi-card-link' : ''}`} {...tagProps}>
       {hint && (
         <span className="kpi-info" tabIndex={0} aria-label={hint}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -21,6 +25,6 @@ export default function KpiCard({ label, value, cls = 'accent', hint }) {
       )}
       <div className="kpi-value">{value}</div>
       <div className="kpi-label">{label}</div>
-    </div>
+    </Tag>
   );
 }
