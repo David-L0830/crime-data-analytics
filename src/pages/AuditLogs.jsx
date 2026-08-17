@@ -36,10 +36,18 @@ const ACTION_COLORS = {
   DELETE: 'var(--danger)',
 };
 
+import { useLocation } from 'react-router-dom';
+// ...(add to existing import block)
+
 export default function AuditLogs() {
   const { auditLogs } = useData();
   const { showToast } = useToast();
-  const [filters, setFilters] = useState({});
+  const location = useLocation();
+  const [filters, setFilters] = useState(() => {
+    const incoming = location.state?.filters;
+    if (!incoming) return {};
+    return { 'audit-action': incoming.action, 'audit-dateFrom': incoming.dateFrom, 'audit-dateTo': incoming.dateTo };
+  });
 
   const filtered = useMemo(() => auditLogs.filter((log) => {
     if (filters['audit-action'] && log.action !== filters['audit-action']) return false;
