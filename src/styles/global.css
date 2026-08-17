@@ -810,6 +810,20 @@ h1, h2, h3, h4, h5, h6 {
   flex-direction: column;
 }
 
+.nav-section-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 16px 14px 6px;
+  line-height: 1.2;
+}
+
+.nav-section-label:first-child {
+  padding-top: 4px;
+}
+
 .nav-item {
   display: flex;
   align-items: flex-start;

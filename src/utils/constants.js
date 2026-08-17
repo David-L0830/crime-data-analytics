@@ -116,29 +116,38 @@ export const PERMISSIONS = {
 };
 
 // icon keys map to lucide-react components — see ICONS in components/icons.jsx
+// `section` groups items under a header in the sidebar (see Sidebar.jsx) —
+// purely a visual grouping key, does not affect routing or RBAC.
 export const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Crime Reporting Dashboard', icon: 'dashboard' },
-  { id: 'incident-feed', label: 'Crime Data Collection', icon: 'incidents' },
+  { id: 'dashboard', label: 'Crime Reporting Dashboard', icon: 'dashboard', section: 'overview' },
+  { id: 'incident-feed', label: 'Crime Data Collection', icon: 'incidents', section: 'crime-management' },
   // Checkpoint 28 — Resident Registry module removed entirely.
-  { id: 'mapping', label: 'Crime Mapping and Visualization', icon: 'mapping' },
-  { id: 'analytics', label: 'Statistical Analysis', icon: 'analytics' },
-  { id: 'trends', label: 'Trend and Pattern Detection', icon: 'trends' },
   // Task 3/2 (Checkpoint 19): sidebar label changed from "Criminal Records"
   // to "Records" — the id/moduleId stays 'criminal-records' on purpose so
   // RBAC (ROLES[].modules, hasAccess, backend role checks) is untouched.
   // Clicking it now lands on the Records module (pages/Records.jsx), which
   // offers "Criminal Record" and "Victim Record" as the two sub-choices.
-  { id: 'criminal-records', label: 'Records', icon: 'criminalRecords' },
-  { id: 'audit-logs', label: 'Audit Logs', icon: 'auditLogs' },
+  { id: 'criminal-records', label: 'Records', icon: 'criminalRecords', section: 'crime-management' },
+  { id: 'mapping', label: 'Crime Mapping and Visualization', icon: 'mapping', section: 'analytics' },
+  { id: 'analytics', label: 'Statistical Analysis', icon: 'analytics', section: 'analytics' },
+  { id: 'trends', label: 'Trend and Pattern Detection', icon: 'trends', section: 'analytics' },
+  { id: 'audit-logs', label: 'Audit Logs', icon: 'auditLogs', section: 'administration' },
   // Checkpoint 28 — the standalone 'Security' sidebar entry is removed.
   // Two-Factor Authentication (Phase 4 — Feature #4) now lives inside
   // User Management for both roles that used to see Security (badac_admin,
   // encoder) — see ROLES above and UserManagement.jsx.
-  { id: 'user-management', label: 'User Management', icon: 'userManagement' },
+  { id: 'user-management', label: 'User Management', icon: 'userManagement', section: 'administration' },
   // System Settings intentionally has no sidebar entry (Part C-11 of the design
   // spec) — the route below still exists for BADAC Administrator's authorized
   // use, it's just not a nav item.
 ];
+
+export const NAV_SECTION_LABELS = {
+  overview: 'Overview',
+  'crime-management': 'Crime Management',
+  analytics: 'Analytics',
+  administration: 'Administration',
+};
 
 // Kept in sync with NAV_ITEMS labels (minus "Module") so the topbar title
 // matches the sidebar entry the user just clicked.

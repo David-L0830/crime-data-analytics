@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { NAV_ITEMS } from '../../utils/constants';
+import { NAV_ITEMS, NAV_SECTION_LABELS } from '../../utils/constants';
 import { useAuth } from '../../hooks/useAuth';
 import { NAV_ICONS, Icons } from '../icons';
 import logo from '../../assets/images/barangay178-logo.png';
@@ -80,14 +80,22 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
       </div>
 
       <nav className="sidebar-nav" onScroll={hideNavTip}>
-        {NAV_ITEMS.filter((item) => hasAccess(item.id)).map((item) => {
+        {(() => {
+          let lastSection = null;
+          return NAV_ITEMS.filter((item) => hasAccess(item.id)).map((item) => {
           const NavIcon = NAV_ICONS[item.icon] || NAV_ICONS.dashboard;
           const isRecords = item.id === RECORDS_ITEM_ID;
+          const showSectionLabel = !collapsed && item.section !== lastSection;
+          lastSection = item.section;
+          const sectionLabel = showSectionLabel
+            ? <div className="nav-section-label">{NAV_SECTION_LABELS[item.section]}</div>
+            : null;
 
           if (!isRecords) {
             return (
-              <NavLink
-                key={item.id}
+              <div key={item.id}>
+                {sectionLabel}
+                <NavLink
                 to={`/${item.id}`}
                 className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
                 onClick={onNavigate}
@@ -99,11 +107,14 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
                 <span className="nav-icon"><NavIcon size={19} strokeWidth={2} /></span>
                 <span className="nav-label">{item.label}</span>
               </NavLink>
+              </div>
             );
           }
 
           return (
-            <div className="nav-group" key={item.id}>
+            <div key={item.id}>
+              {sectionLabel}
+              <div className="nav-group">
               <NavLink
                 to={`/${item.id}`}
                 end
@@ -145,8 +156,10 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
                 </div>
               )}
             </div>
+          </div>
           );
-        })}
+        });
+        })()}
       </nav>
 
       <div className="sidebar-footer">
@@ -193,14 +206,20 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
                 >
                   <Icons.User size={14} strokeWidth={2} /> Profile Settings
                 </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    logout();
+                  }}
+                >
+                  <Icons.LogOut size={14} strokeWidth={2} /> Sign Out
+                </button>
               </div>
             )}
           </div>
         </div>
-        <button className="btn-logout" onClick={logout}>
-          <span className="logout-icon"><Icons.LogOut size={17} strokeWidth={2} /></span>
-          <span className="logout-label">Sign Out</span>
-        </button>
       </div>
 
       {collapsed && hoveredNavTip && (
