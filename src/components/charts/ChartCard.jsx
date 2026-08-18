@@ -7,7 +7,6 @@ import { Icons } from '../icons';
 // plain data instead of manually managing canvas refs / chart teardown.
 // `type`: 'line' | 'bar' | 'doughnut' | 'pie'  `labels`: string[]  `datasets`: Chart.js dataset[]
 export default function ChartCard({ title, type, labels, datasets, options = {}, height = 260, onOpenSummary }) {
-  console.log('ChartCard render:', title, '— onOpenSummary is', typeof onOpenSummary);
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
   const { theme } = useTheme();
@@ -53,7 +52,23 @@ export default function ChartCard({ title, type, labels, datasets, options = {},
       options: { ...defaults, ...options },
     });
 
-    return () => chartRef.current?.destroy();
+    // Chart.js draws tooltips directly onto the canvas, so if the mouse is
+    // hovering a data point when print is triggered, the tooltip gets
+    // baked into the printed image. Clearing the active/hover state right
+    // before print (and only then) removes it without affecting normal
+    // on-screen hover behavior.
+    const clearActiveStateForPrint = () => {
+      if (!chartRef.current) return;
+      chartRef.current.setActiveElements([]);
+      chartRef.current.tooltip?.setActiveElements([], { x: 0, y: 0 });
+      chartRef.current.update();
+    };
+    window.addEventListener('beforeprint', clearActiveStateForPrint);
+
+    return () => {
+      window.removeEventListener('beforeprint', clearActiveStateForPrint);
+      chartRef.current?.destroy();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, JSON.stringify(labels), JSON.stringify(datasets), theme, isEmpty]);
 

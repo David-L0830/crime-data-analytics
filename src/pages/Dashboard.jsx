@@ -1,3 +1,4 @@
+import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
@@ -135,6 +136,32 @@ const monthStart = `${today().slice(0, 7)}-01`;
   });
   const byStatus = countBy(filtered, 'status');
 
+  // Phase 3 — same buildXInsight calls that already run inside each
+  // ChartCard's onOpenSummary below, just computed once here instead of
+  // inside the click handler. This lets the exact same insight/kpis feed
+  // both the on-screen "View summary" modal (unchanged) AND the new
+  // print-only ChartPrintSummary blocks rendered next to each chart.
+  const crimeTrendValues = months.map((m) => monthly[m]);
+  const crimeTrendResult = buildCrimeTrendInsight(months, crimeTrendValues);
+
+  const categoryLabels = Object.keys(byCat);
+  const categoryValues = Object.values(byCat);
+  const categoryResult = buildCategoryInsight(categoryLabels, categoryValues);
+
+  const sitioLabels = sitiosSorted.map((s) => s[0]);
+  const sitioValues = sitiosSorted.map((s) => s[1]);
+  const sitioResult = buildSitioInsight(sitioLabels, sitioValues);
+
+  const crimeTypeLabels = typesSorted.map((t) => t[0]);
+  const crimeTypeValues = typesSorted.map((t) => t[1]);
+  const crimeTypeResult = buildCrimeTypeInsight(crimeTypeLabels, crimeTypeValues);
+
+  const resolutionResult = buildResolutionInsight(months, resolutionByMonth);
+
+  const statusLabels = Object.keys(byStatus);
+  const statusValues = Object.values(byStatus);
+  const statusResult = buildStatusInsight(statusLabels, statusValues);
+
   // ===== Tables =====
   const recent = [...filtered].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)).slice(0, 8);
   const locCounts = countBy(filtered, (r) => `${r.sitio}|${r.street}`);
@@ -164,6 +191,17 @@ const monthStart = `${today().slice(0, 7)}-01`;
         onApply={setFilters}
       />
 
+      {/* Print-only summary of the filters in effect when Export PDF was
+          used, so the exported document is self-describing — same pattern
+          as Trends.jsx. Hidden on screen via .print-only, shown only
+          under @media print. */}
+      <div className="print-only" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
+        <strong>Filters applied:</strong>{' '}
+        From: {filters['dash-dateFrom'] || 'Any'} · To: {filters['dash-dateTo'] || 'Any'} ·
+        {' '}Crime Type: {filters['dash-crimeType'] || 'All'} · Sitio: {filters['dash-sitio'] || 'All'} ·
+        {' '}Status: {filters['dash-status'] || 'All'}
+      </div>
+
       <div className="kpi-grid kpi-grid-primary">
         {primaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
       </div>
@@ -175,70 +213,70 @@ const monthStart = `${today().slice(0, 7)}-01`;
 
       <div className="chart-grid">
         <ChartCard title="Crime Trend (Monthly)" type="line" labels={months}
-          datasets={[{ label: 'Incidents', data: months.map((m) => monthly[m]), borderColor: COLORS.green, backgroundColor: COLORS.greenLight, fill: true, tension: 0.3 }]}
+          datasets={[{ label: 'Incidents', data: crimeTrendValues, borderColor: COLORS.green, backgroundColor: COLORS.greenLight, fill: true, tension: 0.3 }]}
           onOpenSummary={() => {
-            const values = months.map((m) => monthly[m]);
-            const { insight, kpis } = buildCrimeTrendInsight(months, values);
             setSelectedChart({
               title: 'Crime Trend (Monthly)',
               description: 'Monthly incident volume for the currently applied filters.',
               drillField: 'month',
               rowLabel: 'Month', valueLabel: 'Incidents',
               labels: months,
-              datasets: [{ data: values }],
-              insight, kpis,
+              datasets: [{ data: crimeTrendValues }],
+              insight: crimeTrendResult.insight, kpis: crimeTrendResult.kpis,
             });
           }} />
-        <ChartCard title="Crimes by Category" type="doughnut" labels={Object.keys(byCat)}
-          datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]}
+        <ChartPrintSummary title="Crime Trend (Monthly)" rowLabel="Month" valueLabel="Incidents"
+          labels={months} values={crimeTrendValues} insight={crimeTrendResult.insight} />
+
+        <ChartCard title="Crimes by Category" type="doughnut" labels={categoryLabels}
+          datasets={[{ data: categoryValues, backgroundColor: COLORS.chartPalette }]}
           onOpenSummary={() => {
-            const labels = Object.keys(byCat);
-            const values = Object.values(byCat);
-            const { insight, kpis } = buildCategoryInsight(labels, values);
             setSelectedChart({
               title: 'Crimes by Category',
               description: 'Distribution of incidents across crime categories.',
               drillField: 'category',
               rowLabel: 'Category', valueLabel: 'Incidents',
-              labels, datasets: [{ data: values }],
-              insight, kpis,
+              labels: categoryLabels, datasets: [{ data: categoryValues }],
+              insight: categoryResult.insight, kpis: categoryResult.kpis,
             });
           }} />
-        <ChartCard title="Crimes by Sitio" type="bar" labels={sitiosSorted.map((s) => s[0])}
-          datasets={[{ label: 'Incidents', data: sitiosSorted.map((s) => s[1]), backgroundColor: COLORS.green }]}
+        <ChartPrintSummary title="Crimes by Category" rowLabel="Category" valueLabel="Incidents"
+          labels={categoryLabels} values={categoryValues} insight={categoryResult.insight} />
+
+        <ChartCard title="Crimes by Sitio" type="bar" labels={sitioLabels}
+          datasets={[{ label: 'Incidents', data: sitioValues, backgroundColor: COLORS.green }]}
           onOpenSummary={() => {
-            const labels = sitiosSorted.map((s) => s[0]);
-            const values = sitiosSorted.map((s) => s[1]);
-            const { insight, kpis } = buildSitioInsight(labels, values);
             setSelectedChart({
               title: 'Crimes by Sitio',
               description: 'Incident volume by sitio for the currently applied filters.',
               drillField: 'sitio',
               rowLabel: 'Sitio', valueLabel: 'Incidents',
-              labels, datasets: [{ data: values }],
-              insight, kpis,
+              labels: sitioLabels, datasets: [{ data: sitioValues }],
+              insight: sitioResult.insight, kpis: sitioResult.kpis,
             });
           }} />
-        <ChartCard title="Top Crime Types" type="bar" labels={typesSorted.map((t) => t[0])}
-          datasets={[{ label: 'Count', data: typesSorted.map((t) => t[1]), backgroundColor: COLORS.orange }]}
+        <ChartPrintSummary title="Crimes by Sitio" rowLabel="Sitio" valueLabel="Incidents"
+          labels={sitioLabels} values={sitioValues} insight={sitioResult.insight} />
+
+        <ChartCard title="Top Crime Types" type="bar" labels={crimeTypeLabels}
+          datasets={[{ label: 'Count', data: crimeTypeValues, backgroundColor: COLORS.orange }]}
           options={{ indexAxis: 'y' }}
           onOpenSummary={() => {
-            const labels = typesSorted.map((t) => t[0]);
-            const values = typesSorted.map((t) => t[1]);
-            const { insight, kpis } = buildCrimeTypeInsight(labels, values);
             setSelectedChart({
               title: 'Top Crime Types',
               description: 'Most frequently recorded crime types for the currently applied filters.',
               drillField: 'crimeType',
               rowLabel: 'Crime Type', valueLabel: 'Count',
-              labels, datasets: [{ data: values }],
-              insight, kpis,
+              labels: crimeTypeLabels, datasets: [{ data: crimeTypeValues }],
+              insight: crimeTypeResult.insight, kpis: crimeTypeResult.kpis,
             });
           }} />
+        <ChartPrintSummary title="Top Crime Types" rowLabel="Crime Type" valueLabel="Count"
+          labels={crimeTypeLabels} values={crimeTypeValues} insight={crimeTypeResult.insight} />
+
         <ChartCard title="Resolution Rate Trend" type="line" labels={months}
           datasets={[{ label: 'Resolution %', data: resolutionByMonth, borderColor: COLORS.green, tension: 0.3 }]}
           onOpenSummary={() => {
-            const { insight, kpis } = buildResolutionInsight(months, resolutionByMonth);
             setSelectedChart({
               title: 'Resolution Rate Trend',
               description: 'Monthly case resolution rate for the currently applied filters.',
@@ -246,24 +284,26 @@ const monthStart = `${today().slice(0, 7)}-01`;
               rowLabel: 'Month', valueLabel: 'Resolution %',
               labels: months,
               datasets: [{ data: resolutionByMonth }],
-              insight, kpis,
+              insight: resolutionResult.insight, kpis: resolutionResult.kpis,
             });
           }} />
-        <ChartCard title="Incident Status Distribution" type="bar" labels={Object.keys(byStatus)}
-          datasets={[{ label: 'Count', data: Object.values(byStatus), backgroundColor: COLORS.statusPalette }]}
+        <ChartPrintSummary title="Resolution Rate Trend" rowLabel="Month" valueLabel="Resolution %"
+          labels={months} values={resolutionByMonth} insight={resolutionResult.insight} />
+
+        <ChartCard title="Incident Status Distribution" type="bar" labels={statusLabels}
+          datasets={[{ label: 'Count', data: statusValues, backgroundColor: COLORS.statusPalette }]}
           onOpenSummary={() => {
-            const labels = Object.keys(byStatus);
-            const values = Object.values(byStatus);
-            const { insight, kpis } = buildStatusInsight(labels, values);
             setSelectedChart({
               title: 'Incident Status Distribution',
               description: 'Current status breakdown of recorded incidents.',
               drillField: 'status',
               rowLabel: 'Status', valueLabel: 'Count',
-              labels, datasets: [{ data: values }],
-              insight, kpis,
+              labels: statusLabels, datasets: [{ data: statusValues }],
+              insight: statusResult.insight, kpis: statusResult.kpis,
             });
           }} />
+        <ChartPrintSummary title="Incident Status Distribution" rowLabel="Status" valueLabel="Count"
+          labels={statusLabels} values={statusValues} insight={statusResult.insight} />
       </div>
 
       <ChartSummaryModal

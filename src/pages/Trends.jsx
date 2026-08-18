@@ -9,7 +9,9 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import PrintReport from '../components/ui/PrintReport';
 import ChartCard from '../components/charts/ChartCard';
+import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import { filterRecords, countBy, movingAverage, linearRegression } from '../utils/helpers';
+import { buildDailyPatternInsight, buildCrimeTrendInsight } from '../utils/chartInsights';
 import { COLORS, SITIOS, CRIME_TYPES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -91,9 +93,6 @@ export default function Trends() {
     }
   }
 
-  // Hotspot count feeding the "Hotspots" panel-open button badge.
-  const activeHotspotCount = Object.values(bySitioForAlerts).filter((c) => c >= (settings.hotspotThreshold || 3)).length;
-
   // ===== Charts =====
   const byDay = DAY_NAMES.map(() => 0);
   filtered.forEach((r) => { byDay[new Date(`${r.date}T00:00:00`).getDay()]++; });
@@ -106,6 +105,14 @@ export default function Trends() {
     weekNums[key] = (weekNums[key] || 0) + 1;
   });
   const weeks = Object.keys(weekNums).sort().slice(-12);
+
+  // Phase 4 — Daily/Weekly Trends print data. buildDailyPatternInsight is
+  // new (chartInsights.js); buildCrimeTrendInsight is the exact same
+  // function Dashboard.jsx's Crime Trend chart already uses, reused here
+  // with unitLabel='Week' since Weekly Trends is a real time series too.
+  const weeklyValues = weeks.map((w) => weekNums[w]);
+  const dailyResult = buildDailyPatternInsight(DAY_NAMES, byDay);
+  const weeklyResult = buildCrimeTrendInsight(weeks, weeklyValues, 'Week');
 
   const seasons = { 'Dry (Nov-Apr)': 0, 'Wet (May-Oct)': 0 };
   filtered.forEach((r) => {
@@ -176,36 +183,48 @@ export default function Trends() {
         {' '}Crime Type: {filters['tr-crimeType'] || 'All'} · Sitio: {filters['tr-sitio'] || 'All'}
       </div>
 
-      <div className="module-toolbar" style={{ marginBottom: 16 }}>
-        <div />
-        <div className="toolbar-actions">
-          <Button variant="secondary" onClick={() => setHotspotsOpen(true)}>
-            <Icons.Hotspot size={15} strokeWidth={2} /> Hotspots
-            {activeHotspotCount > 0 && <span className="notif-bell-count" style={{ position: 'static', marginLeft: 6 }}>{activeHotspotCount}</span>}
-          </Button>
-        </div>
-      </div>
+      <div className="print-only key-findings-print">
+        <h2>KEY FINDINGS</h2>
 
-      <div className="alerts-panel">
-        {alerts.length === 0 ? (
-          <div className="alert-item success"><span className="alert-icon"><Icons.CheckCircle2 size={16} strokeWidth={2} /></span>No active alerts — crime levels within normal parameters</div>
-        ) : (
-          alerts.slice(0, 8).map((a, i) => {
-            const AlertIcon = a.icon || Icons.AlertTriangle;
-            return (
-              <div className={`alert-item ${a.type === 'warning' ? 'warning' : ''}`} key={i}>
-                <span className="alert-icon"><AlertIcon size={16} strokeWidth={2} /></span>{a.msg}
-              </div>
-            );
-          })
-        )}
+        <div className="alerts-panel">
+          {alerts.length === 0 ? (
+            <div className="alert-item success">
+              <span className="alert-icon">
+                <Icons.CheckCircle2 size={16} strokeWidth={2} />
+              </span>
+              No active alerts — crime levels within normal parameters
+            </div>
+          ) : (
+            alerts.slice(0, 8).map((a, i) => {
+              const AlertIcon = a.icon || Icons.AlertTriangle;
+
+              return (
+                <div
+                  className={`alert-item ${a.type === 'warning' ? 'warning' : ''}`}
+                  key={i}
+                >
+                  <span className="alert-icon">
+                    <AlertIcon size={16} strokeWidth={2} />
+                  </span>
+                  {a.msg}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       <div className="chart-grid">
         <ChartCard title="Daily Trends" type="bar" labels={DAY_NAMES}
           datasets={[{ label: 'Incidents', data: byDay, backgroundColor: COLORS.green }]} />
+        <ChartPrintSummary title="Daily Trends" rowLabel="Day" valueLabel="Incidents"
+          labels={DAY_NAMES} values={byDay} insight={dailyResult.insight} />
+
         <ChartCard title="Weekly Trends" type="line" labels={weeks}
-          datasets={[{ label: 'Weekly', data: weeks.map((w) => weekNums[w]), borderColor: COLORS.green, tension: 0.3 }]} />
+          datasets={[{ label: 'Weekly', data: weeklyValues, borderColor: COLORS.green, tension: 0.3 }]} />
+        <ChartPrintSummary title="Weekly Trends" rowLabel="Week" valueLabel="Incidents"
+          labels={weeks} values={weeklyValues} insight={weeklyResult.insight} />
+
         <ChartCard title="Seasonal Trends" type="doughnut" labels={Object.keys(seasons)}
           datasets={[{ data: Object.values(seasons), backgroundColor: [COLORS.orange, COLORS.green] }]} />
         <ChartCard title="Peak Crime Hours" type="bar" labels={hours.map((_, i) => `${String(i).padStart(2, '0')}:00`)}
@@ -224,6 +243,20 @@ export default function Trends() {
 
       <Modal open={hotspotsOpen} onClose={() => setHotspotsOpen(false)} title="Hotspots" size="lg">
         <div className="table-grid" style={{ gridTemplateColumns: '1fr' }}>
+          <Card title="Active Alerts" bodyClassName="alerts-panel">
+            {alerts.length === 0 ? (
+              <div className="alert-item success"><span className="alert-icon"><Icons.CheckCircle2 size={16} strokeWidth={2} /></span>No active alerts — crime levels within normal parameters</div>
+            ) : (
+              alerts.slice(0, 8).map((a, i) => {
+                const AlertIcon = a.icon || Icons.AlertTriangle;
+                return (
+                  <div className={`alert-item ${a.type === 'warning' ? 'warning' : ''}`} key={i}>
+                    <span className="alert-icon"><AlertIcon size={16} strokeWidth={2} /></span>{a.msg}
+                  </div>
+                );
+              })
+            )}
+          </Card>
           <Card
             title="Crime Hotspots by Sitio"
             bodyClassName="table-wrap"

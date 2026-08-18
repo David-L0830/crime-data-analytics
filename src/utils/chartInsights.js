@@ -18,8 +18,13 @@ function rankEntries(labels, values) {
   return { total, sorted, top, bottom };
 }
 
-// Crime Trend (Monthly) — counts per month.
-export function buildCrimeTrendInsight(labels, values) {
+// Crime Trend (Monthly) — counts per month. Also reused for Weekly Trends
+// on the Trends page (Phase 4), passing unitLabel='Week' — the logic
+// (peak/latest/average/change over an ordered time series) is identical
+// for weeks, only the labels differ. Existing calls with 2 arguments (e.g.
+// Dashboard.jsx's Crime Trend chart) are unaffected — unitLabel defaults
+// to 'Month', producing byte-for-byte the same output as before.
+export function buildCrimeTrendInsight(labels, values, unitLabel = 'Month') {
   if (!values.length) return { insight: 'No incident data available for the selected range.', kpis: [] };
 
   const total = values.reduce((a, b) => a + b, 0);
@@ -39,9 +44,9 @@ export function buildCrimeTrendInsight(labels, values) {
 
   const kpis = [
     { label: 'Total Incidents', value: total, cls: 'accent' },
-    { label: 'Highest Month', value: `${peakLabel} (${peak})`, cls: 'danger' },
-    { label: 'Lowest Month', value: `${labels[lowestIdx]} (${values[lowestIdx]})`, cls: 'success' },
-    { label: 'Monthly Average', value: average, cls: 'info' },
+    { label: `Highest ${unitLabel}`, value: `${peakLabel} (${peak})`, cls: 'danger' },
+    { label: `Lowest ${unitLabel}`, value: `${labels[lowestIdx]} (${values[lowestIdx]})`, cls: 'success' },
+    { label: `${unitLabel}ly Average`, value: average, cls: 'info' },
     { label: 'Change (First → Latest)', value: `${changeFromFirst >= 0 ? '+' : ''}${changeFromFirst} (${pctChangeFromFirst >= 0 ? '+' : ''}${pctChangeFromFirst}%)`, cls: changeFromFirst > 0 ? 'danger' : 'success' },
   ];
 
@@ -159,6 +164,37 @@ export function buildStatusInsight(labels, values) {
     { label: 'Solved / Closed', value: resolvedCount, cls: 'success' },
     { label: 'Unresolved Share', value: `${unresolvedPct}%`, cls: 'danger' },
     { label: 'Resolved Share', value: `${resolvedPct}%`, cls: 'success' },
+  ];
+
+  return { insight, kpis };
+}
+
+// Daily Trends (Trend and Pattern Detection) — incident counts per day of
+// the week (Sun..Sat). Unlike buildCrimeTrendInsight above, these are
+// categorical buckets, not an ordered time series, so this reports the
+// busiest/quietest day(s) instead of a first→latest change — and calls
+// out ties explicitly (e.g. two days sharing the lowest count), which is
+// common with smaller datasets.
+export function buildDailyPatternInsight(labels, values) {
+  const total = values.reduce((a, b) => a + b, 0);
+  if (!total) return { insight: 'No incident data available for the selected range.', kpis: [] };
+
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const average = +(total / values.length).toFixed(1);
+  const highDays = labels.filter((_, i) => values[i] === max);
+  const lowDays = labels.filter((_, i) => values[i] === min);
+  const joinDays = (days) => (days.length > 1
+    ? `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`
+    : days[0]);
+
+  const insight = `${joinDays(highDays)} recorded the highest number of incidents with ${max} incident${max === 1 ? '' : 's'}${highDays.length > 1 ? ' each' : ''}, while ${joinDays(lowDays)} recorded the lowest with ${min} incident${min === 1 ? '' : 's'}${lowDays.length > 1 ? ' each' : ''}.`;
+
+  const kpis = [
+    { label: 'Total Incidents', value: total, cls: 'accent' },
+    { label: 'Busiest Day(s)', value: `${joinDays(highDays)} (${max})`, cls: 'danger' },
+    { label: 'Quietest Day(s)', value: `${joinDays(lowDays)} (${min})`, cls: 'success' },
+    { label: 'Daily Average', value: average, cls: 'info' },
   ];
 
   return { insight, kpis };

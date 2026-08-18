@@ -15,7 +15,11 @@ export default function ChartSummaryModal({
   labels = [], datasets = [], insight, kpis, onDrillDown, activeFiltersLabel,
 }) {
   const values = datasets[0]?.data ?? [];
-  const rows = labels.map((label, i) => ({ id: label, label, value: values[i] ?? 0 }));
+  const rows = labels.map((label, i) => ({
+    id: label,
+    label,
+    value: values[i] ?? 0,
+  }));
 
   const printMeta = [
     `Generated: ${new Date().toLocaleString('en-PH')}`,
@@ -35,7 +39,10 @@ export default function ChartSummaryModal({
       )}
     >
       <PrintReport title={title} meta={printMeta} />
-      {description && <p className="chart-summary-description">{description}</p>}
+
+      {description && (
+        <p className="chart-summary-description">{description}</p>
+      )}
 
       {insight && (
         <div className="chart-summary-insight">
@@ -45,14 +52,22 @@ export default function ChartSummaryModal({
 
       {kpis && kpis.length > 0 && (
         <div className="kpi-grid chart-summary-kpis">
-          {kpis.map((k) => <KpiCard key={k.label} {...k} />)}
+          {kpis.map((k) => (
+            <KpiCard key={k.label} {...k} />
+          ))}
         </div>
       )}
 
-      <h3 className="chart-summary-breakdown-title">Detailed Breakdown</h3>
+      <h3 className="chart-summary-breakdown-title">
+        Detailed Breakdown
+      </h3>
+
       {onDrillDown && (
-        <p className="chart-summary-drilldown-hint">Click a row to view those incidents.</p>
+        <p className="chart-summary-drilldown-hint">
+          Click a row to view those incidents.
+        </p>
       )}
+
       <div className="table-wrap">
         <Table
           columns={[
@@ -60,7 +75,11 @@ export default function ChartSummaryModal({
             { key: 'value', label: valueLabel },
           ]}
           rows={rows}
-          onRowClick={onDrillDown ? (row) => onDrillDown(row.label) : undefined}
+          onRowClick={
+            onDrillDown
+              ? (row) => onDrillDown(row.label)
+              : undefined
+          }
         />
       </div>
     </Modal>

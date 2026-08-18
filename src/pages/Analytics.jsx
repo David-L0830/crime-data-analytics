@@ -7,6 +7,9 @@ import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import ChartCard from '../components/charts/ChartCard';
+import ChartPrintSummary from '../components/charts/ChartPrintSummary';
+import PrintReport from '../components/ui/PrintReport';
+import { buildCrimeTrendInsight, buildCategoryInsight, buildSitioInsight } from '../utils/chartInsights';
 import { filterRecords, countBy, mean, median, variance, stdDev, exportCSV, today } from '../utils/helpers';
 import { COLORS, SITIOS } from '../utils/constants';
 
@@ -60,6 +63,25 @@ export default function Analytics() {
   });
   const bySitio = countBy(filtered, 'sitio');
 
+  // Print-only data, derived from the values already computed above —
+  // feeds ChartPrintSummary below without changing any existing chart or
+  // on-screen calculation. Monthly/Yearly reuse buildCrimeTrendInsight
+  // (generic, parameterized by unit label); Category/Sitio reuse their
+  // matching existing insight builders. Gender and Age Distribution get a
+  // data table only (no insight) since buildCategoryInsight's wording
+  // hardcodes the word "category", which doesn't fit those two charts —
+  // see chartInsights.js.
+  const monthlyPrintValues = months.map((m) => byMonth[m]);
+  const monthlyTrendResult = buildCrimeTrendInsight(months, monthlyPrintValues, 'Month');
+  const yearlyPrintValues = years.map((y) => byYear[y]);
+  const yearlyTrendResult = buildCrimeTrendInsight(years, yearlyPrintValues, 'Year');
+  const categoryPrintLabels = Object.keys(byCat);
+  const categoryPrintValues = Object.values(byCat);
+  const categoryPrintResult = buildCategoryInsight(categoryPrintLabels, categoryPrintValues);
+  const sitioPrintLabels = Object.keys(bySitio);
+  const sitioPrintValues = Object.values(bySitio);
+  const sitioPrintResult = buildSitioInsight(sitioPrintLabels, sitioPrintValues);
+
   const monthlyCounts = Object.values(countBy(filtered, (r) => r.date.slice(0, 7)));
   const measures = [
     { label: 'Mean (monthly)', value: mean(monthlyCounts).toFixed(2), hint: 'Average number of incidents per month across the months present in the filtered range.' },
@@ -91,6 +113,7 @@ export default function Analytics() {
 
   return (
     <section className="module">
+      <PrintReport title="Statistical Analysis Report" />
       <FilterBar
         fields={[
           { id: 'ana-dateFrom', label: 'From', type: 'date' },
@@ -100,6 +123,16 @@ export default function Analytics() {
         ]}
         onApply={setFilters}
       />
+
+      {/* Print-only summary of the filters in effect when Export PDF was
+          used, so the exported document is self-describing — same pattern
+          as Trends.jsx and Dashboard.jsx. Hidden on screen via .print-only,
+          shown only under @media print. */}
+      <div className="print-only" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
+        <strong>Filters applied:</strong>{' '}
+        From: {filters['ana-dateFrom'] || 'Any'} · To: {filters['ana-dateTo'] || 'Any'} ·
+        {' '}Category: {filters['ana-category'] || 'All'} · Sitio: {filters['ana-sitio'] || 'All'}
+      </div>
 
       <div className="stats-summary">
         {stats.map((s) => (
@@ -113,16 +146,33 @@ export default function Analytics() {
       <div className="chart-grid">
         <ChartCard title="Monthly Distribution" type="bar" labels={months}
           datasets={[{ label: 'Crimes', data: months.map((m) => byMonth[m]), backgroundColor: COLORS.green }]} />
+        <ChartPrintSummary title="Monthly Distribution" rowLabel="Month" valueLabel="Crimes"
+          labels={months} values={monthlyPrintValues} insight={monthlyTrendResult.insight} />
+
         <ChartCard title="Yearly Comparison" type="line" labels={years}
           datasets={[{ label: 'Crimes', data: years.map((y) => byYear[y]), borderColor: COLORS.orange, tension: 0.3 }]} />
+        <ChartPrintSummary title="Yearly Comparison" rowLabel="Year" valueLabel="Crimes"
+          labels={years} values={yearlyPrintValues} insight={yearlyTrendResult.insight} />
+
         <ChartCard title="Category Distribution" type="pie" labels={Object.keys(byCat)}
           datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]} />
+        <ChartPrintSummary title="Category Distribution" rowLabel="Category" valueLabel="Incidents"
+          labels={categoryPrintLabels} values={categoryPrintValues} insight={categoryPrintResult.insight} />
+
         <ChartCard title="Gender Distribution" type="doughnut" labels={Object.keys(byGender)}
           datasets={[{ data: Object.values(byGender), backgroundColor: [COLORS.green, COLORS.orange] }]} />
+        <ChartPrintSummary title="Gender Distribution" rowLabel="Gender" valueLabel="Incidents"
+          labels={Object.keys(byGender)} values={Object.values(byGender)} />
+
         <ChartCard title="Age Distribution" type="bar" labels={ageBins}
           datasets={[{ label: 'Victims', data: ageCounts, backgroundColor: COLORS.black }]} />
+        <ChartPrintSummary title="Age Distribution" rowLabel="Age Range" valueLabel="Victims"
+          labels={ageBins} values={ageCounts} />
+
         <ChartCard title="Sitio Breakdown" type="bar" labels={Object.keys(bySitio)}
           datasets={[{ label: 'Incidents', data: Object.values(bySitio), backgroundColor: COLORS.orange }]} />
+        <ChartPrintSummary title="Sitio Breakdown" rowLabel="Sitio" valueLabel="Incidents"
+          labels={sitioPrintLabels} values={sitioPrintValues} insight={sitioPrintResult.insight} />
       </div>
 
       <Card title="Statistical Measures">
@@ -141,8 +191,10 @@ export default function Analytics() {
       </Card>
 
       <div className="export-bar">
+        <Button variant="secondary" onClick={() => { window.print(); showToast('Use browser print dialog to save as PDF', 'info'); }}><Icons.Report size={15} strokeWidth={2} /> Export PDF</Button>
         <Button variant="secondary" onClick={() => { if (exportCSV(filtered, `brgy178_analytics_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Analytics exported', 'success'); }}><Icons.Download size={15} strokeWidth={2} /> Export CSV</Button>
         <Button variant="secondary" onClick={() => { if (exportCSV(filtered, `brgy178_analytics_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Analytics exported', 'success'); }}><Icons.Report size={15} strokeWidth={2} /> Export Excel</Button>
+        <Button variant="secondary" onClick={() => window.print()}><Icons.Printer size={15} strokeWidth={2} /> Print Report</Button>
       </div>
     </section>
   );
