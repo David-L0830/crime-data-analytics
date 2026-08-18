@@ -158,6 +158,12 @@ export default function Trends() {
           { id: 'tr-sitio', label: 'Sitio', type: 'select', options: SITIOS },
         ]}
         onApply={setFilters}
+        actions={(
+          <Button variant="secondary" onClick={() => setHotspotsOpen(true)}>
+            <Icons.Hotspot size={15} strokeWidth={2} /> Hotspots
+            {unreadHotspotAlertCount > 0 && <span className="notif-bell-count" style={{ position: 'static', marginLeft: 6 }}>{unreadHotspotAlertCount}</span>}
+          </Button>
+        )}
       />
 
       {/* Print-only summary of the filters in effect when Export PDF was

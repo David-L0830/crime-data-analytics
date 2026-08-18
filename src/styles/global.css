@@ -1855,6 +1855,12 @@ select {
   font-size: 0.82rem;
 }
 
+.filter-bar-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
 /* ===== Toolbar ===== */
 .module-toolbar {
   display: flex;

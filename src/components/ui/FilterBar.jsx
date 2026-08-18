@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 // Generic filter bar. `fields`: [{ id, label, type: 'text'|'date'|'select', options? }]
 // Values are held locally and pushed up via onApply on every change — filters
 // apply automatically as the user edits them, with no "Apply Filters" button.
-export default function FilterBar({ fields, onApply, initialValues }) {
+export default function FilterBar({ fields, onApply, initialValues, actions }) {
   const [values, setValues] = useState(initialValues || {});
 
   useEffect(() => {
@@ -35,6 +35,7 @@ export default function FilterBar({ fields, onApply, initialValues }) {
           )}
         </div>
       ))}
+      {actions && <div className="filter-bar-actions">{actions}</div>}
     </div>
   );
 }
