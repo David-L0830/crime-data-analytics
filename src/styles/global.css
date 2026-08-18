@@ -1402,6 +1402,41 @@ h1, h2, h3, h4, h5, h6 {
   margin-bottom: 28px;
 }
 
+.kpi-grid-primary {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.kpi-grid-primary .kpi-value {
+  font-size: 2.1rem;
+}
+
+.kpi-secondary-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 4px 0 10px;
+}
+
+.kpi-grid-secondary {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.kpi-grid-secondary .kpi-card {
+  padding: 14px 16px;
+}
+
+.kpi-grid-secondary .kpi-value {
+  font-size: 1.3rem;
+}
+
+.kpi-grid-secondary .kpi-label {
+  font-size: 0.68rem;
+}
+
 .kpi-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
