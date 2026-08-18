@@ -23,7 +23,7 @@ import { Icons } from '../components/icons';
 // rows already in the database keep rendering with their color; nothing
 // server-side writes fewer CREATE rows and no existing row's action value
 // changes — this only narrows the dropdown.
-const ACTIONS = ['LOGIN', 'LOGOUT', 'REPORT_GENERATED', 'REPORT_EXPORTED', 'UPDATE', 'ARCHIVE'];
+const ACTIONS = ['LOGIN', 'LOGOUT', 'REPORT_GENERATED', 'REPORT_EXPORTED', 'UPDATE', 'ARCHIVE', 'SYNC_COMPLETED'];
 const TARGET_TYPES = ['auth', 'report', 'user', 'resident', 'incident'];
 
 const ACTION_COLORS = {

@@ -12,10 +12,18 @@ import { COLORS, SITIOS } from '../utils/constants';
 
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+import { useLocation } from 'react-router-dom';
+// ...(add to existing import block near the top)
+
 export default function Analytics() {
   const { records, settings, CATEGORIES } = useData();
   const { showToast } = useToast();
-  const [filters, setFilters] = useState({});
+  const location = useLocation();
+  const [filters, setFilters] = useState(() => {
+    const incoming = location.state?.filters;
+    if (!incoming) return {};
+    return { 'ana-dateFrom': incoming.dateFrom, 'ana-dateTo': incoming.dateTo, 'ana-sitio': incoming.sitio };
+  });
 
   const filtered = useMemo(
     () => filterRecords(records.filter((r) => r.status !== 'Archived'), {

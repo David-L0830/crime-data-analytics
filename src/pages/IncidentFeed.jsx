@@ -9,7 +9,7 @@ import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import { IncidentViewModal, IncidentEditModal, IncidentCreateModal } from '../components/incidents/IncidentModal';
-import { filterRecords, formatDate, formatTime, exportCSV, today } from '../utils/helpers';
+import { filterRecords, formatDate, formatTime, exportCSV, today, SOLVED_STATUSES, PENDING_STATUSES } from '../utils/helpers';
 import { TYPE_CATEGORY_MAP } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -19,7 +19,14 @@ export default function IncidentFeed() {
   const { showToast } = useToast();
   const location = useLocation();
 
-  const [filters, setFilters] = useState({});
+  const [filters, setFilters] = useState(() => {
+    const incoming = location.state?.filters;
+    if (!incoming) return {};
+    return {
+      'inc-crimeType': incoming.crimeType, 'inc-sitio': incoming.sitio, 'inc-status': incoming.status,
+      'inc-dateFrom': incoming.dateFrom, 'inc-dateTo': incoming.dateTo,
+    };
+  });
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search);
   const [viewing, setViewing] = useState(null);
@@ -44,9 +51,13 @@ export default function IncidentFeed() {
       // Checkpoint 20, Task 14 — the default operational list should show
       // active records; Archived incidents remain stored and retrievable
       // by explicitly selecting "Archived" in the Status filter above.
-      return filters['inc-status'] ? results : results.filter((r) => r.status !== 'Archived');
+      const withArchiveRule = filters['inc-status'] ? results : results.filter((r) => r.status !== 'Archived');
+      const group = location.state?.statusGroup;
+      if (group === 'solved') return withArchiveRule.filter((r) => SOLVED_STATUSES.includes(r.status));
+      if (group === 'pending') return withArchiveRule.filter((r) => PENDING_STATUSES.includes(r.status));
+      return withArchiveRule;
     },
-    [records, filters, debouncedSearch]
+    [records, filters, debouncedSearch, location.state]
   );
 
   // BADAC Administrator may edit any record; an Encoder may only correct
@@ -164,6 +175,7 @@ export default function IncidentFeed() {
           { id: 'inc-dateTo', label: 'To', type: 'date' },
         ]}
         onApply={setFilters}
+        initialValues={filters}
       />
 
       <Card bodyClassName="table-wrap">
