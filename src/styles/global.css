@@ -211,8 +211,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3); }
-  50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(46, 139, 71, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(46, 139, 71, 0); }
 }
 
 .spinner {
@@ -566,7 +566,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .login-form .btn-login:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+  box-shadow: 0 8px 24px rgba(46, 139, 71, 0.4);
 }
 
 .login-form .btn-login:disabled { opacity: 0.65; cursor: not-allowed; }
@@ -1373,7 +1373,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .card:hover {
   box-shadow: var(--shadow-md);
-  border-color: rgba(16, 185, 129, 0.15);
+  border-color: rgba(46, 139, 71, 0.15);
 }
 
 .card h3 {
@@ -1542,7 +1542,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .chart-card-interactive:hover {
   box-shadow: var(--shadow-md);
-  border-color: rgba(16, 185, 129, 0.25);
+  border-color: rgba(46, 139, 71, 0.25);
 }
 
 .chart-card-interactive:focus-visible {
@@ -1660,12 +1660,12 @@ tbody tr:last-child td {
   letter-spacing: 0.02em;
 }
 
-.status-Open { background: rgba(16, 185, 129, 0.12); color: var(--success); }
-.status-Solved, .status-Closed { background: rgba(16, 185, 129, 0.18); color: var(--accent-dark); }
-.status-Under-Investigation { background: rgba(245, 158, 11, 0.12); color: #D97706; }
+.status-Open { background: var(--accent-light); color: var(--success); }
+.status-Solved, .status-Closed { background: rgba(46, 139, 71, 0.18); color: var(--accent-dark); }
+.status-Under-Investigation { background: var(--orange-light); color: var(--warning); }
 .status-Archived { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
-.status-Active { background: rgba(16, 185, 129, 0.12); color: var(--success); }
-.status-Wanted { background: rgba(200, 16, 46, 0.12); color: var(--danger); }
+.status-Active { background: var(--accent-light); color: var(--success); }
+.status-Wanted { background: rgba(192, 57, 43, 0.12); color: var(--danger); }
 .status-Incarcerated { background: rgba(14, 165, 233, 0.12); color: var(--info); }
 .status-Released { background: rgba(14, 165, 233, 0.12); color: var(--info); }
 .status-Deceased, .status-Transferred, .status-Inactive { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
@@ -1691,12 +1691,12 @@ tbody tr:last-child td {
 .btn-primary {
   background: var(--gradient-brand);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+  box-shadow: 0 2px 8px rgba(46, 139, 71, 0.25);
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 6px 16px rgba(46, 139, 71, 0.35);
 }
 
 .btn-secondary {
