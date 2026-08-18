@@ -3287,6 +3287,17 @@ select {
   animation: fadeIn 0.8s ease;
 }
 
+.badac-left-seal-link {
+  display: inline-block;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.badac-left-seal-link:focus-visible {
+  outline: 2px solid var(--bl-left-text, #fff);
+  outline-offset: 4px;
+}
+
 .badac-left-seal {
   width: 132px;
   height: 132px;

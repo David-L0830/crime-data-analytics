@@ -115,7 +115,13 @@ export default function Login() {
           </div>
 
           <div className="badac-login-left-content">
-            <img src={logo} alt="Barangay 178 Seal — Makabagong Barangay" className="badac-left-seal" />
+            <Link
+              to="/"
+              className="badac-left-seal-link"
+              aria-label="Go to home page"
+            >
+              <img src={logo} alt="Barangay 178 Seal — Makabagong Barangay" className="badac-left-seal" />
+            </Link>
             <h1 className="badac-left-title">BARANGAY 178</h1>
             <div className="badac-left-locality">
               <span className="badac-left-line" aria-hidden="true" />
