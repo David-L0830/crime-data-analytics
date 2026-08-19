@@ -128,14 +128,21 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(func
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
     ->put('/settings', [SettingController::class, 'update']);
 
-// Incidents — write side. Not role-restricted at the route level (Encoder
-// is a legitimate caller of both read and write); IncidentController
-// enforces per-record ownership (reported_by) for Encoder internally.
+// Incidents — write side. Not role-restricted at the route level for
+// create/update (Encoder is a legitimate caller of both); IncidentController
+// enforces per-record ownership (reported_by) for Encoder internally on
+// update(). Archive is intentionally NOT in this group — see the
+// admin-only route below.
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])->group(function () {
     Route::post('/incidents', [IncidentController::class, 'store']);
     Route::put('/incidents/{incident}', [IncidentController::class, 'update']);
-    Route::put('/incidents/{incident}/archive', [IncidentController::class, 'archive']);
 });
+
+// PUT /incidents/{incident}/archive — Encoder access removed. Archiving is
+// now badac_admin-only; an Encoder token hitting this endpoint directly
+// gets a 403 from EnsureRole before the controller ever runs.
+Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
+    ->put('/incidents/{incident}/archive', [IncidentController::class, 'archive']);
 
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/criminals', [CriminalController::class, 'store']);

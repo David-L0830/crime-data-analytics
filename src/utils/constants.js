@@ -66,12 +66,14 @@ export const ROLES = {
   },
   encoder: {
     label: 'Encoder',
-    // Checkpoint 28 — 'security' replaced with 'user-management' so Encoder
-    // keeps the exact same self-service 2FA access it always had (now
-    // reached via User Management, which conditionally shows only the
-    // self-service 2FA section for a non-admin role — see UserManagement.jsx).
-    // Encoder still cannot list/edit other accounts: that stays gated by
-    // the backend's role:badac_admin middleware on GET/PUT /users*.
+    // Encoder has 'user-management' so it can reach the self-service 2FA
+    // panel that lives on that page (see UserManagement.jsx's `if
+    // (!isAdmin)` branch, which renders only <TwoFactorSelfService /> for
+    // non-admin roles). Encoder still cannot see the admin account table
+    // or any admin controls on that page (gated by isAdmin in
+    // UserManagement.jsx), and still cannot list/edit other accounts:
+    // that stays enforced by the backend's role:badac_admin middleware on
+    // GET/PUT /users*.
     modules: ['incident-feed', 'user-management'],
   },
   // Read-only BADAC viewer account (username "Badac", display name "Gilbert
@@ -108,11 +110,10 @@ export const PERMISSIONS = {
   // edit_own_incident, archive_record, archive_own_incident, manage_settings)
   // since none of them are listed for this role.
   badac_readonly: [],
-  // Encoder may archive incidents they personally encoded (mirrors
-  // edit_own_incident) — server-side ownership check lives in
-  // IncidentController::archive(), this permission only controls whether
-  // the Archive action is shown at all.
-  encoder: ['create_incident', 'edit_own_incident', 'archive_own_incident'],
+  // Encoder no longer has any Archive capability (frontend button removed
+  // AND backend route access removed — see PUT /incidents/{incident}/archive
+  // in backend/routes/api.php, now role:badac_admin only).
+  encoder: ['create_incident', 'edit_own_incident'],
 };
 
 // icon keys map to lucide-react components — see ICONS in components/icons.jsx
