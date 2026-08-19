@@ -3,7 +3,7 @@ import { Icons } from '../icons';
 
 // Reusable data table. `columns`: [{ key, label, render?(value, row) }]
 // `actions(row)` returns a node rendered in a trailing "Actions" column.
-export default function Table({ columns, rows, actions, emptyMessage = 'No records found.' }) {
+export default function Table({ columns, rows, actions, onRowClick, emptyMessage = 'No records found.' }) {
   if (!rows || !rows.length) {
     return (
       <div className="empty-state">
@@ -25,7 +25,14 @@ export default function Table({ columns, rows, actions, emptyMessage = 'No recor
       </thead>
       <tbody>
         {rows.map((row, i) => (
-          <tr key={row.id ?? i}>
+          <tr
+            key={row.id ?? i}
+            className={onRowClick ? 'table-row-clickable' : undefined}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+            role={onRowClick ? 'button' : undefined}
+            tabIndex={onRowClick ? 0 : undefined}
+            onKeyDown={onRowClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row); } } : undefined}
+          >
             {columns.map((c) => {
               let val = row[c.key];
               if (c.render) val = c.render(val, row);

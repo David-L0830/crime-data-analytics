@@ -3617,7 +3617,7 @@ select {
   cursor: pointer;
 }
 .table-row-clickable:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.03));
+  background: var(--bg-hover);
 }
 .table-row-clickable:focus-visible {
   outline: 2px solid var(--accent, #2f8f4e);
