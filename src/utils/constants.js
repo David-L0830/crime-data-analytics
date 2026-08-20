@@ -29,7 +29,7 @@ export const TYPE_CATEGORY_MAP = {
 };
 
 export const STATUSES = ['Open', 'Under Investigation', 'Solved', 'Closed', 'Archived'];
-export const CRIMINAL_STATUSES = ['Active', 'Wanted', 'Incarcerated', 'Released', 'Deceased'];
+export const CRIMINAL_STATUSES = ['Active', 'Wanted', 'Incarcerated', 'Released', 'Deceased', 'Archived'];
 export const RESIDENT_STATUSES = ['Active', 'Inactive', 'Deceased', 'Transferred', 'Archived'];
 export const VICTIM_STATUSES = ['Active', 'Archived'];
 

@@ -19,4 +19,8 @@ export const criminalService = {
   get: (id, token) => api.get(`/criminals/${id}`, token ? { token } : undefined),
   create: (data, token) => api.post('/criminals', data, token ? { token } : undefined),
   update: (id, data, token) => api.put(`/criminals/${id}`, data, token ? { token } : undefined),
+  // PUT /criminals/{id}/archive — mirrors victimService.archive(). Sets
+  // status to 'Archived' server-side (CriminalController::archive()).
+  // No caller yet; DataContext/CriminalRecords wiring is a separate step.
+  archive: (id, token) => api.put(`/criminals/${id}/archive`, {}, token ? { token } : undefined),
 };

@@ -148,6 +148,7 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/criminals', [CriminalController::class, 'store']);
     Route::put('/criminals/{criminal}', [CriminalController::class, 'update']);
+    Route::put('/criminals/{criminal}/archive', [CriminalController::class, 'archive']);
 
     Route::post('/victims', [VictimController::class, 'store']);
     Route::put('/victims/{victim}', [VictimController::class, 'update']);

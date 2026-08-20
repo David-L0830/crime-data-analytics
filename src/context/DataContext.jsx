@@ -315,7 +315,7 @@ export function DataProvider({ children }) {
     loading, error,
     SITIOS, CRIME_TYPES, CATEGORIES: settings.categories?.length ? settings.categories : CATEGORIES, STATUSES,
     validateRecord, updateRecord, archiveRecord, addRecord,
-    archiveVictim,
+    archiveVictim, archiveCriminal,
     markNotificationRead, markAllNotificationsRead, unreadNotificationCount, unreadHotspotAlertCount,
     saveSettings,
     getLastSync, getTodayImportedCount, getThisMonthImportedCount,

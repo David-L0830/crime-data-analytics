@@ -98,6 +98,30 @@ class CriminalController extends Controller
         return new CriminalResource($criminal);
     }
 
+    // PUT /api/criminals/{criminal}/archive — mirrors VictimController::archive():
+    // sets status to 'Archived' instead of physically deleting the row. Same
+    // admin-only authorization as create/update (role:badac_admin in
+    // routes/api.php) — no per-record ownership rule exists for criminals,
+    // same as victims.
+    public function archive(Request $request, Criminal $criminal)
+    {
+        $name = $criminal->full_name;
+        $criminal->update(['status' => 'Archived']);
+
+        AuditLog::create([
+            'user_id' => $request->user()?->id,
+            'action' => 'ARCHIVE',
+            'module' => 'criminal-records',
+            'target_type' => 'criminal',
+            'description' => "Archived criminal record {$name}",
+            'ip_address' => $request->ip(),
+        ]);
+
+        $criminal->load('relatedIncidents.victims');
+
+        return new CriminalResource($criminal->fresh()->load('relatedIncidents.victims'));
+    }
+
     // Related Incidents (Part I-42/44) is many-to-many — if the request sent
     // an explicit list, sync it; otherwise leave existing links untouched.
     private function syncRelatedIncidents(Criminal $criminal, array $validated): void

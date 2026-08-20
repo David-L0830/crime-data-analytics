@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
+import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { useDebounce } from '../hooks/useDebounce';
 import FilterBar from '../components/ui/FilterBar';
@@ -12,12 +13,14 @@ import { CRIMINAL_STATUSES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
 export default function CriminalRecords() {
-  const { criminals } = useData();
+  const { criminals, archiveCriminal } = useData();
+  const { can } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [filters, setFilters] = useState({});
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search);
+  const [archivingId, setArchivingId] = useState(null);
 
   // Search covers Full Name, Alias, Criminal ID, and Case Number (Part I-49).
   // Duplicate full names are never merged — each row keeps its own
@@ -27,6 +30,10 @@ export default function CriminalRecords() {
     const q = debouncedSearch.toLowerCase();
     return criminals.filter((c) => {
       if (filters['crim-status'] && c.status !== filters['crim-status']) return false;
+      // Default operational list shows active criminal records; Archived
+      // criminals remain stored and retrievable by explicitly selecting
+      // "Archived" in the Status filter above. Mirrors VictimRecords.jsx.
+      if (!filters['crim-status'] && c.status === 'Archived') return false;
       if (filters['crim-gender'] && c.gender !== filters['crim-gender']) return false;
       if (q) {
         const caseNumbers = (c.relatedIncidents || []).map((i) => i.caseNumber).join(' ');
@@ -36,6 +43,25 @@ export default function CriminalRecords() {
       return true;
     });
   }, [criminals, filters, debouncedSearch]);
+
+  // Mirrors VictimRecords.jsx's handleArchive. PUT /criminals/{id}/archive
+  // is badac_admin-only server-side (routes/api.php); this UI-side guard
+  // (can('archive_record')) is added in the next step alongside the button.
+  const handleArchive = async (criminal) => {
+    if (archivingId) return;
+    if (!window.confirm(`Archive the criminal record for ${criminal.fullName}? It will be removed from the active list but kept on file and can still be found via the Status filter.`)) {
+      return;
+    }
+    setArchivingId(criminal.id);
+    try {
+      await archiveCriminal(criminal.id);
+      showToast('Criminal record archived', 'success');
+    } catch (err) {
+      showToast(err.message || 'Could not archive criminal record', 'error');
+    } finally {
+      setArchivingId(null);
+    }
+  };
 
   return (
     <section className="module">
@@ -79,9 +105,21 @@ export default function CriminalRecords() {
           ]}
           rows={filtered}
           actions={(row) => (
-            <Button size="sm" variant="secondary" onClick={() => navigate(`/criminal-records/${row.id}`)}>
-              View Profile
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" onClick={() => navigate(`/criminal-records/${row.id}`)}>
+                View Profile
+              </Button>
+              {can('archive_record') && row.status !== 'Archived' && (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => handleArchive(row)}
+                  disabled={archivingId === row.id}
+                >
+                  {archivingId === row.id ? 'Archiving…' : 'Archive'}
+                </Button>
+              )}
+            </>
           )}
         />
       </Card>

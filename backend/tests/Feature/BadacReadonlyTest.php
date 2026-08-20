@@ -200,6 +200,23 @@ class BadacReadonlyTest extends TestCase
         $this->putJson("/api/criminals/{$criminal->id}", [])->assertForbidden();
     }
 
+    public function test_badac_readonly_cannot_archive_criminal_record(): void
+    {
+        $this->actingBadacReadonly();
+        $criminal = Criminal::factory()->create();
+
+        $this->putJson("/api/criminals/{$criminal->id}/archive")->assertForbidden();
+    }
+
+    public function test_encoder_cannot_archive_criminal_record(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $this->actingAsSupabase($encoder);
+        $criminal = Criminal::factory()->create();
+
+        $this->putJson("/api/criminals/{$criminal->id}/archive")->assertForbidden();
+    }
+
     public function test_badac_readonly_cannot_create_victim(): void
     {
         $this->actingBadacReadonly();

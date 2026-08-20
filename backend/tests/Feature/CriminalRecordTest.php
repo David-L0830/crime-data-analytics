@@ -76,4 +76,43 @@ class CriminalRecordTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', 'Incarcerated');
     }
+
+    public function test_can_archive_a_criminal_record(): void
+    {
+        $this->actingUser();
+        $criminal = Criminal::factory()->create(['status' => 'Active']);
+
+        $this->putJson("/api/criminals/{$criminal->id}/archive")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Archived');
+
+        $this->assertDatabaseHas('criminals', ['id' => $criminal->id, 'status' => 'Archived']);
+    }
+
+    public function test_archiving_a_criminal_record_does_not_delete_the_row(): void
+    {
+        $this->actingUser();
+        $criminal = Criminal::factory()->create();
+
+        $this->putJson("/api/criminals/{$criminal->id}/archive")->assertOk();
+
+        $this->assertDatabaseHas('criminals', ['id' => $criminal->id]);
+    }
+
+    public function test_archiving_a_criminal_record_creates_an_archive_audit_event(): void
+    {
+        $this->actingUser();
+        $criminal = Criminal::factory()->create();
+
+        $this->putJson("/api/criminals/{$criminal->id}/archive")->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'ARCHIVE',
+            'target_type' => 'criminal',
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'DELETE',
+            'target_type' => 'criminal',
+        ]);
+    }
 }
