@@ -20,7 +20,7 @@ class IncidentTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function actingAsSupabase(User $user, string $aal = 'aal2'): static
+    protected function actingAsSupabase(User $user, string $aal = 'aal2'): static
     {
         if (! $user->supabase_user_id) {
             $user->forceFill(['supabase_user_id' => 'supabase-test-'.$user->id])->save();

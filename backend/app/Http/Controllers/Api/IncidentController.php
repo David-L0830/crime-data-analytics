@@ -130,9 +130,14 @@ class IncidentController extends Controller
     // predate this checkpoint and needed no change.
     public function archive(Request $request, Incident $incident)
     {
-        // Route is now role:badac_admin only (see routes/api.php) — Encoder
-        // can no longer reach this action, so no ownership check is needed
-        // here anymore.
+        $user = $request->user();
+
+        // Encoders may only archive records they personally encoded — same
+        // rule as update(). BADAC Administrator is unrestricted.
+        if ($user?->isEncoder() && $incident->reported_by !== $user->id) {
+            return response()->json(['message' => 'Encoders may only archive incidents they personally encoded.'], 403);
+        }
+
         $incident->update(['status' => 'Archived']);
 
         AuditLog::create([

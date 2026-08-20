@@ -36,7 +36,7 @@ class BadacReadonlyTest extends TestCase
     // rest of this test, so subsequent requests are authenticated the same
     // way a production request is: through SupabaseTokenValidator, which
     // populates the 'supabase_aal' attribute EnsureSupabaseAal2 requires.
-    private function actingAsSupabase(User $user, string $aal = 'aal2'): static
+    protected function actingAsSupabase(User $user, string $aal = 'aal2'): static
     {
         if (! $user->supabase_user_id) {
             $user->forceFill(['supabase_user_id' => 'supabase-test-'.$user->id])->save();

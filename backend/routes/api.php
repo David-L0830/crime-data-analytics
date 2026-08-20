@@ -138,10 +138,11 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
     Route::put('/incidents/{incident}', [IncidentController::class, 'update']);
 });
 
-// PUT /incidents/{incident}/archive — Encoder access removed. Archiving is
-// now badac_admin-only; an Encoder token hitting this endpoint directly
-// gets a 403 from EnsureRole before the controller ever runs.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
+// PUT /incidents/{incident}/archive — Encoder and BADAC Admin may both
+// reach this route. Per-record ownership (Encoder may only archive an
+// incident they personally encoded) is enforced inside
+// IncidentController::archive() — the same pattern used by update().
+Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/archive', [IncidentController::class, 'archive']);
 
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {

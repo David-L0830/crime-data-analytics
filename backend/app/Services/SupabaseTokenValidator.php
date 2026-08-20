@@ -135,11 +135,23 @@ class SupabaseTokenValidator
         $jwksUrl = $projectUrl.'/auth/v1/.well-known/jwks.json';
 
         $cacheKey = 'supabase:jwks:'.md5($jwksUrl);
-        $jwks = Cache::remember($cacheKey, config('supabase.jwks_cache_ttl', 3600), function () use ($jwksUrl) {
-            $response = Http::timeout(5)->get($jwksUrl);
 
-            return $response->successful() ? $response->json() : null;
-        });
+        try {
+            $jwks = Cache::remember($cacheKey, config('supabase.jwks_cache_ttl', 3600), function () use ($jwksUrl) {
+                $response = Http::timeout(5)->get($jwksUrl);
+
+                return $response->successful() ? $response->json() : null;
+            });
+        } catch (\Throwable $e) {
+            // Http::get() throws (rather than returning a failed response)
+            // on a connection-level failure: unreachable host, DNS failure,
+            // timeout, TLS error, etc. This must fall through to the
+            // shared-secret path below, same as "JWKS returned no keys"
+            // does — not abort verification entirely.
+            Log::debug('Supabase JWKS endpoint unreachable.', ['reason' => $e->getMessage()]);
+
+            return null;
+        }
 
         if (! $jwks || empty($jwks['keys'])) {
             return null;
