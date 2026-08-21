@@ -15,7 +15,9 @@ use Illuminate\Database\Seeder;
 class VictimSeeder extends Seeder
 {
     private const FIRST_NAMES = ['Juan', 'Maria', 'Pedro', 'Ana', 'Jose', 'Elena', 'Carlos', 'Rosa', 'Antonio', 'Luz'];
+
     private const LAST_NAMES = ['Dela Cruz', 'Santos', 'Reyes', 'Bautista', 'Garcia', 'Mendoza', 'Aquino', 'Flores'];
+
     private const CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Separated'];
 
     public function run(): void
@@ -73,8 +75,12 @@ class VictimSeeder extends Seeder
         foreach ($cases->slice(4) as $i => $case) {
             // $i keeps the original 0-based index into $cases (Collection::slice
             // preserves keys) — skip the two cases already seeded above.
-            if (in_array($i, [3, 7], true)) continue;
-            if (random_int(0, 1) === 0) continue;
+            if (in_array($i, [3, 7], true)) {
+                continue;
+            }
+            if (random_int(0, 1) === 0) {
+                continue;
+            }
             $case->victims()->syncWithoutDetaching([$makeVictim()->id]);
         }
     }

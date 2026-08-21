@@ -16,7 +16,9 @@ class User extends Authenticatable
     // Encoder updates), and BADAC (read-only — see the ROLE_BADAC_READONLY
     // comment below).
     public const ROLE_BADAC_ADMIN = 'badac_admin';
+
     public const ROLE_ENCODER = 'encoder';
+
     // Read-only BADAC viewer account (seeded username "Badac", display name
     // "Gilbert Franco" — see database/seeders/UserSeeder.php). Can view
     // every module badac_admin can except User Management/Settings, but has

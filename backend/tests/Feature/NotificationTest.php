@@ -11,13 +11,13 @@ class NotificationTest extends TestCase
 {
     use RefreshDatabase;
 
-   private function actingUser(string $role = User::ROLE_BADAC_ADMIN): User
-{
-    $user = User::factory()->create(['role' => $role]);
-    $this->actingAsSupabase($user);
+    private function actingUser(string $role = User::ROLE_BADAC_ADMIN): User
+    {
+        $user = User::factory()->create(['role' => $role]);
+        $this->actingAsSupabase($user);
 
-    return $user;
-}
+        return $user;
+    }
 
     public function test_can_list_notifications(): void
     {

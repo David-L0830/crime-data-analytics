@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Models\User;
+use Firebase\JWT\ExpiredException;
 use Firebase\JWT\JWK;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use Firebase\JWT\SignatureInvalidException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -93,7 +95,7 @@ class SupabaseTokenValidator
     /**
      * @return array<string, mixed> decoded claims
      *
-     * @throws UnexpectedValueException|\Firebase\JWT\SignatureInvalidException|\Firebase\JWT\ExpiredException
+     * @throws UnexpectedValueException|SignatureInvalidException|ExpiredException
      */
     protected function verify(string $token): array
     {

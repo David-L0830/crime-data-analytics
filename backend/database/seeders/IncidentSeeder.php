@@ -40,7 +40,9 @@ class IncidentSeeder extends Seeder
     // FEMALE_FIRST_NAMES / CRIME_LAST_NAMES. This is synthetic seed data;
     // none of these names refer to real people.
     private const MALE_FIRST_NAMES = ['Juan', 'Pedro', 'Jose', 'Carlos', 'Antonio', 'Manuel', 'Francisco', 'Ramon', 'Eduardo', 'Rafael', 'Fernando', 'Miguel', 'Ricardo', 'Jaime', 'Arturo', 'Rogelio', 'Ruben', 'Ernesto', 'Gregorio', 'Luis', 'Vicente', 'Alberto', 'Roberto', 'Samuel', 'David', 'Daniel', 'Angelo', 'Marlon', 'Noel', 'Reynaldo'];
+
     private const FEMALE_FIRST_NAMES = ['Maria', 'Ana', 'Elena', 'Rosa', 'Luz', 'Carmen', 'Gloria', 'Teresa', 'Lourdes', 'Mercedes', 'Cristina', 'Adela', 'Dolores', 'Aurora', 'Socorro', 'Leticia', 'Corazon', 'Milagros', 'Nenita', 'Fe', 'Lilia', 'Nena', 'Remedios', 'Perla', 'Luzviminda', 'Angela', 'Sofia', 'Grace', 'Marites', 'Josefina'];
+
     private const CRIME_LAST_NAMES = ['Dela Cruz', 'Santos', 'Reyes', 'Bautista', 'Garcia', 'Mendoza', 'Aquino', 'Flores', 'Lopez', 'Villanueva', 'Gonzales', 'Torres', 'Rivera', 'Castillo', 'Ramos', 'Fernandez', 'Martinez', 'Rosario', 'Diaz', 'Castro', 'Aguilar', 'Hernandez', 'Mercado', 'Alcantara', 'Valdez', 'Soriano', 'Velasco', 'Bernardo', 'Domingo', 'Pascual'];
 
     // $gender is optional — victims have a recorded gender to match
@@ -63,9 +65,11 @@ class IncidentSeeder extends Seeder
     }
 
     private const CENTER_LAT = 14.7323;
+
     private const CENTER_LNG = 121.0270;
 
     private const MONTHS = ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06', '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12'];
+
     private const BASE_COUNTS = [8, 7, 9, 8, 10, 12, 14, 13, 11, 10, 8, 7];
 
     public function run(): void

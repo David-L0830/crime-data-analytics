@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Incident;
 use App\Models\Criminal;
+use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\SyncLog;
 use Illuminate\Support\Facades\DB;

@@ -124,7 +124,9 @@ class VictimController extends Controller
 
         $out = [];
         foreach ($map as $from => $to) {
-            if (array_key_exists($from, $v)) $out[$to] = $v[$from];
+            if (array_key_exists($from, $v)) {
+                $out[$to] = $v[$from];
+            }
         }
 
         return $out;

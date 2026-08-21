@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\User;
+
 return [
 
     // Final auth migration — 'supabase' is the only guard this application
@@ -28,7 +30,7 @@ return [
         // the 'users' provider name above resolve to that Eloquent model.
         'users' => [
             'driver' => 'eloquent',
-            'model' => App\Models\User::class,
+            'model' => User::class,
         ],
     ],
 

@@ -43,9 +43,9 @@ return new class extends Migration
 
         // Backfill: every criminal's existing single related_incident_id becomes
         // its first row in the new many-to-many pivot table.
-        $rows = \DB::table('criminals')->whereNotNull('related_incident_id')->get(['id', 'related_incident_id']);
+        $rows = DB::table('criminals')->whereNotNull('related_incident_id')->get(['id', 'related_incident_id']);
         foreach ($rows as $row) {
-            \DB::table('criminal_incident')->insertOrIgnore([
+            DB::table('criminal_incident')->insertOrIgnore([
                 'criminal_id' => $row->id,
                 'incident_id' => $row->related_incident_id,
                 'created_at' => now(),

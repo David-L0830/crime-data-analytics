@@ -9,7 +9,6 @@ use App\Http\Resources\IncidentResource;
 use App\Models\AuditLog;
 use App\Models\Incident;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class IncidentController extends Controller
 {
@@ -18,13 +17,27 @@ class IncidentController extends Controller
     {
         $query = Incident::query();
 
-        if ($request->filled('sitio')) $query->where('sitio', $request->string('sitio'));
-        if ($request->filled('status')) $query->where('status', $request->string('status'));
-        if ($request->filled('crimeType')) $query->where('crime_type', $request->string('crimeType'));
-        if ($request->filled('category')) $query->where('category', $request->string('category'));
-        if ($request->filled('date')) $query->whereDate('incident_date', '=', $request->date('date'));
-        if ($request->filled('dateFrom')) $query->whereDate('incident_date', '>=', $request->date('dateFrom'));
-        if ($request->filled('dateTo')) $query->whereDate('incident_date', '<=', $request->date('dateTo'));
+        if ($request->filled('sitio')) {
+            $query->where('sitio', $request->string('sitio'));
+        }
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status'));
+        }
+        if ($request->filled('crimeType')) {
+            $query->where('crime_type', $request->string('crimeType'));
+        }
+        if ($request->filled('category')) {
+            $query->where('category', $request->string('category'));
+        }
+        if ($request->filled('date')) {
+            $query->whereDate('incident_date', '=', $request->date('date'));
+        }
+        if ($request->filled('dateFrom')) {
+            $query->whereDate('incident_date', '>=', $request->date('dateFrom'));
+        }
+        if ($request->filled('dateTo')) {
+            $query->whereDate('incident_date', '<=', $request->date('dateTo'));
+        }
         if ($request->filled('search')) {
             $q = $request->string('search');
             $query->where(function ($w) use ($q) {
@@ -167,7 +180,9 @@ class IncidentController extends Controller
 
         $out = [];
         foreach ($map as $from => $to) {
-            if (array_key_exists($from, $v)) $out[$to] = $v[$from];
+            if (array_key_exists($from, $v)) {
+                $out[$to] = $v[$from];
+            }
         }
 
         return $out;

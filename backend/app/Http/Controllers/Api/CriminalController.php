@@ -17,7 +17,9 @@ class CriminalController extends Controller
     {
         $query = Criminal::query()->with('relatedIncidents.victims');
 
-        if ($request->filled('status')) $query->where('status', $request->string('status'));
+        if ($request->filled('status')) {
+            $query->where('status', $request->string('status'));
+        }
         if ($request->filled('search')) {
             // Search supports Full Name, Alias, Criminal ID, or Case Number
             // (Part I-49) — duplicate full names stay distinguishable because
@@ -149,7 +151,9 @@ class CriminalController extends Controller
 
         $out = [];
         foreach ($map as $from => $to) {
-            if (array_key_exists($from, $v)) $out[$to] = $v[$from];
+            if (array_key_exists($from, $v)) {
+                $out[$to] = $v[$from];
+            }
         }
 
         return $out;

@@ -4,7 +4,6 @@ use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CriminalController;
-use App\Http\Controllers\Api\VictimController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\NotificationController;
@@ -12,6 +11,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\SyncLogController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\VictimController;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
