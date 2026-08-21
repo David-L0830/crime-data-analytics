@@ -68,7 +68,7 @@ jobs:
         run: php artisan key:generate
 
       - name: Code style check (Pint)
-        run: ./vendor/bin/pint --test
+        run: php ./vendor/bin/pint --test
         continue-on-error: true
 
       # The test suite runs against an in-memory SQLite database and a
