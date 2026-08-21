@@ -55,4 +55,4 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           command: test
-          args: --severity-threshold=high --file=backend/composer.json
+          args: --severity-threshold=high --file=composer.json
