@@ -1,4 +1,5 @@
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
+import MetabaseDashboard from '../components/MetabaseDashboard';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
@@ -214,110 +215,7 @@ const monthStart = `${today().slice(0, 7)}-01`;
       </div>
 
       <div className="chart-grid">
-        <div className="chart-print-unit">
-        <ChartCard title="Crime Trend (Monthly)" type="line" labels={months}
-          datasets={[{ label: 'Incidents', data: crimeTrendValues, borderColor: COLORS.green, backgroundColor: COLORS.greenLight, fill: true, tension: 0.3 }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Crime Trend (Monthly)',
-              description: 'Monthly incident volume for the currently applied filters.',
-              drillField: 'month',
-              rowLabel: 'Month', valueLabel: 'Incidents',
-              labels: months,
-              datasets: [{ data: crimeTrendValues }],
-              insight: crimeTrendResult.insight, kpis: crimeTrendResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Crime Trend (Monthly)" rowLabel="Month" valueLabel="Incidents"
-          labels={months} values={crimeTrendValues} insight={crimeTrendResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Crimes by Category" type="doughnut" labels={categoryLabels}
-          datasets={[{ data: categoryValues, backgroundColor: COLORS.chartPalette }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Crimes by Category',
-              description: 'Distribution of incidents across crime categories.',
-              drillField: 'category',
-              rowLabel: 'Category', valueLabel: 'Incidents',
-              labels: categoryLabels, datasets: [{ data: categoryValues }],
-              insight: categoryResult.insight, kpis: categoryResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Crimes by Category" rowLabel="Category" valueLabel="Incidents"
-          labels={categoryLabels} values={categoryValues} insight={categoryResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Crimes by Sitio" type="bar" labels={sitioLabels}
-          datasets={[{ label: 'Incidents', data: sitioValues, backgroundColor: COLORS.green }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Crimes by Sitio',
-              description: 'Incident volume by sitio for the currently applied filters.',
-              drillField: 'sitio',
-              rowLabel: 'Sitio', valueLabel: 'Incidents',
-              labels: sitioLabels, datasets: [{ data: sitioValues }],
-              insight: sitioResult.insight, kpis: sitioResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Crimes by Sitio" rowLabel="Sitio" valueLabel="Incidents"
-          labels={sitioLabels} values={sitioValues} insight={sitioResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Top Crime Types" type="bar" labels={crimeTypeLabels}
-          datasets={[{ label: 'Count', data: crimeTypeValues, backgroundColor: COLORS.orange }]}
-          options={{ indexAxis: 'y' }}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Top Crime Types',
-              description: 'Most frequently recorded crime types for the currently applied filters.',
-              drillField: 'crimeType',
-              rowLabel: 'Crime Type', valueLabel: 'Count',
-              labels: crimeTypeLabels, datasets: [{ data: crimeTypeValues }],
-              insight: crimeTypeResult.insight, kpis: crimeTypeResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Top Crime Types" rowLabel="Crime Type" valueLabel="Count"
-          labels={crimeTypeLabels} values={crimeTypeValues} insight={crimeTypeResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Resolution Rate Trend" type="line" labels={months}
-          datasets={[{ label: 'Resolution %', data: resolutionByMonth, borderColor: COLORS.green, tension: 0.3 }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Resolution Rate Trend',
-              description: 'Monthly case resolution rate for the currently applied filters.',
-              drillField: 'month',
-              rowLabel: 'Month', valueLabel: 'Resolution %',
-              labels: months,
-              datasets: [{ data: resolutionByMonth }],
-              insight: resolutionResult.insight, kpis: resolutionResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Resolution Rate Trend" rowLabel="Month" valueLabel="Resolution %"
-          labels={months} values={resolutionByMonth} insight={resolutionResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Incident Status Distribution" type="bar" labels={statusLabels}
-          datasets={[{ label: 'Count', data: statusValues, backgroundColor: COLORS.statusPalette }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Incident Status Distribution',
-              description: 'Current status breakdown of recorded incidents.',
-              drillField: 'status',
-              rowLabel: 'Status', valueLabel: 'Count',
-              labels: statusLabels, datasets: [{ data: statusValues }],
-              insight: statusResult.insight, kpis: statusResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Incident Status Distribution" rowLabel="Status" valueLabel="Count"
-          labels={statusLabels} values={statusValues} insight={statusResult.insight} />
-        </div>
+        <MetabaseDashboard dashboardKey="crime" title="Crime Dashboard" height={900} />
       </div>
 
       <ChartSummaryModal

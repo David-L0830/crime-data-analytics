@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CriminalController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\IncidentController;
+use App\Http\Controllers\Api\MetabaseEmbedController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SettingController;
@@ -61,6 +62,10 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
     Route::get('/analytics/crime-types', [AnalyticsController::class, 'crimeTypes']);
     Route::get('/analytics/monthly', [AnalyticsController::class, 'monthly']);
     Route::get('/analytics/locations', [AnalyticsController::class, 'locations']);
+
+    // Signed Metabase embed URLs for Dashboard/Analytics/Trends — same
+    // roles as the analytics endpoints above, since this is the same data.
+    Route::get('/embed/metabase/{dashboardKey}', [MetabaseEmbedController::class, 'show']);
 });
 
 // GET /settings — read-only, admin-only business configuration. Badac
