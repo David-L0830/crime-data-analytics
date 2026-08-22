@@ -4,7 +4,7 @@
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Remove 2FA from login flow | **NOT STARTED — deferred** | Conflicts with an in-progress documented auth migration; needs a dedicated pass. See CHECKPOINT.md. |
+| 1 | Remove 2FA from login flow | **Done** | Verified in a later session: no route enforces AAL2, `EnsureSupabaseAal2` is unwired (kept intentionally for possible future use), Login.jsx/AuthContext.jsx MFA screens removed. See AUTH_MIGRATION_STATUS.md. |
 | 2 | Login page scrollbar | **Partially addressed** | Root-caused to the unstyled `type="email"` input; fixed. Not visually re-verified in a browser. |
 | 3 | "Enter your email" positioning | **Done** | Root cause: CSS selector didn't include `input[type="email"]`. Fixed, build-verified. |
 | 4 | Collapsed sidebar icon spacing/scroll | **Checked, no bug found** | Computed worst-case height fits without scrolling in current code. |
@@ -26,7 +26,7 @@
 - Backend PHPUnit suite: **not run** — no PHP interpreter in this sandbox, and PHP package registries aren't network-reachable from here
 
 ## Known issues / risks carried forward
-- 2FA removal is completely undone — this is the largest remaining item in the original request.
+- ~~2FA removal is completely undone~~ — superseded: confirmed complete in a later session. See AUTH_MIGRATION_STATUS.md.
 - The BADAC Audit Logs removal reverses a previously well-documented, deliberate, tested design. Get explicit confirmation this is really wanted before shipping it.
 - Backend PHP changes are untested by an actual test runner. Run `composer install && vendor/bin/phpunit` in an environment with PHP before merging.
 - Collapsed-sidebar spacing and profile image upload were reviewed by reading code only, not by running the app in a browser — if either is still visibly broken, that means the bug is somewhere I didn't spot (get exact repro steps/viewport size next time).

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import FilterBar from '../components/ui/FilterBar';
@@ -10,18 +10,19 @@ import Modal from '../components/ui/Modal';
 import PrintReport from '../components/ui/PrintReport';
 import ChartCard from '../components/charts/ChartCard';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
-import { filterRecords, countBy, movingAverage, linearRegression } from '../utils/helpers';
-import { buildDailyPatternInsight, buildCrimeTrendInsight } from '../utils/chartInsights';
-import { COLORS, SITIOS, CRIME_TYPES } from '../utils/constants';
+import ChartSummaryModal from '../components/charts/ChartSummaryModal';
+import { filterRecords, countBy, movingAverage, linearRegression, monthLabelToRange } from '../utils/helpers';
+import { buildDailyPatternInsight, buildCrimeTrendInsight, buildCategoryInsight, buildRegressionInsight } from '../utils/chartInsights';
+import { COLORS, SITIOS, CRIME_TYPES, DAY_NAMES } from '../utils/constants';
 import { Icons } from '../components/icons';
-
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function Trends() {
   const { records, settings, markAllNotificationsRead, unreadHotspotAlertCount } = useData();
   const { showToast } = useToast();
   const location = useLocation();
+  const navigate = useNavigate();
   const [filters, setFilters] = useState({});
+  const [selectedChart, setSelectedChart] = useState(null);
   // Hotspots live in their own panel rather than flooding the module with
   // per-sitio alerts (Part F-19). A "Hotspot Alert" notification click
   // (see Header.jsx) navigates here with { openHotspots: true } so the
@@ -58,6 +59,26 @@ export default function Trends() {
     }),
     [records, filters]
   );
+
+  const baseFilters = {
+    crimeType: filters['tr-crimeType'],
+    sitio: filters['tr-sitio'],
+    dateFrom: filters['tr-dateFrom'],
+    dateTo: filters['tr-dateTo'],
+  };
+
+  const activeFiltersLabel = (() => {
+    const from = filters['tr-dateFrom'];
+    const to = filters['tr-dateTo'];
+    const parts = [];
+    if (from || to) {
+      const rangeLabel = from && to ? `${from} – ${to}` : from ? `on or after ${from}` : `on or before ${to}`;
+      parts.push(`Date: ${rangeLabel}`);
+    }
+    if (filters['tr-crimeType']) parts.push(`Crime Type: ${filters['tr-crimeType']}`);
+    if (filters['tr-sitio']) parts.push(`Sitio: ${filters['tr-sitio']}`);
+    return parts.length ? parts.join(' | ') : 'None applied';
+  })();
 
   // ===== Alerts (general trend alerts — hotspots are broken out separately below) =====
   const alerts = [];
@@ -114,20 +135,26 @@ export default function Trends() {
   const dailyResult = buildDailyPatternInsight(DAY_NAMES, byDay);
   const weeklyResult = buildCrimeTrendInsight(weeks, weeklyValues, 'Week');
 
-  const seasons = { 'Dry (Nov-Apr)': 0, 'Wet (May-Oct)': 0 };
+    const seasons = { 'Dry (Nov-Apr)': 0, 'Wet (May-Oct)': 0 };
   filtered.forEach((r) => {
     const m = parseInt(r.date.slice(5, 7), 10);
     if (m >= 5 && m <= 10) seasons['Wet (May-Oct)']++;
     else seasons['Dry (Nov-Apr)']++;
   });
+  const seasonLabels = Object.keys(seasons);
+  const seasonValues = Object.values(seasons);
+  const seasonResult = buildCategoryInsight(seasonLabels, seasonValues);
 
-  const hours = Array(24).fill(0);
+    const hours = Array(24).fill(0);
   filtered.forEach((r) => { if (r.time) hours[parseInt(r.time.split(':')[0], 10)]++; });
+  const hourLabels = hours.map((_, i) => `${String(i).padStart(2, '0')}:00`);
+  const hoursResult = buildDailyPatternInsight(hourLabels, hours);
 
   const byMonth = countBy(filtered, (r) => r.date.slice(0, 7));
   const monthKeys = Object.keys(byMonth).sort();
   const counts = monthKeys.map((m) => byMonth[m]);
   const ma = movingAverage(counts, 3);
+  const forecastResult = buildCrimeTrendInsight(monthKeys, counts, 'Month');
 
   const points = monthKeys.map((m, i) => [i, byMonth[m]]);
   const { slope, intercept } = linearRegression(points);
@@ -138,6 +165,7 @@ export default function Trends() {
   const forecast = [...regression];
   if (monthKeys.length) forecast.push(+(slope * monthKeys.length + intercept).toFixed(1));
   const regLabels = [...monthKeys, nextLabel];
+  const regressionResult = buildRegressionInsight(slope, nextLabel, forecast[forecast.length - 1]);
 
   // ===== Hotspot / location tables (shown only inside the Hotspots panel) =====
   const hotspots = SITIOS.map((s) => ({
@@ -183,63 +211,140 @@ export default function Trends() {
         {' '}Crime Type: {filters['tr-crimeType'] || 'All'} · Sitio: {filters['tr-sitio'] || 'All'}
       </div>
 
-      <div className="print-only key-findings-print">
-        <h2>KEY FINDINGS</h2>
 
-        <div className="alerts-panel">
-          {alerts.length === 0 ? (
-            <div className="alert-item success">
-              <span className="alert-icon">
-                <Icons.CheckCircle2 size={16} strokeWidth={2} />
-              </span>
-              No active alerts — crime levels within normal parameters
-            </div>
-          ) : (
-            alerts.slice(0, 8).map((a, i) => {
-              const AlertIcon = a.icon || Icons.AlertTriangle;
-
-              return (
-                <div
-                  className={`alert-item ${a.type === 'warning' ? 'warning' : ''}`}
-                  key={i}
-                >
-                  <span className="alert-icon">
-                    <AlertIcon size={16} strokeWidth={2} />
-                  </span>
-                  {a.msg}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
 
       <div className="chart-grid">
+        <div className="chart-print-unit">
         <ChartCard title="Daily Trends" type="bar" labels={DAY_NAMES}
-          datasets={[{ label: 'Incidents', data: byDay, backgroundColor: COLORS.green }]} />
+          datasets={[{ label: 'Incidents', data: byDay, backgroundColor: COLORS.green }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Daily Trends',
+              description: 'Incident volume by day of week for the currently applied filters.',
+              rowLabel: 'Day', valueLabel: 'Incidents',
+              labels: DAY_NAMES, datasets: [{ data: byDay }],
+              insight: dailyResult.insight, kpis: dailyResult.kpis,
+            });
+          }} />
         <ChartPrintSummary title="Daily Trends" rowLabel="Day" valueLabel="Incidents"
           labels={DAY_NAMES} values={byDay} insight={dailyResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Weekly Trends" type="line" labels={weeks}
-          datasets={[{ label: 'Weekly', data: weeklyValues, borderColor: COLORS.green, tension: 0.3 }]} />
+          datasets={[{ label: 'Weekly', data: weeklyValues, borderColor: COLORS.green, tension: 0.3 }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Weekly Trends',
+              description: 'Weekly incident volume for the currently applied filters.',
+              rowLabel: 'Week', valueLabel: 'Incidents',
+              labels: weeks, datasets: [{ data: weeklyValues }],
+              insight: weeklyResult.insight, kpis: weeklyResult.kpis,
+            });
+          }} />
         <ChartPrintSummary title="Weekly Trends" rowLabel="Week" valueLabel="Incidents"
           labels={weeks} values={weeklyValues} insight={weeklyResult.insight} />
+        </div>
 
-        <ChartCard title="Seasonal Trends" type="doughnut" labels={Object.keys(seasons)}
-          datasets={[{ data: Object.values(seasons), backgroundColor: [COLORS.orange, COLORS.green] }]} />
-        <ChartCard title="Peak Crime Hours" type="bar" labels={hours.map((_, i) => `${String(i).padStart(2, '0')}:00`)}
-          datasets={[{ label: 'Incidents', data: hours, backgroundColor: COLORS.orange }]} />
+        <div className="chart-print-unit">
+        <ChartCard title="Seasonal Trends" type="doughnut" labels={seasonLabels}
+          datasets={[{ data: seasonValues, backgroundColor: [COLORS.orange, COLORS.green] }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Seasonal Trends',
+              description: 'Dry vs. wet season incident split for the currently applied filters.',
+              rowLabel: 'Season', valueLabel: 'Incidents',
+              labels: seasonLabels, datasets: [{ data: seasonValues }],
+              insight: seasonResult.insight, kpis: seasonResult.kpis,
+            });
+          }} />
+        <ChartPrintSummary title="Seasonal Trends" rowLabel="Season" valueLabel="Incidents"
+          labels={seasonLabels} values={seasonValues} insight={seasonResult.insight} />
+        </div>
+
+        <div className="chart-print-unit">
+        <ChartCard title="Peak Crime Hours" type="bar" labels={hourLabels}
+          datasets={[{ label: 'Incidents', data: hours, backgroundColor: COLORS.orange }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Peak Crime Hours',
+              description: 'Incident volume by hour of day for the currently applied filters.',
+              rowLabel: 'Hour', valueLabel: 'Incidents',
+              labels: hourLabels, datasets: [{ data: hours }],
+              insight: hoursResult.insight, kpis: hoursResult.kpis,
+            });
+          }} />
+        <ChartPrintSummary title="Peak Crime Hours" rowLabel="Hour" valueLabel="Incidents"
+          labels={hourLabels} values={hours} insight={hoursResult.insight} />
+        </div>
+
+        <div className="chart-print-unit">
         <ChartCard title="Forecast (Moving Avg)" type="line" labels={monthKeys}
           datasets={[
             { label: 'Actual', data: counts, borderColor: COLORS.green, tension: 0.3 },
             { label: 'Moving Avg (3)', data: ma, borderColor: COLORS.orange, borderDash: [5, 5], tension: 0.3 },
-          ]} />
+          ]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Forecast (Moving Avg)',
+              description: 'Monthly incident volume with 3-month moving average for the currently applied filters.',
+              drillField: 'month',
+              rowLabel: 'Period', valueLabel: 'Incidents',
+              labels: monthKeys, datasets: [{ data: counts }],
+              insight: forecastResult.insight, kpis: forecastResult.kpis,
+            });
+          }} />
+        <ChartPrintSummary title="Forecast (Moving Avg)" rowLabel="Period"
+          labels={monthKeys}
+          series={[
+            { key: 'actual', label: 'Actual', values: counts },
+            { key: 'ma', label: 'Moving Avg', values: ma.map((v) => +v.toFixed(1)) },
+          ]}
+          insight={forecastResult.insight} />
+        </div>
+
+        <div className="chart-print-unit">
         <ChartCard title="Linear Regression" type="line" labels={regLabels}
           datasets={[
             { label: 'Actual', data: [...counts, null], borderColor: COLORS.green, tension: 0.3 },
             { label: 'Regression', data: forecast, borderColor: COLORS.black, borderDash: [3, 3], tension: 0.3 },
-          ]} />
+          ]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Linear Regression',
+              description: 'Linear regression forecast of monthly incident volume for the currently applied filters.',
+              drillField: 'month',
+              rowLabel: 'Period', valueLabel: 'Incidents',
+              labels: regLabels, datasets: [{ data: forecast }],
+              insight: regressionResult.insight, kpis: regressionResult.kpis,
+            });
+          }} />
+        <ChartPrintSummary title="Linear Regression" rowLabel="Period"
+          labels={regLabels}
+          series={[
+            { key: 'actual', label: 'Actual', values: [...counts, null] },
+            { key: 'regression', label: 'Regression', values: forecast },
+          ]}
+          insight={regressionResult.insight} />
+        </div>
       </div>
+
+      <ChartSummaryModal
+        open={!!selectedChart}
+        onClose={() => setSelectedChart(null)}
+        activeFiltersLabel={activeFiltersLabel}
+        {...selectedChart}
+        onDrillDown={selectedChart?.drillField ? (label) => {
+          const drillFilters = { ...baseFilters };
+          if (selectedChart.drillField === 'month') {
+            const { dateFrom, dateTo } = monthLabelToRange(label);
+            drillFilters.dateFrom = dateFrom;
+            drillFilters.dateTo = dateTo;
+          }
+          setSelectedChart(null);
+          navigate('/incident-feed', { state: { filters: drillFilters } });
+        } : undefined}
+      />
 
       <Modal open={hotspotsOpen} onClose={() => setHotspotsOpen(false)} title="Hotspots" size="lg">
         <div className="table-grid" style={{ gridTemplateColumns: '1fr' }}>

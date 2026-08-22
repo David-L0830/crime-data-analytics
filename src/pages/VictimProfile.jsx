@@ -124,7 +124,7 @@ export default function VictimProfile() {
               actions={(row) => {
                 const suspect = row.relatedCriminals && row.relatedCriminals[0];
                 return suspect ? (
-                  <Button size="sm" variant="secondary" onClick={() => navigate(`/criminal-records/${suspect.id}`)}>
+                  <Button size="sm" variant="secondary" className="print-hidden" onClick={() => navigate(`/criminal-records/${suspect.id}`)}>
                     View Case
                   </Button>
                 ) : null;

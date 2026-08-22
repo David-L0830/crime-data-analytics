@@ -82,7 +82,7 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
       <nav className="sidebar-nav" onScroll={hideNavTip}>
         {(() => {
           let lastSection = null;
-          return NAV_ITEMS.filter((item) => hasAccess(item.id)).map((item) => {
+          return NAV_ITEMS.filter((item) => hasAccess(item.id) && !(currentUser?.role === 'encoder' && item.id === 'user-management')).map((item) => {
           const NavIcon = NAV_ICONS[item.icon] || NAV_ICONS.dashboard;
           const isRecords = item.id === RECORDS_ITEM_ID;
           const showSectionLabel = !collapsed && item.section !== lastSection;

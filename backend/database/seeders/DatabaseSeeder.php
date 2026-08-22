@@ -12,7 +12,6 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             SettingSeeder::class,
             IncidentSeeder::class,
-            ResidentSeeder::class,
             CriminalSeeder::class,
             VictimSeeder::class,
             AuditLogSeeder::class,

@@ -202,16 +202,19 @@ const monthStart = `${today().slice(0, 7)}-01`;
         {' '}Status: {filters['dash-status'] || 'All'}
       </div>
 
-      <div className="kpi-grid kpi-grid-primary">
-        {primaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
-      </div>
+            <div className="dashboard-kpi-section">
+        <div className="kpi-grid kpi-grid-primary">
+          {primaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
+        </div>
 
-      <div className="kpi-secondary-label">Additional Statistics</div>
-      <div className="kpi-grid kpi-grid-secondary">
-        {secondaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
+        <div className="kpi-secondary-label">Additional Statistics</div>
+        <div className="kpi-grid kpi-grid-secondary">
+          {secondaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
+        </div>
       </div>
 
       <div className="chart-grid">
+        <div className="chart-print-unit">
         <ChartCard title="Crime Trend (Monthly)" type="line" labels={months}
           datasets={[{ label: 'Incidents', data: crimeTrendValues, borderColor: COLORS.green, backgroundColor: COLORS.greenLight, fill: true, tension: 0.3 }]}
           onOpenSummary={() => {
@@ -227,7 +230,9 @@ const monthStart = `${today().slice(0, 7)}-01`;
           }} />
         <ChartPrintSummary title="Crime Trend (Monthly)" rowLabel="Month" valueLabel="Incidents"
           labels={months} values={crimeTrendValues} insight={crimeTrendResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Crimes by Category" type="doughnut" labels={categoryLabels}
           datasets={[{ data: categoryValues, backgroundColor: COLORS.chartPalette }]}
           onOpenSummary={() => {
@@ -242,7 +247,9 @@ const monthStart = `${today().slice(0, 7)}-01`;
           }} />
         <ChartPrintSummary title="Crimes by Category" rowLabel="Category" valueLabel="Incidents"
           labels={categoryLabels} values={categoryValues} insight={categoryResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Crimes by Sitio" type="bar" labels={sitioLabels}
           datasets={[{ label: 'Incidents', data: sitioValues, backgroundColor: COLORS.green }]}
           onOpenSummary={() => {
@@ -257,7 +264,9 @@ const monthStart = `${today().slice(0, 7)}-01`;
           }} />
         <ChartPrintSummary title="Crimes by Sitio" rowLabel="Sitio" valueLabel="Incidents"
           labels={sitioLabels} values={sitioValues} insight={sitioResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Top Crime Types" type="bar" labels={crimeTypeLabels}
           datasets={[{ label: 'Count', data: crimeTypeValues, backgroundColor: COLORS.orange }]}
           options={{ indexAxis: 'y' }}
@@ -273,7 +282,9 @@ const monthStart = `${today().slice(0, 7)}-01`;
           }} />
         <ChartPrintSummary title="Top Crime Types" rowLabel="Crime Type" valueLabel="Count"
           labels={crimeTypeLabels} values={crimeTypeValues} insight={crimeTypeResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Resolution Rate Trend" type="line" labels={months}
           datasets={[{ label: 'Resolution %', data: resolutionByMonth, borderColor: COLORS.green, tension: 0.3 }]}
           onOpenSummary={() => {
@@ -289,7 +300,9 @@ const monthStart = `${today().slice(0, 7)}-01`;
           }} />
         <ChartPrintSummary title="Resolution Rate Trend" rowLabel="Month" valueLabel="Resolution %"
           labels={months} values={resolutionByMonth} insight={resolutionResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Incident Status Distribution" type="bar" labels={statusLabels}
           datasets={[{ label: 'Count', data: statusValues, backgroundColor: COLORS.statusPalette }]}
           onOpenSummary={() => {
@@ -304,6 +317,7 @@ const monthStart = `${today().slice(0, 7)}-01`;
           }} />
         <ChartPrintSummary title="Incident Status Distribution" rowLabel="Status" valueLabel="Count"
           labels={statusLabels} values={statusValues} insight={statusResult.insight} />
+        </div>
       </div>
 
       <ChartSummaryModal

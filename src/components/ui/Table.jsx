@@ -20,7 +20,7 @@ export default function Table({ columns, rows, actions, onRowClick, emptyMessage
           {columns.map((c) => (
             <th key={c.key}>{c.label}</th>
           ))}
-          {actions && <th>Actions</th>}
+          {actions && <th className="actions-col">Actions</th>}
         </tr>
       </thead>
       <tbody>
@@ -40,7 +40,7 @@ export default function Table({ columns, rows, actions, onRowClick, emptyMessage
               else val = val ?? '—';
               return <td key={c.key}>{val}</td>;
             })}
-            {actions && <td>{actions(row)}</td>}
+            {actions && <td className="actions-col">{actions(row)}</td>}
           </tr>
         ))}
       </tbody>

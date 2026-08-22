@@ -225,6 +225,13 @@ export function DataProvider({ children }) {
     refreshAuditLogs();
   }, [refreshAuditLogs]);
 
+  // ===== Criminals =====
+  const archiveCriminal = useCallback(async (id) => {
+    const updated = await criminalService.archive(id);
+    setCriminals((prev) => prev.map((c) => (c.id === id ? updated : c)));
+    refreshAuditLogs();
+  }, [refreshAuditLogs]);
+
   // ===== Notifications =====
   const markNotificationRead = useCallback(async (id) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));

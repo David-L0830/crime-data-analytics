@@ -199,3 +199,34 @@ export function buildDailyPatternInsight(labels, values) {
 
   return { insight, kpis };
 }
+
+// Forecast (Moving Avg) — Trend and Pattern Detection. Compares the
+// latest actual value against the moving average and reports the
+// average's own direction across the selected period. Takes the exact
+// `counts`/`ma` arrays already computed on the Trends page.
+export function buildForecastInsight(labels, actual, movingAvg) {
+  if (!actual.length) return { insight: 'No incident data available for the selected range.', kpis: [] };
+
+  const latestActual = actual[actual.length - 1];
+  const latestAvg = +movingAvg[movingAvg.length - 1].toFixed(1);
+  const firstAvg = +movingAvg[0].toFixed(1);
+  const avgChange = +(latestAvg - firstAvg).toFixed(1);
+  const direction = avgChange > 0 ? 'trending upward' : avgChange < 0 ? 'trending downward' : 'holding steady';
+  const relation = latestActual > latestAvg ? 'above' : latestActual < latestAvg ? 'below' : 'in line with';
+
+  const insight = `The moving average is ${direction}, moving from ${firstAvg} to ${latestAvg} incidents over the selected period. The latest period recorded ${latestActual} incidents, ${relation} its ${latestAvg}-incident moving average.`;
+
+  return { insight, kpis: [] };
+}
+
+// Linear Regression — Trend and Pattern Detection. Reports the trend's
+// direction/rate from the already-computed `slope`, and the forecasted
+// value for the next period the Trends page already calculates.
+export function buildRegressionInsight(slope, forecastLabel, forecastValue) {
+  const direction = slope > 0 ? 'an upward' : slope < 0 ? 'a downward' : 'a flat';
+  const perPeriod = Math.abs(+slope.toFixed(2));
+
+  const insight = `The linear trend shows ${direction} trajectory, changing by approximately ${perPeriod} incidents per period. Based on this trend, ${forecastLabel} is projected at approximately ${forecastValue} incidents.`;
+
+  return { insight, kpis: [] };
+}

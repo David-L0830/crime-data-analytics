@@ -8,7 +8,7 @@ return [
 
     // Never hardcoded — driven entirely by FRONTEND_URL / CORS_ALLOWED_ORIGINS
     // so dev (http://localhost:5173) and production domains both work.
-    'allowed_origins' => array_filter(array_merge(
+    'allowed_origins' => ['http://localhost:5173'], array_filter(array_merge(
         [env('FRONTEND_URL', 'http://localhost:5173')],
         explode(',', env('CORS_ALLOWED_ORIGINS', ''))
     )),

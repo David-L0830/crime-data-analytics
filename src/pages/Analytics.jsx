@@ -8,6 +8,7 @@ import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import ChartCard from '../components/charts/ChartCard';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
+import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import PrintReport from '../components/ui/PrintReport';
 import { buildCrimeTrendInsight, buildCategoryInsight, buildSitioInsight } from '../utils/chartInsights';
 import { filterRecords, countBy, mean, median, variance, stdDev, exportCSV, today } from '../utils/helpers';
@@ -15,13 +16,15 @@ import { COLORS, SITIOS } from '../utils/constants';
 
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 // ...(add to existing import block near the top)
 
 export default function Analytics() {
   const { records, settings, CATEGORIES } = useData();
   const { showToast } = useToast();
   const location = useLocation();
+  const navigate = useNavigate();
+  const [selectedChart, setSelectedChart] = useState(null);
   const [filters, setFilters] = useState(() => {
     const incoming = location.state?.filters;
     if (!incoming) return {};
@@ -35,6 +38,26 @@ export default function Analytics() {
     }),
     [records, filters]
   );
+
+  const baseFilters = {
+    category: filters['ana-category'],
+    sitio: filters['ana-sitio'],
+    dateFrom: filters['ana-dateFrom'],
+    dateTo: filters['ana-dateTo'],
+  };
+
+  const activeFiltersLabel = (() => {
+    const from = filters['ana-dateFrom'];
+    const to = filters['ana-dateTo'];
+    const parts = [];
+    if (from || to) {
+      const rangeLabel = from && to ? `${from} – ${to}` : from ? `on or after ${from}` : `on or before ${to}`;
+      parts.push(`Date: ${rangeLabel}`);
+    }
+    if (filters['ana-category']) parts.push(`Category: ${filters['ana-category']}`);
+    if (filters['ana-sitio']) parts.push(`Sitio: ${filters['ana-sitio']}`);
+    return parts.length ? parts.join(' | ') : 'None applied';
+  })();
 
   const total = filtered.length;
   const solved = filtered.filter((r) => ['Solved', 'Closed'].includes(r.status)).length;
@@ -134,46 +157,131 @@ export default function Analytics() {
         {' '}Category: {filters['ana-category'] || 'All'} · Sitio: {filters['ana-sitio'] || 'All'}
       </div>
 
-      <div className="stats-summary">
-        {stats.map((s) => (
-          <div className="stat-box" key={s.label} title={s.hint} tabIndex={s.hint ? 0 : undefined}>
-            <div className="label">{s.label}</div>
-            <div className="value">{s.value}</div>
-          </div>
-        ))}
+      <div className="analytics-stats-section">
+        <div className="stats-summary">
+          {stats.map((s) => (
+            <div className="stat-box" key={s.label} title={s.hint} tabIndex={s.hint ? 0 : undefined}>
+              <div className="label">{s.label}</div>
+              <div className="value">{s.value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="chart-grid">
+        <div className="chart-print-unit">
         <ChartCard title="Monthly Distribution" type="bar" labels={months}
-          datasets={[{ label: 'Crimes', data: months.map((m) => byMonth[m]), backgroundColor: COLORS.green }]} />
+          datasets={[{ label: 'Crimes', data: months.map((m) => byMonth[m]), backgroundColor: COLORS.green }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Monthly Distribution',
+              description: 'Incident volume by month (combined across years) for the currently applied filters.',
+              rowLabel: 'Month', valueLabel: 'Crimes',
+              labels: months, datasets: [{ data: monthlyPrintValues }],
+              insight: monthlyTrendResult.insight, kpis: monthlyTrendResult.kpis,
+            });
+          }} />
         <ChartPrintSummary title="Monthly Distribution" rowLabel="Month" valueLabel="Crimes"
           labels={months} values={monthlyPrintValues} insight={monthlyTrendResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Yearly Comparison" type="line" labels={years}
-          datasets={[{ label: 'Crimes', data: years.map((y) => byYear[y]), borderColor: COLORS.orange, tension: 0.3 }]} />
+          datasets={[{ label: 'Crimes', data: years.map((y) => byYear[y]), borderColor: COLORS.orange, tension: 0.3 }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Yearly Comparison',
+              description: 'Incident volume by year for the currently applied filters.',
+              rowLabel: 'Year', valueLabel: 'Crimes',
+              labels: years, datasets: [{ data: yearlyPrintValues }],
+              insight: yearlyTrendResult.insight, kpis: yearlyTrendResult.kpis,
+            });
+          }} />
         <ChartPrintSummary title="Yearly Comparison" rowLabel="Year" valueLabel="Crimes"
           labels={years} values={yearlyPrintValues} insight={yearlyTrendResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Category Distribution" type="pie" labels={Object.keys(byCat)}
-          datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]} />
+          datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Category Distribution',
+              description: 'Distribution of incidents across crime categories for the currently applied filters.',
+              drillField: 'category',
+              rowLabel: 'Category', valueLabel: 'Incidents',
+              labels: categoryPrintLabels, datasets: [{ data: categoryPrintValues }],
+              insight: categoryPrintResult.insight, kpis: categoryPrintResult.kpis,
+            });
+          }} />
         <ChartPrintSummary title="Category Distribution" rowLabel="Category" valueLabel="Incidents"
           labels={categoryPrintLabels} values={categoryPrintValues} insight={categoryPrintResult.insight} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Gender Distribution" type="doughnut" labels={Object.keys(byGender)}
-          datasets={[{ data: Object.values(byGender), backgroundColor: [COLORS.green, COLORS.orange] }]} />
+          datasets={[{ data: Object.values(byGender), backgroundColor: [COLORS.green, COLORS.orange] }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Gender Distribution',
+              description: 'Distribution of victim gender for the currently applied filters.',
+              rowLabel: 'Gender', valueLabel: 'Incidents',
+              labels: Object.keys(byGender), datasets: [{ data: Object.values(byGender) }],
+            });
+          }} />
         <ChartPrintSummary title="Gender Distribution" rowLabel="Gender" valueLabel="Incidents"
           labels={Object.keys(byGender)} values={Object.values(byGender)} />
+        </div>
 
+        <div className="chart-print-unit">
         <ChartCard title="Age Distribution" type="bar" labels={ageBins}
-          datasets={[{ label: 'Victims', data: ageCounts, backgroundColor: COLORS.black }]} />
+          datasets={[{ label: 'Victims', data: ageCounts, backgroundColor: COLORS.black }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Age Distribution',
+              description: 'Distribution of victim age groups for the currently applied filters.',
+              rowLabel: 'Age Range', valueLabel: 'Victims',
+              labels: ageBins, datasets: [{ data: ageCounts }],
+            });
+          }} />
         <ChartPrintSummary title="Age Distribution" rowLabel="Age Range" valueLabel="Victims"
           labels={ageBins} values={ageCounts} />
+        </div>
 
-        <ChartCard title="Sitio Breakdown" type="bar" labels={Object.keys(bySitio)}
-          datasets={[{ label: 'Incidents', data: Object.values(bySitio), backgroundColor: COLORS.orange }]} />
+        <div className="chart-print-unit">
+        <ChartCard title="Sitio Breakdown" type="bar" labels={sitioPrintLabels}
+          datasets={[{ label: 'Incidents', data: sitioPrintValues, backgroundColor: COLORS.orange }]}
+          onOpenSummary={() => {
+            setSelectedChart({
+              title: 'Sitio Breakdown',
+              description: 'Incident volume by sitio for the currently applied filters.',
+              drillField: 'sitio',
+              rowLabel: 'Sitio', valueLabel: 'Incidents',
+              labels: sitioPrintLabels, datasets: [{ data: sitioPrintValues }],
+              insight: sitioPrintResult.insight, kpis: sitioPrintResult.kpis,
+            });
+          }} />
         <ChartPrintSummary title="Sitio Breakdown" rowLabel="Sitio" valueLabel="Incidents"
           labels={sitioPrintLabels} values={sitioPrintValues} insight={sitioPrintResult.insight} />
+        </div>
       </div>
+
+      <ChartSummaryModal
+        open={!!selectedChart}
+        onClose={() => setSelectedChart(null)}
+        activeFiltersLabel={activeFiltersLabel}
+        {...selectedChart}
+        onDrillDown={selectedChart?.drillField ? (label) => {
+          const drillFilters = { ...baseFilters };
+          if (selectedChart.drillField === 'category') {
+            drillFilters.category = label;
+          } else if (selectedChart.drillField === 'sitio') {
+            drillFilters.sitio = label;
+          }
+          setSelectedChart(null);
+          navigate('/incident-feed', { state: { filters: drillFilters } });
+        } : undefined}
+      />
 
       <Card title="Statistical Measures">
         <div className="stat-measures">
@@ -192,9 +300,7 @@ export default function Analytics() {
 
       <div className="export-bar">
         <Button variant="secondary" onClick={() => { window.print(); showToast('Use browser print dialog to save as PDF', 'info'); }}><Icons.Report size={15} strokeWidth={2} /> Export PDF</Button>
-        <Button variant="secondary" onClick={() => { if (exportCSV(filtered, `brgy178_analytics_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Analytics exported', 'success'); }}><Icons.Download size={15} strokeWidth={2} /> Export CSV</Button>
         <Button variant="secondary" onClick={() => { if (exportCSV(filtered, `brgy178_analytics_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Analytics exported', 'success'); }}><Icons.Report size={15} strokeWidth={2} /> Export Excel</Button>
-        <Button variant="secondary" onClick={() => window.print()}><Icons.Printer size={15} strokeWidth={2} /> Print Report</Button>
       </div>
     </section>
   );

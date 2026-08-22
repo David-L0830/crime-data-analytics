@@ -9,19 +9,30 @@ import Table from '../ui/Table';
 // ChartSummaryModal.jsx already uses), so no new table markup/styling is
 // introduced. This file is independent of ChartSummaryModal.jsx — it
 // doesn't import from it and doesn't need any change there.
-export default function ChartPrintSummary({ title, rowLabel = 'Label', valueLabel = 'Value', labels, values, insight }) {
+export default function ChartPrintSummary({ title, rowLabel = 'Label', valueLabel = 'Value', labels, values, series, insight }) {
   if (!labels || labels.length === 0) return null;
 
-  const rows = labels.map((label, i) => ({ label, value: values[i] ?? 0 }));
+  // `series` is optional — pass an array of { key, label, values } to get a
+  // multi-column table (e.g. Actual vs Moving Avg). Every existing call
+  // site keeps using the plain `values` prop and is unaffected.
+  const columns = series
+    ? [{ key: 'label', label: rowLabel }, ...series.map((s) => ({ key: s.key, label: s.label }))]
+    : [{ key: 'label', label: rowLabel }, { key: 'value', label: valueLabel }];
+
+  const rows = labels.map((label, i) => {
+    if (series) {
+      const row = { label };
+      series.forEach((s) => { row[s.key] = s.values[i] ?? '—'; });
+      return row;
+    }
+    return { label, value: values[i] ?? 0 };
+  });
 
   return (
     <div className="print-only chart-print-summary">
       <div className="chart-print-summary-heading">{title} — Data Summary</div>
       <Table
-        columns={[
-          { key: 'label', label: rowLabel },
-          { key: 'value', label: valueLabel },
-        ]}
+        columns={columns}
         rows={rows}
       />
       {insight && (

@@ -4,6 +4,8 @@
 
 export const SITIOS = ['Sitio 1', 'Sitio 2', 'Sitio 3', 'Sitio 4', 'Sitio 5', 'Sitio 6', 'Sitio 7'];
 
+export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 export const STREETS = {
   'Sitio 1': ['Mabuhay St.', 'Kalayaan St.', 'Pascua St.', 'San Jose St.', 'Rizal St.'],
   'Sitio 2': ['Bonifacio St.', 'Luna St.', 'Jacinto St.', 'Mabini St.', 'Del Pilar St.'],
@@ -30,7 +32,6 @@ export const TYPE_CATEGORY_MAP = {
 
 export const STATUSES = ['Open', 'Under Investigation', 'Solved', 'Closed', 'Archived'];
 export const CRIMINAL_STATUSES = ['Active', 'Wanted', 'Incarcerated', 'Released', 'Deceased', 'Archived'];
-export const RESIDENT_STATUSES = ['Active', 'Inactive', 'Deceased', 'Transferred', 'Archived'];
 export const VICTIM_STATUSES = ['Active', 'Archived'];
 
 export const OFFICERS = ['PO1 Santos', 'PO2 Reyes', 'PO3 Cruz', 'SPO1 Garcia', 'SPO2 Mendoza', 'Insp. Torres'];
