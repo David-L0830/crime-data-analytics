@@ -6,11 +6,13 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import FilterBar from '../components/ui/FilterBar';
+import KpiCard from '../components/ui/KpiCard';
+import Table from '../components/ui/Table';
 import ChartCard from '../components/charts/ChartCard';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import Button from '../components/ui/Button';
 import PrintReport from '../components/ui/PrintReport';
-import { filterRecords, countBy, formatDate, exportCSV, today, monthLabelToRange } from '../utils/helpers';
+import { filterRecords, countBy, formatDate, exportCSV, today, monthLabelToRange, SOLVED_STATUSES, PENDING_STATUSES } from '../utils/helpers';
 import {
   buildCrimeTrendInsight, buildCategoryInsight, buildSitioInsight,
   buildCrimeTypeInsight, buildResolutionInsight, buildStatusInsight,
@@ -20,7 +22,8 @@ import { Icons } from '../components/icons';
 
 export default function Dashboard() {
   const {
-    records, settings, SITIOS, CRIME_TYPES, STATUSES,
+    records, settings, SITIOS, CRIME_TYPES, CATEGORIES, STATUSES,
+    getTodayImportedCount, getThisMonthImportedCount,
   } = useData();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
@@ -37,11 +40,20 @@ export default function Dashboard() {
       // includes every incident on that date, and leaving either field
       // blank leaves that bound undefined (no accidental empty dataset).
       dateFrom: filters['dash-dateFrom'], dateTo: filters['dash-dateTo'],
-      crimeType: filters['dash-crimeType'], sitio: filters['dash-sitio'], status: filters['dash-status'],
+      crimeType: filters['dash-crimeType'], category: filters['dash-category'],
+      sitio: filters['dash-sitio'], status: filters['dash-status'],
     }),
     [records, filters]
   );
 
+  const total = filtered.length;
+  const solved = filtered.filter((r) => SOLVED_STATUSES.includes(r.status)).length;
+  const unsolved = filtered.filter((r) => PENDING_STATUSES.includes(r.status)).length;
+  const active = filtered.filter((r) => r.status === 'Under Investigation').length;
+  const resolution = total ? ((solved / total) * 100).toFixed(1) : 0;
+  const crimeRate = settings.population ? ((total / settings.population) * 1000).toFixed(2) : 0;
+  const todayCount = filtered.filter((r) => r.date === today()).length;
+  const monthCount = filtered.filter((r) => r.date.startsWith(today().slice(0, 7))).length;
 
   // Checkpoint 26 — human-readable description of the currently-applied
   // date range, used in the KPI hover hints below so hovering a card tells
@@ -65,6 +77,7 @@ export default function Dashboard() {
     const parts = [];
     if (filters['dash-dateFrom'] || filters['dash-dateTo']) parts.push(`Date: ${rangeLabel}`);
     if (filters['dash-crimeType']) parts.push(`Crime Type: ${filters['dash-crimeType']}`);
+    if (filters['dash-category']) parts.push(`Category: ${filters['dash-category']}`);
     if (filters['dash-sitio']) parts.push(`Sitio: ${filters['dash-sitio']}`);
     if (filters['dash-status']) parts.push(`Status: ${filters['dash-status']}`);
     return parts.length ? parts.join(' | ') : 'None applied';
@@ -72,12 +85,44 @@ export default function Dashboard() {
 
   const baseFilters = {
   crimeType: filters['dash-crimeType'],
+  category: filters['dash-category'],
   sitio: filters['dash-sitio'],
   status: filters['dash-status'],
   dateFrom: filters['dash-dateFrom'],
   dateTo: filters['dash-dateTo'],
 };
 
+const monthStart = `${today().slice(0, 7)}-01`;
+
+  const allKpis = [
+    { label: 'Total Incidents', value: total, cls: 'accent', hint: `All non-archived incidents for ${rangeLabel}.`,
+      to: '/incident-feed', state: { filters: baseFilters } },
+    { label: 'Solved Cases', value: solved, cls: 'success', hint: `Incidents marked Solved or Closed for ${rangeLabel}.`,
+      to: '/incident-feed', state: { filters: baseFilters, statusGroup: 'solved' } },
+    { label: 'Pending Cases', value: unsolved, cls: 'danger', hint: `Incidents marked Open or Under Investigation for ${rangeLabel}.`,
+      to: '/incident-feed', state: { filters: baseFilters, statusGroup: 'pending' } },
+    { label: 'Active Investigations', value: active, cls: 'warning',
+      to: '/incident-feed', state: { filters: { ...baseFilters, status: 'Under Investigation' } } },
+    { label: 'Resolution Rate', value: `${resolution}%`, cls: 'success',
+      to: '/analytics', state: { filters: { dateFrom: filters['dash-dateFrom'], dateTo: filters['dash-dateTo'], sitio: filters['dash-sitio'] } } },
+    { label: 'Crime Rate /1K', value: crimeRate, cls: 'accent',
+      to: '/analytics', state: { filters: { dateFrom: filters['dash-dateFrom'], dateTo: filters['dash-dateTo'], sitio: filters['dash-sitio'] } } },
+    { label: "Today's Incidents", value: todayCount, cls: 'orange',
+      to: '/incident-feed', state: { filters: { ...baseFilters, dateFrom: today(), dateTo: today() } } },
+    { label: 'This Month', value: monthCount, cls: 'info',
+      to: '/incident-feed', state: { filters: { ...baseFilters, dateFrom: monthStart, dateTo: undefined } } },
+    { label: 'Today Imported', value: getTodayImportedCount(), cls: 'accent', hint: 'Records received via sync today — tracks sync activity, independent of the date range filter above.',
+      to: '/audit-logs', state: { filters: { action: 'SYNC_COMPLETED', dateFrom: today(), dateTo: today() } } },
+    { label: 'Month Imported', value: getThisMonthImportedCount(), cls: 'info', hint: 'Records received via sync this calendar month — tracks sync activity, independent of the date range filter above.',
+      to: '/audit-logs', state: { filters: { action: 'SYNC_COMPLETED', dateFrom: monthStart, dateTo: undefined } } },
+  ];
+
+  // Phase 4 — visual hierarchy split only. Same KPI objects as above (no
+  // calculation, label, or data change) — just grouped into a primary row
+  // (headline stats) and a secondary row (supporting stats) for layout.
+  const PRIMARY_KPI_LABELS = ['Total Incidents', 'Solved Cases', 'Pending Cases', 'Resolution Rate'];
+  const primaryKpis = allKpis.filter((k) => PRIMARY_KPI_LABELS.includes(k.label));
+  const secondaryKpis = allKpis.filter((k) => !PRIMARY_KPI_LABELS.includes(k.label));
 
   // ===== Charts =====
   const monthly = countBy(filtered, (r) => r.date.slice(0, 7));
@@ -122,6 +167,14 @@ export default function Dashboard() {
   const statusResult = buildStatusInsight(statusLabels, statusValues);
 
   // ===== Tables =====
+  const recent = [...filtered].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)).slice(0, 8);
+  const locCounts = countBy(filtered, (r) => `${r.sitio}|${r.street}`);
+  const hotspots = Object.entries(locCounts).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([k, count]) => { const [sitio, location] = k.split('|'); return { location, sitio, count }; });
+  const suspectCounts = countBy(filtered.filter((r) => r.suspectName), 'suspectName');
+  const repeat = Object.entries(suspectCounts).filter(([, c]) => c > 1).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([name, count]) => ({ name, count }));
+  const synced = [...filtered].filter((r) => r.synced_at).sort((a, b) => new Date(b.synced_at) - new Date(a.synced_at)).slice(0, 5);
 
   return (
     <section className="module">
@@ -136,6 +189,7 @@ export default function Dashboard() {
           { id: 'dash-dateFrom', label: 'From', type: 'date' },
           { id: 'dash-dateTo', label: 'To', type: 'date' },
           { id: 'dash-crimeType', label: 'Crime Type', type: 'select', options: CRIME_TYPES },
+          { id: 'dash-category', label: 'Category', type: 'select', options: CATEGORIES },
           { id: 'dash-sitio', label: 'Sitio', type: 'select', options: SITIOS },
           { id: 'dash-status', label: 'Status', type: 'select', options: STATUSES },
         ]}
@@ -149,14 +203,23 @@ export default function Dashboard() {
       <div className="print-only" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
         <strong>Filters applied:</strong>{' '}
         From: {filters['dash-dateFrom'] || 'Any'} · To: {filters['dash-dateTo'] || 'Any'} ·
-        {' '}Crime Type: {filters['dash-crimeType'] || 'All'} · Sitio: {filters['dash-sitio'] || 'All'} ·
+        {' '}Crime Type: {filters['dash-crimeType'] || 'All'} · Category: {filters['dash-category'] || 'All'} ·
+        {' '}Sitio: {filters['dash-sitio'] || 'All'} ·
         {' '}Status: {filters['dash-status'] || 'All'}
       </div>
 
+            <div className="dashboard-kpi-section">
+        <div className="kpi-grid kpi-grid-primary">
+          {primaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
+        </div>
+
+        <div className="kpi-secondary-label">Additional Statistics</div>
+        <div className="kpi-grid kpi-grid-secondary">
+          {secondaryKpis.map((k) => <KpiCard key={k.label} {...k} />)}
+        </div>
+      </div>
 
       <MetabaseDashboard dashboardKey="crime" filters={baseFilters} title="Crime Dashboard" height={2400} />
-
-      <MetabaseDashboard dashboardKey="crime_summary" filters={baseFilters} title="Crime Summary" height={2400} />
 
       <ChartSummaryModal
         open={!!selectedChart}
@@ -183,6 +246,57 @@ export default function Dashboard() {
         } : undefined}
       />
 
+
+      <div className="table-grid dashboard-lower-grid">
+        <div className="card">
+          <h3>Recent Incidents</h3>
+          <div className="table-wrap">
+            <Table
+              columns={[
+                { key: 'caseNumber', label: 'Case #' },
+                { key: 'crimeType', label: 'Type' },
+                { key: 'date', label: 'Date', render: formatDate },
+                { key: 'sitio', label: 'Sitio' },
+                { key: 'status', label: 'Status' },
+              ]}
+              rows={recent}
+            />
+          </div>
+        </div>
+        <div className="card">
+          <h3>Hotspot Locations</h3>
+          <div className="table-wrap">
+            <Table
+              columns={[
+                { key: 'location', label: 'Location' },
+                { key: 'sitio', label: 'Sitio' },
+                { key: 'count', label: 'Incidents' },
+              ]}
+              rows={hotspots}
+            />
+          </div>
+        </div>
+        <div className="card">
+          <h3>Repeat Offenders</h3>
+          <div className="table-wrap">
+            <Table columns={[{ key: 'name', label: 'Suspect' }, { key: 'count', label: 'Incidents' }]} rows={repeat} />
+          </div>
+        </div>
+        <div className="card">
+          <h3>Recently Synchronized</h3>
+          <div className="table-wrap">
+            <Table
+              columns={[
+                { key: 'caseNumber', label: 'Case #' },
+                { key: 'crimeType', label: 'Type' },
+                { key: 'date', label: 'Date', render: formatDate },
+                { key: 'synced_at', label: 'Synced', render: (v) => (v ? new Date(v).toLocaleString('en-PH') : '—') },
+              ]}
+              rows={synced}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="export-bar">
         <Button variant="secondary" onClick={() => { window.print(); showToast('Use browser print dialog to save as PDF', 'info'); }}><Icons.Report size={15} strokeWidth={2} /> Export PDF</Button>

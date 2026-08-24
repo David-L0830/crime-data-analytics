@@ -46,6 +46,25 @@ class MetabaseEmbedService
 
         $siteUrl = rtrim(config('metabase.site_url'), '/');
 
-        return "$siteUrl/embed/dashboard/$token#bordered=true&titled=true";
+        // Hash-fragment display options. Everything here is read by Metabase's
+        // embed page in the browser — the token above, and the parameters baked
+        // into it, are unaffected by anything appended to this fragment.
+        // Appearance defaults match Metabase's own, so a dashboard with no
+        // entry in config('metabase.appearance') keeps its previous fragment.
+        $appearance = config("metabase.appearance.$dashboardKey")
+            ?: ['bordered' => 'true', 'titled' => 'true'];
+
+        $parts = [];
+        foreach ($appearance as $option => $value) {
+            $parts[] = $option.'='.$value;
+        }
+        $fragment = implode('&', $parts);
+
+        $hidden = config("metabase.hidden_parameters.$dashboardKey", []);
+        if ($hidden) {
+            $fragment .= '&hide_parameters='.implode(',', $hidden);
+        }
+
+        return "$siteUrl/embed/dashboard/$token#$fragment";
     }
 }

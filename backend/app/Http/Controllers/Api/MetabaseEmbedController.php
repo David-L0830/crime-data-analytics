@@ -15,10 +15,10 @@ class MetabaseEmbedController extends Controller
     public function __construct(private MetabaseEmbedService $metabase) {}
 
     // GET /api/embed/metabase/{dashboardKey} — dashboardKey is
-    // 'crime' | 'analytics' | 'trends' | 'crime_summary' (see routes/api.php).
+    // 'crime' | 'analytics' | 'trends' (see routes/api.php).
     public function show(Request $request, string $dashboardKey)
     {
-        if (! in_array($dashboardKey, ['crime', 'analytics', 'trends', 'crime_summary'], true)) {
+        if (! in_array($dashboardKey, ['crime', 'analytics', 'trends'], true)) {
             return response()->json(['message' => 'Unknown dashboard.'], 404);
         }
 

@@ -13,7 +13,7 @@ import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import PrintReport from '../components/ui/PrintReport';
 import { buildCrimeTrendInsight, buildCategoryInsight, buildSitioInsight } from '../utils/chartInsights';
 import { filterRecords, countBy, mean, median, variance, stdDev, exportCSV, today } from '../utils/helpers';
-import { COLORS, SITIOS } from '../utils/constants';
+import { COLORS, SITIOS, CRIME_TYPES, STATUSES } from '../utils/constants';
 
 const MONTH_ORDER = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -36,13 +36,16 @@ export default function Analytics() {
     () => filterRecords(records.filter((r) => r.status !== 'Archived'), {
       dateFrom: filters['ana-dateFrom'], dateTo: filters['ana-dateTo'],
       category: filters['ana-category'], sitio: filters['ana-sitio'],
+      crimeType: filters['ana-crimeType'], status: filters['ana-status'],
     }),
     [records, filters]
   );
 
   const baseFilters = {
     category: filters['ana-category'],
+    crimeType: filters['ana-crimeType'],
     sitio: filters['ana-sitio'],
+    status: filters['ana-status'],
     dateFrom: filters['ana-dateFrom'],
     dateTo: filters['ana-dateTo'],
   };
@@ -56,7 +59,9 @@ export default function Analytics() {
       parts.push(`Date: ${rangeLabel}`);
     }
     if (filters['ana-category']) parts.push(`Category: ${filters['ana-category']}`);
+    if (filters['ana-crimeType']) parts.push(`Crime Type: ${filters['ana-crimeType']}`);
     if (filters['ana-sitio']) parts.push(`Sitio: ${filters['ana-sitio']}`);
+    if (filters['ana-status']) parts.push(`Status: ${filters['ana-status']}`);
     return parts.length ? parts.join(' | ') : 'None applied';
   })();
 
@@ -143,7 +148,9 @@ export default function Analytics() {
           { id: 'ana-dateFrom', label: 'From', type: 'date' },
           { id: 'ana-dateTo', label: 'To', type: 'date' },
           { id: 'ana-category', label: 'Category', type: 'select', options: CATEGORIES },
+          { id: 'ana-crimeType', label: 'Crime Type', type: 'select', options: CRIME_TYPES },
           { id: 'ana-sitio', label: 'Sitio', type: 'select', options: SITIOS },
+          { id: 'ana-status', label: 'Status', type: 'select', options: STATUSES },
         ]}
         onApply={setFilters}
       />
@@ -155,7 +162,8 @@ export default function Analytics() {
       <div className="print-only" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
         <strong>Filters applied:</strong>{' '}
         From: {filters['ana-dateFrom'] || 'Any'} · To: {filters['ana-dateTo'] || 'Any'} ·
-        {' '}Category: {filters['ana-category'] || 'All'} · Sitio: {filters['ana-sitio'] || 'All'}
+        {' '}Category: {filters['ana-category'] || 'All'} · Crime Type: {filters['ana-crimeType'] || 'All'} ·
+        {' '}Sitio: {filters['ana-sitio'] || 'All'} · Status: {filters['ana-status'] || 'All'}
       </div>
 
       <div className="analytics-stats-section">

@@ -14,7 +14,7 @@ import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import { filterRecords, countBy, movingAverage, linearRegression, monthLabelToRange } from '../utils/helpers';
 import { buildDailyPatternInsight, buildCrimeTrendInsight, buildCategoryInsight, buildRegressionInsight } from '../utils/chartInsights';
-import { COLORS, SITIOS, CRIME_TYPES, DAY_NAMES } from '../utils/constants';
+import { COLORS, SITIOS, CRIME_TYPES, STATUSES, DAY_NAMES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
 export default function Trends() {
@@ -57,6 +57,7 @@ export default function Trends() {
     () => filterRecords(records.filter((r) => r.status !== 'Archived'), {
       dateFrom: filters['tr-dateFrom'], dateTo: filters['tr-dateTo'],
       crimeType: filters['tr-crimeType'], sitio: filters['tr-sitio'],
+      status: filters['tr-status'],
     }),
     [records, filters]
   );
@@ -64,6 +65,7 @@ export default function Trends() {
   const baseFilters = {
     crimeType: filters['tr-crimeType'],
     sitio: filters['tr-sitio'],
+    status: filters['tr-status'],
     dateFrom: filters['tr-dateFrom'],
     dateTo: filters['tr-dateTo'],
   };
@@ -78,6 +80,7 @@ export default function Trends() {
     }
     if (filters['tr-crimeType']) parts.push(`Crime Type: ${filters['tr-crimeType']}`);
     if (filters['tr-sitio']) parts.push(`Sitio: ${filters['tr-sitio']}`);
+    if (filters['tr-status']) parts.push(`Status: ${filters['tr-status']}`);
     return parts.length ? parts.join(' | ') : 'None applied';
   })();
 
@@ -192,6 +195,7 @@ export default function Trends() {
           { id: 'tr-dateTo', label: 'To', type: 'date' },
           { id: 'tr-crimeType', label: 'Crime Type', type: 'select', options: CRIME_TYPES },
           { id: 'tr-sitio', label: 'Sitio', type: 'select', options: SITIOS },
+          { id: 'tr-status', label: 'Status', type: 'select', options: STATUSES },
         ]}
         onApply={setFilters}
         actions={(
@@ -209,7 +213,8 @@ export default function Trends() {
       <div className="print-only" style={{ marginBottom: 14, fontSize: '0.82rem' }}>
         <strong>Filters applied:</strong>{' '}
         From: {filters['tr-dateFrom'] || 'Any'} · To: {filters['tr-dateTo'] || 'Any'} ·
-        {' '}Crime Type: {filters['tr-crimeType'] || 'All'} · Sitio: {filters['tr-sitio'] || 'All'}
+        {' '}Crime Type: {filters['tr-crimeType'] || 'All'} · Sitio: {filters['tr-sitio'] || 'All'} ·
+        {' '}Status: {filters['tr-status'] || 'All'}
       </div>
 
 
