@@ -38,7 +38,7 @@ class MetabaseEmbedService
 
         $payload = [
             'resource' => ['dashboard' => (int) $dashboardId],
-            'params' => $params,
+            'params' => (object) $params,
             'exp' => now()->addSeconds(config('metabase.token_ttl', 600))->timestamp,
         ];
 

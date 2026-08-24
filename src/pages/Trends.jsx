@@ -9,6 +9,7 @@ import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import PrintReport from '../components/ui/PrintReport';
 import ChartCard from '../components/charts/ChartCard';
+import MetabaseDashboard from '../components/MetabaseDashboard';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import { filterRecords, countBy, movingAverage, linearRegression, monthLabelToRange } from '../utils/helpers';
@@ -213,121 +214,7 @@ export default function Trends() {
 
 
 
-      <div className="chart-grid">
-        <div className="chart-print-unit">
-        <ChartCard title="Daily Trends" type="bar" labels={DAY_NAMES}
-          datasets={[{ label: 'Incidents', data: byDay, backgroundColor: COLORS.green }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Daily Trends',
-              description: 'Incident volume by day of week for the currently applied filters.',
-              rowLabel: 'Day', valueLabel: 'Incidents',
-              labels: DAY_NAMES, datasets: [{ data: byDay }],
-              insight: dailyResult.insight, kpis: dailyResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Daily Trends" rowLabel="Day" valueLabel="Incidents"
-          labels={DAY_NAMES} values={byDay} insight={dailyResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Weekly Trends" type="line" labels={weeks}
-          datasets={[{ label: 'Weekly', data: weeklyValues, borderColor: COLORS.green, tension: 0.3 }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Weekly Trends',
-              description: 'Weekly incident volume for the currently applied filters.',
-              rowLabel: 'Week', valueLabel: 'Incidents',
-              labels: weeks, datasets: [{ data: weeklyValues }],
-              insight: weeklyResult.insight, kpis: weeklyResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Weekly Trends" rowLabel="Week" valueLabel="Incidents"
-          labels={weeks} values={weeklyValues} insight={weeklyResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Seasonal Trends" type="doughnut" labels={seasonLabels}
-          datasets={[{ data: seasonValues, backgroundColor: [COLORS.orange, COLORS.green] }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Seasonal Trends',
-              description: 'Dry vs. wet season incident split for the currently applied filters.',
-              rowLabel: 'Season', valueLabel: 'Incidents',
-              labels: seasonLabels, datasets: [{ data: seasonValues }],
-              insight: seasonResult.insight, kpis: seasonResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Seasonal Trends" rowLabel="Season" valueLabel="Incidents"
-          labels={seasonLabels} values={seasonValues} insight={seasonResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Peak Crime Hours" type="bar" labels={hourLabels}
-          datasets={[{ label: 'Incidents', data: hours, backgroundColor: COLORS.orange }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Peak Crime Hours',
-              description: 'Incident volume by hour of day for the currently applied filters.',
-              rowLabel: 'Hour', valueLabel: 'Incidents',
-              labels: hourLabels, datasets: [{ data: hours }],
-              insight: hoursResult.insight, kpis: hoursResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Peak Crime Hours" rowLabel="Hour" valueLabel="Incidents"
-          labels={hourLabels} values={hours} insight={hoursResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Forecast (Moving Avg)" type="line" labels={monthKeys}
-          datasets={[
-            { label: 'Actual', data: counts, borderColor: COLORS.green, tension: 0.3 },
-            { label: 'Moving Avg (3)', data: ma, borderColor: COLORS.orange, borderDash: [5, 5], tension: 0.3 },
-          ]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Forecast (Moving Avg)',
-              description: 'Monthly incident volume with 3-month moving average for the currently applied filters.',
-              drillField: 'month',
-              rowLabel: 'Period', valueLabel: 'Incidents',
-              labels: monthKeys, datasets: [{ data: counts }],
-              insight: forecastResult.insight, kpis: forecastResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Forecast (Moving Avg)" rowLabel="Period"
-          labels={monthKeys}
-          series={[
-            { key: 'actual', label: 'Actual', values: counts },
-            { key: 'ma', label: 'Moving Avg', values: ma.map((v) => +v.toFixed(1)) },
-          ]}
-          insight={forecastResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Linear Regression" type="line" labels={regLabels}
-          datasets={[
-            { label: 'Actual', data: [...counts, null], borderColor: COLORS.green, tension: 0.3 },
-            { label: 'Regression', data: forecast, borderColor: COLORS.black, borderDash: [3, 3], tension: 0.3 },
-          ]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Linear Regression',
-              description: 'Linear regression forecast of monthly incident volume for the currently applied filters.',
-              drillField: 'month',
-              rowLabel: 'Period', valueLabel: 'Incidents',
-              labels: regLabels, datasets: [{ data: forecast }],
-              insight: regressionResult.insight, kpis: regressionResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Linear Regression" rowLabel="Period"
-          labels={regLabels}
-          series={[
-            { key: 'actual', label: 'Actual', values: [...counts, null] },
-            { key: 'regression', label: 'Regression', values: forecast },
-          ]}
-          insight={regressionResult.insight} />
-        </div>
-      </div>
+      <MetabaseDashboard dashboardKey="trends" filters={baseFilters} height={2000} />
 
       <ChartSummaryModal
         open={!!selectedChart}
@@ -401,7 +288,7 @@ export default function Trends() {
         </div>
       </Modal>
 
-      <div className="export-bar">
+<div className="export-bar">
         <Button
           variant="secondary"
           onClick={() => { window.print(); showToast('Use browser print dialog to save as PDF', 'info'); }}

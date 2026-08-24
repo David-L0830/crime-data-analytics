@@ -6,10 +6,12 @@ import { Icons } from './icons';
 // fresh, short-lived embed URL from the Laravel API on mount (and
 // whenever `dashboardKey` changes) — the actual Metabase secret never
 // reaches this component; it only ever receives the finished URL.
-export default function MetabaseDashboard({ dashboardKey, title, height = 800 }) {
+export default function MetabaseDashboard({ dashboardKey, filters = {}, title, height = 800 }) {
   const [url, setUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const filterKey = JSON.stringify(filters);
 
   useEffect(() => {
     let cancelled = false;
@@ -17,7 +19,7 @@ export default function MetabaseDashboard({ dashboardKey, title, height = 800 })
     setError(null);
 
     metabaseService
-      .embedUrl(dashboardKey)
+      .embedUrl(dashboardKey, filters)
       .then((data) => {
         if (!cancelled) setUrl(data?.url || null);
       })
@@ -31,7 +33,8 @@ export default function MetabaseDashboard({ dashboardKey, title, height = 800 })
     return () => {
       cancelled = true;
     };
-  }, [dashboardKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboardKey, filterKey]);
 
   if (loading) {
     return (

@@ -7,6 +7,7 @@ import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import ChartCard from '../components/charts/ChartCard';
+import MetabaseDashboard from '../components/MetabaseDashboard';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import PrintReport from '../components/ui/PrintReport';
@@ -168,103 +169,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      <div className="chart-grid">
-        <div className="chart-print-unit">
-        <ChartCard title="Monthly Distribution" type="bar" labels={months}
-          datasets={[{ label: 'Crimes', data: months.map((m) => byMonth[m]), backgroundColor: COLORS.green }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Monthly Distribution',
-              description: 'Incident volume by month (combined across years) for the currently applied filters.',
-              rowLabel: 'Month', valueLabel: 'Crimes',
-              labels: months, datasets: [{ data: monthlyPrintValues }],
-              insight: monthlyTrendResult.insight, kpis: monthlyTrendResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Monthly Distribution" rowLabel="Month" valueLabel="Crimes"
-          labels={months} values={monthlyPrintValues} insight={monthlyTrendResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Yearly Comparison" type="line" labels={years}
-          datasets={[{ label: 'Crimes', data: years.map((y) => byYear[y]), borderColor: COLORS.orange, tension: 0.3 }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Yearly Comparison',
-              description: 'Incident volume by year for the currently applied filters.',
-              rowLabel: 'Year', valueLabel: 'Crimes',
-              labels: years, datasets: [{ data: yearlyPrintValues }],
-              insight: yearlyTrendResult.insight, kpis: yearlyTrendResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Yearly Comparison" rowLabel="Year" valueLabel="Crimes"
-          labels={years} values={yearlyPrintValues} insight={yearlyTrendResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Category Distribution" type="pie" labels={Object.keys(byCat)}
-          datasets={[{ data: Object.values(byCat), backgroundColor: COLORS.chartPalette }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Category Distribution',
-              description: 'Distribution of incidents across crime categories for the currently applied filters.',
-              drillField: 'category',
-              rowLabel: 'Category', valueLabel: 'Incidents',
-              labels: categoryPrintLabels, datasets: [{ data: categoryPrintValues }],
-              insight: categoryPrintResult.insight, kpis: categoryPrintResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Category Distribution" rowLabel="Category" valueLabel="Incidents"
-          labels={categoryPrintLabels} values={categoryPrintValues} insight={categoryPrintResult.insight} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Gender Distribution" type="doughnut" labels={Object.keys(byGender)}
-          datasets={[{ data: Object.values(byGender), backgroundColor: [COLORS.green, COLORS.orange] }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Gender Distribution',
-              description: 'Distribution of victim gender for the currently applied filters.',
-              rowLabel: 'Gender', valueLabel: 'Incidents',
-              labels: Object.keys(byGender), datasets: [{ data: Object.values(byGender) }],
-            });
-          }} />
-        <ChartPrintSummary title="Gender Distribution" rowLabel="Gender" valueLabel="Incidents"
-          labels={Object.keys(byGender)} values={Object.values(byGender)} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Age Distribution" type="bar" labels={ageBins}
-          datasets={[{ label: 'Victims', data: ageCounts, backgroundColor: COLORS.black }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Age Distribution',
-              description: 'Distribution of victim age groups for the currently applied filters.',
-              rowLabel: 'Age Range', valueLabel: 'Victims',
-              labels: ageBins, datasets: [{ data: ageCounts }],
-            });
-          }} />
-        <ChartPrintSummary title="Age Distribution" rowLabel="Age Range" valueLabel="Victims"
-          labels={ageBins} values={ageCounts} />
-        </div>
-
-        <div className="chart-print-unit">
-        <ChartCard title="Sitio Breakdown" type="bar" labels={sitioPrintLabels}
-          datasets={[{ label: 'Incidents', data: sitioPrintValues, backgroundColor: COLORS.orange }]}
-          onOpenSummary={() => {
-            setSelectedChart({
-              title: 'Sitio Breakdown',
-              description: 'Incident volume by sitio for the currently applied filters.',
-              drillField: 'sitio',
-              rowLabel: 'Sitio', valueLabel: 'Incidents',
-              labels: sitioPrintLabels, datasets: [{ data: sitioPrintValues }],
-              insight: sitioPrintResult.insight, kpis: sitioPrintResult.kpis,
-            });
-          }} />
-        <ChartPrintSummary title="Sitio Breakdown" rowLabel="Sitio" valueLabel="Incidents"
-          labels={sitioPrintLabels} values={sitioPrintValues} insight={sitioPrintResult.insight} />
-        </div>
-      </div>
+      <MetabaseDashboard dashboardKey="analytics" filters={baseFilters} height={2000} />
 
       <ChartSummaryModal
         open={!!selectedChart}

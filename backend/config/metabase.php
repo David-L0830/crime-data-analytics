@@ -29,6 +29,7 @@ return [
         'crime' => env('METABASE_DASHBOARD_ID_CRIME'),
         'analytics' => env('METABASE_DASHBOARD_ID_ANALYTICS'),
         'trends' => env('METABASE_DASHBOARD_ID_TRENDS'),
+        'crime_summary' => env('METABASE_DASHBOARD_ID_CRIME_SUMMARY'),
     ],
 
 ];
