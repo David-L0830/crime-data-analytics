@@ -2,6 +2,43 @@
 
 A crime data analytics and reporting platform for **Barangay 178, North Caloocan**. It combines a React single-page application, a Laravel REST API, a Supabase PostgreSQL database, and embedded Metabase dashboards behind a single set of user-facing filters.
 
+**Live production URLs**
+
+| Component | URL |
+|---|---|
+| Frontend (Vercel) | `https://crime-data-analytics-ebon.vercel.app` |
+| Backend API (Render) | `https://crime-data-analytics-backend.onrender.com` |
+| Health check | `https://crime-data-analytics-backend.onrender.com/up` |
+
+> **Demo dependency.** Metabase runs on a **local computer** and is exposed through a **temporary Cloudflare tunnel**. Embedded charts only work while that computer is switched on, online, and running the tunnel. See [Metabase & the Cloudflare Tunnel](#metabase--the-cloudflare-tunnel).
+
+---
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Key Features](#key-features)
+3. [System Architecture](#system-architecture)
+4. [Technology Stack](#technology-stack)
+5. [Authentication Flow](#authentication-flow)
+6. [Database](#database)
+7. [Metabase & the Cloudflare Tunnel](#metabase--the-cloudflare-tunnel)
+8. [Dashboard Pages](#dashboard-pages)
+9. [Filtering System](#filtering-system)
+10. [KPI Cards](#kpi-cards)
+11. [Dashboard Tables](#dashboard-tables)
+12. [Metabase Visualization State](#metabase-visualization-state)
+13. [Backend / API](#backend--api)
+14. [Environment Configuration](#environment-configuration)
+15. [Deployment Guide](#deployment-guide)
+16. [Local Development Guide](#local-development-guide)
+17. [Verification Checklist](#verification-checklist)
+18. [Troubleshooting](#troubleshooting)
+19. [Security](#security)
+20. [Known Limitations](#known-limitations)
+21. [Project Structure](#project-structure)
+22. [Git / GitHub Workflow](#git--github-workflow)
+
 ---
 
 ## Overview
@@ -15,7 +52,7 @@ Analytics are produced in two complementary ways, and the distinction matters wh
 | **React** | KPI cards, dashboard tables, Chart.js visuals, CSV/PDF export | In the browser, over records already loaded from the API |
 | **Metabase** | Embedded chart dashboards | In Metabase, querying PostgreSQL directly |
 
-Both layers are driven by the **same React FilterBar**. The React filter state is the single user-facing source of truth; Metabase's own filter widgets are hidden in the embed.
+Both layers are driven by the **same React FilterBar**. The React filter state is the single user-facing source of truth; Metabase's own filter widgets are hidden inside the embed.
 
 ---
 
@@ -34,456 +71,735 @@ Both layers are driven by the **same React FilterBar**. The React filter state i
 
 ## System Architecture
 
+Four independent services. Each is deployed and configured separately.
+
 ```
-React (Vite SPA)
-  └─ FilterBar → page filter state → baseFilters
-       ├─ filterRecords()  ──────────────→ React KPI cards, tables, Chart.js
-       └─ MetabaseDashboard component
-            └─ GET /api/embed/metabase/{dashboardKey}   (Laravel, authenticated)
-                 └─ MetabaseEmbedController::buildLockedParams()
-                      └─ MetabaseEmbedService  → signed HS256 JWT
-                           └─ <iframe> → Metabase dashboard → PostgreSQL
+                    ┌──────────────────────────────────┐
+   Browser ────────▶│  Vercel  (React + Vite, static)  │
+                    │  crime-data-analytics-ebon       │
+                    └───────┬──────────────────┬───────┘
+                            │                  │
+              Bearer JWT    │                  │  direct sign-in
+              over HTTPS    │                  │  (publishable key)
+                            ▼                  ▼
+        ┌───────────────────────────┐   ┌──────────────────────┐
+        │  Render (Docker)          │   │  Supabase Auth       │
+        │  Laravel 12 API           │   │  issues ES256 JWTs   │
+        │  ...backend.onrender.com  │   └──────────┬───────────┘
+        └────┬──────────────────┬───┘              │
+             │                  │                  │ JWKS public keys
+             │ SQL              │ signs embed URL  │ (verification)
+             ▼                  ▼                  │
+   ┌────────────────────┐  ┌──────────────────────┴──────────┐
+   │ Supabase           │  │ Metabase (LOCAL computer)       │
+   │ PostgreSQL         │◀─┤ reached via Cloudflare tunnel   │
+   │ incidents, etc.    │  │ ⚠ temporary / demo only         │
+   └────────────────────┘  └─────────────────────────────────┘
 ```
 
-Supabase issues the user's access token; Laravel validates it (`auth:supabase`) and enforces roles before returning any signed embed URL.
+**Two things worth noting about this diagram:**
+
+1. The browser talks to **Supabase directly** for sign-in, and to **Laravel** for everything else. Laravel never sees a password.
+2. The **browser**, not Render, loads the Metabase iframe. Laravel only builds and signs the URL string — it never makes an HTTP request to Metabase. This is why Render does not need network access to the local computer.
 
 ---
 
 ## Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Vite 8, React Router 7 |
-| Charts (React) | Chart.js 4 |
-| Mapping | Leaflet 1.9 + markercluster + heat |
-| Icons | lucide-react |
-| Backend | Laravel 12, PHP 8.2 |
-| JWT signing | firebase/php-jwt 7 |
-| Database | Supabase (PostgreSQL) |
-| BI / Embedding | Metabase **OSS** v0.63.x |
-| Auth | Supabase Auth (JWT) |
-| Lint | oxlint |
-
----
-
-## Dashboard Pages
-
-| Route | Page | React analytics | Metabase embed |
-|---|---|---|---|
-| `/dashboard` | Crime Reporting Dashboard | 10 KPI cards + 4 tables | Dashboard 2 |
-| `/analytics` | Statistical Analysis | Stat boxes, statistical measures, crosstab | Dashboard 3 |
-| `/trends` | Trend and Pattern Detection | Hotspot panel, trend alerts | Dashboard 4 |
-| `/incident-feed` | Incident Feed | — | — |
-| `/mapping` | Crime Mapping (Leaflet) | — | — |
-| `/criminal-records` | Criminal & Victim Records | — | — |
-| `/audit-logs` | Audit Logs | — | — |
-| `/user-management` | User Management | — | — |
-| `/settings` | Settings | — | — |
-
----
-
-## Crime Reporting Dashboard
-
-Page order on `/dashboard`:
-
-1. Print header and welcome banner
-2. **FilterBar** — From, To, Crime Type, Category, Sitio, Status
-3. Print-only "filters applied" summary
-4. **KPI section** — a primary row of 4 and an "Additional Statistics" row of 6
-5. **Embedded Metabase Dashboard 2**
-6. Chart summary modal (drill-down)
-7. **Table grid** — four tables in a 2-column layout
-8. Export bar — Export PDF, Export Excel (CSV), Print Report
-
-The record set feeding every React KPI and table is built once:
-
-```js
-filtered = filterRecords(
-  records.filter(r => r.status !== 'Archived'),
-  { dateFrom, dateTo, crimeType, category, sitio, status }
-)
-```
-
-**Archived incidents are excluded before any filter is applied**, so no React KPI or table on this page counts them.
-
----
-
-## KPI Metrics
-
-All ten cards are calculated **in React**, not by Metabase.
-
-| # | KPI | Formula (current code) | Source |
-|---|---|---|---|
-| 1 | Total Incidents | `filtered.length` | incidents |
-| 2 | Solved Cases | count where status ∈ `SOLVED_STATUSES` = `['Solved','Closed']` | incidents |
-| 3 | Pending Cases | count where status ∈ `PENDING_STATUSES` = `['Open','Under Investigation']` | incidents |
-| 4 | Resolution Rate | `(solved / total) * 100`, 1 decimal, `0` when total is 0 | incidents |
-| 5 | Active Investigations | count where `status === 'Under Investigation'` | incidents |
-| 6 | Crime Rate / 1K | `(total / settings.population) * 1000`, 2 decimals; `0` if population unset | incidents + settings |
-| 7 | Today's Incidents | count where `r.date === today()` | incidents |
-| 8 | This Month | count where `r.date` starts with `today().slice(0,7)` | incidents |
-| 9 | Today Imported | `getTodayImportedCount()` | **sync_logs** |
-| 10 | Month Imported | `getThisMonthImportedCount()` | **sync_logs** |
-
-Notes:
-
-- KPIs 1–8 use `filtered`, so they respond to all six filters and exclude Archived records.
-- **KPIs 9 and 10 are synchronisation metrics.** They sum `recordsReceived` from `sync_logs` entries with status `completed` since the start of today / the current month, and are **deliberately unaffected by the incident filters**.
-- Population is read from `settings.population` — it is never hard-coded.
-- Layout split: primary row = Total Incidents, Solved Cases, Pending Cases, Resolution Rate. The other six render under "Additional Statistics".
-- Every card links to a drill-down (`/incident-feed`, `/analytics`, or `/audit-logs`) carrying the current filters.
-
----
-
-## Dashboard Tables
-
-All four are rendered in React from the same `filtered` set.
-
-| Table | Grouping / sort | Limit | Columns |
-|---|---|---|---|
-| **Recent Incidents** | `date` desc, tie-break `time` desc | 8 | Case #, Type, Date, Sitio, Status |
-| **Hotspot Locations** | count by `sitio\|street`, count desc | 8 | Location, Sitio, Incidents |
-| **Repeat Offenders** | count by `suspectName` where a suspect is recorded, **only counts > 1**, desc | 8 | Suspect, Incidents |
-| **Recently Synchronized** | rows having `synced_at`, sorted by `synced_at` desc | 5 | Case #, Type, Date, Synced |
-
-> **Accuracy note:** *Recently Synchronized* lists **incident records that carry a `synced_at` timestamp** — it reads from `filtered`, so it **does** respond to the incident filters. It is not a `sync_logs` table. Only KPIs 9 and 10 read `sync_logs`.
-
-`Synced` is formatted with `toLocaleString('en-PH')`; `Date` uses the shared `formatDate` helper. Empty results render the shared `Table` component's empty state.
-
----
-
-## Filtering System
-
-Filter fields are namespaced per page, then flattened into a common `baseFilters` object.
-
-| Page | Prefix | Fields |
+| Layer | Technology | Version / Notes |
 |---|---|---|
-| Dashboard | `dash-` | dateFrom, dateTo, crimeType, **category**, sitio, status |
-| Statistical Analysis | `ana-` | dateFrom, dateTo, **category**, crimeType, sitio, status |
-| Trend Detection | `tr-` | dateFrom, dateTo, crimeType, sitio, status |
-
-> Trend Detection has **no Category filter**, and Metabase Dashboard 4 correspondingly declares no `category` parameter.
-
-`baseFilters` is sent as query parameters to the Laravel embed endpoint, which converts them into Metabase dashboard parameters in `buildLockedParams()`:
-
-| App filter | Metabase parameter | Notes |
-|---|---|---|
-| `dateFrom` + `dateTo` | `date_range` | Collapsed into a single `from~to` value |
-| `crimeType` | `crime_type` | |
-| `sitio` | `sitio` | |
-| `status` | `status` | |
-| `category` | `category` | Dashboards 2 and 3 only |
-
-Behaviour rules:
-
-- Date comparison is plain `YYYY-MM-DD` string comparison — inclusive on both ends, no timezone conversion.
-- A one-sided range is supported: `from~` means "on or after", `~to` means "on or before".
-- **Empty filters are omitted entirely.** With nothing selected the JWT carries an empty parameter **object** `{}` (not an array), which Metabase requires.
-- The same values feed `filterRecords()` for all React-side content, so both layers always agree.
+| Frontend | React | 19 |
+| Build tool | Vite | 8 |
+| Routing | react-router-dom | 7 (client-side; needs SPA rewrite) |
+| Charts (React) | Chart.js | 4 |
+| Maps | Leaflet + markercluster + heat | — |
+| Frontend host | Vercel | Free / Hobby tier |
+| Backend | Laravel | 12 (PHP 8.2) |
+| Web server | nginx + php-fpm | inside the Docker image |
+| Backend host | Render | Free tier, Docker runtime, Singapore region |
+| Database | Supabase PostgreSQL | via connection pooler, SSL required |
+| Auth | Supabase Auth | ES256 / JWKS signing keys |
+| BI / charts | Metabase OSS | v0.63.14, local Docker, H2 application database |
+| Tunnel | Cloudflare quick tunnel | ⚠ temporary, see below |
 
 ---
 
-## Metabase Integration
+## Authentication Flow
 
-The browser never sees the Metabase embedding secret. The flow is:
-
-1. `MetabaseDashboard` calls `metabaseService.embedUrl(dashboardKey, filters)`
-2. → `GET /api/embed/metabase/{dashboardKey}` (requires a valid Supabase token and an allowed role)
-3. `MetabaseEmbedController` validates the key against `['crime','analytics','trends']` and builds the parameter map
-4. `MetabaseEmbedService` signs an **HS256 JWT** with `METABASE_EMBEDDING_SECRET_KEY` and returns only the finished URL
-5. React renders that URL in an `<iframe>` inside the app's own `.card` wrapper
-
-Token payload shape:
-
-```json
-{ "resource": { "dashboard": 2 },
-  "params":   { "date_range": "2025-01-01~2025-03-31", "crime_type": "Theft" },
-  "exp":      1234567890 }
-```
-
-Tokens are short-lived (`token_ttl`, default 600 seconds) and are re-fetched whenever the dashboard key or the filters change.
-
----
-
-## Metabase Dashboards
-
-| Key | Dashboard | ID | Parameters declared |
-|---|---|---|---|
-| `crime` | Crime Dashboard | **2** | date_range, crime_type, sitio, status, category |
-| `analytics` | Statistical Analysis | **3** | date_range, crime_type, sitio, status, category |
-| `trends` | Trend Detection | **4** | date_range, crime_type, sitio, status |
-
-IDs come from `METABASE_DASHBOARD_ID_CRIME`, `_ANALYTICS`, and `_TRENDS` in `backend/.env` and are resolved through `backend/config/metabase.php`.
-
-Cards per dashboard:
-
-- **Dashboard 2** — Crime by Type, Crime by Category, Crime by Sitio, Crime by Status, Monthly Incident Trend
-- **Dashboard 3** — Crime Type Distribution, Crime Category Distribution, Victim Gender, Victim Age Groups, Crime by Sitio, Crime by Status
-- **Dashboard 4** — Monthly Incident Trend, Crime Trend by Type, Weekly Incident Trend, Daily Incident Pattern, Hourly Incident Pattern, Crime by Sitio Trend
-
----
-
-## Metabase Visualization & Theming
-
-### Embed appearance
-
-Appearance is configured per dashboard key in `backend/config/metabase.php` and appended to the embed URL's **hash fragment**, which Metabase reads client-side. It never reaches the query, so filtering is unaffected.
+Supabase Auth is the **only** authentication system. Laravel has no login route, no password handling, and no session cookie — it is a stateless Bearer-token API.
 
 ```
-#bordered=false&titled=false&theme=transparent&hide_parameters=<slugs>
+1. User submits email + password on the React login page
+        │
+        ▼
+2. Browser → Supabase Auth  (POST /auth/v1/token?grant_type=password)
+   Sent with the PUBLISHABLE key (VITE_SUPABASE_PUBLISHABLE_KEY)
+        │
+        ▼
+3. Supabase returns an access token (a JWT signed with ES256)
+        │
+        ▼
+4. Browser → Laravel  (GET /api/user)
+   Header:  Authorization: Bearer <access token>
+        │
+        ▼
+5. Laravel verifies the token via JWKS:
+     • fetches {SUPABASE_URL}/auth/v1/.well-known/jwks.json  (cached 1 hour)
+     • verifies the signature against the published public keys
+     • checks  aud = "authenticated"  and  iss = {SUPABASE_URL}/auth/v1
+        │
+        ▼
+6. Laravel maps the token's `sub` claim to an EXISTING local user row.
+   It never creates accounts — every user is admin-provisioned.
+        │
+        ▼
+7. Login completes and the dashboard loads.
 ```
 
-| Option | Value | Reason |
-|---|---|---|
-| `bordered` | `false` | The React `.card` wrapper already draws the border |
-| `titled` | `false` | The React `<h3>` already provides the heading |
-| `theme` | `transparent` | Chart area inherits the app's `--bg-card` in both themes |
-| `hide_parameters` | all declared slugs | Prevents a duplicate Metabase filter UI |
+**Terms explained**
 
-### Chart palette
+- **JWT** — a signed token proving who the user is. It can be verified without contacting the issuer.
+- **JWKS** — "JSON Web Key Set": a public URL publishing the public halves of the signing keys. Laravel uses these to verify signatures.
+- **Publishable key** — the public, browser-safe Supabase API key (`sb_publishable_…`). It identifies the project; it does **not** grant privileges by itself. It replaced the older "anon key", which was permanently disabled when the project migrated to JWT signing keys.
 
-Charts use the application palette from `src/utils/constants.js`, extended conservatively with two existing theme tokens where a chart needs more than four colours:
+**Important:** because step 4 is required for login to complete, **the Laravel API must be reachable or sign-in fails**, even when Supabase authentication itself succeeds.
 
-| Colour | Role |
-|---|---|
-| `#2E8B47` | Accent green — primary / single-series |
-| `#FF8A3D` | Orange |
-| `#0EA5E9` | Info blue |
-| `#C0392B` | Red |
-| `#6366F1` | Indigo (extension) |
-| `#94A3B8` | Slate (extension) |
-
-### Per-question configuration
-
-| Question | Type | Visualization configuration |
-|---|---|---|
-| Crime by Type | bar | single `count` series → `#2E8B47` |
-| Crime by Sitio | bar | single `count` series → `#2E8B47` |
-| Crime by Status | bar | single `count` series → `#2E8B47` (see note) |
-| Monthly Incident Trend | line | single `count` series → `#2E8B47` |
-| Victim Age Groups | bar | single `count` series → `#2E8B47` |
-| Weekly Incident Trend | line | single `count` series → `#2E8B47` |
-| Daily Incident Pattern | bar | single `count` series → `#2E8B47` |
-| Hourly Incident Pattern | bar | single `incident_count` series → `#2E8B47` |
-| Crime by Category | pie | `pie.colors` per category |
-| Crime Category Distribution | pie | `pie.colors` per category (same mapping) |
-| Crime Type Distribution | pie | `pie.colors` across 12 crime types |
-| Victim Gender | pie | Male `#2E8B47`, Female `#FF8A3D` |
-| **Crime Trend by Type** | line | **`graph.dimensions: ["incident_date","crime_type"]`** + 12 per-series colours |
-| **Crime by Sitio Trend** | line | **`graph.dimensions: ["incident_date","sitio"]`** + 7 per-series colours |
-
-> **Not just colours.** *Crime Trend by Type* and *Crime by Sitio Trend* also required a **series-breakout dimension fix**. Their queries return a breakout column (`crime_type` / `sitio`), but the visualization listed only `incident_date` as a dimension — Metabase ignores a returned column present in neither `graph.dimensions` nor `graph.metrics`, so both rendered as a single default-blue series. Adding the second dimension is what makes them true multi-series charts.
-
-> **Crime by Status** is a single-series bar chart. Metabase OSS colours bar charts per *series*, not per category, so semantic per-status colours are not available without changing the chart type. It uses the accent green instead.
-
----
-
-## Backend / API
-
-Laravel 12 REST API under `/api`. All analytics and embed routes require `auth:supabase` plus a role check.
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /user` | Current authenticated user |
-| `GET /dashboard` | Dashboard aggregate data |
-| `GET /analytics`, `/analytics/crime-types`, `/analytics/monthly`, `/analytics/locations` | Analytics aggregates |
-| `GET /embed/metabase/{dashboardKey}` | **Signed Metabase embed URL** |
-| `GET/POST/PUT /incidents`, `/incidents/{id}`, `/incidents/map` | Incident CRUD + map data |
-| `GET/POST/PUT /criminals`, `/victims` | Records management |
-| `GET /sync-logs` | Synchronisation history |
-| `GET /audit-logs` | Audit trail |
-| `GET/PUT /users`, `/settings`, `/notifications`, `/me` | Administration |
-
-Key backend files:
-
-```
-backend/app/Http/Controllers/Api/MetabaseEmbedController.php   parameter mapping
-backend/app/Services/MetabaseEmbedService.php                  JWT signing + URL
-backend/config/metabase.php                                    IDs, appearance, hidden params
-backend/config/supabase.php                                    Supabase token validation
-backend/routes/api.php                                         routes + role middleware
-```
+The legacy shared-secret verification path (`SUPABASE_JWT_SECRET`) is intentionally left **empty**. The legacy secret was revoked during the migration to JWKS; leaving the variable blank disables the fallback entirely, which is the desired state.
 
 ---
 
 ## Database
 
-Supabase-hosted PostgreSQL. Tables used by the analytics layer include:
+**Supabase PostgreSQL**, reached through the connection pooler with `sslmode=require`. Laravel and Metabase both connect to this same database, using **separate credential configurations**.
+
+### Key tables
 
 | Table | Role |
 |---|---|
-| `incidents` | Core records — `crime_type`, `category`, `sitio`, `street`, `status`, `incident_date`, `incident_time`, `suspect_name`, victim fields, `synced_at` |
-| `sync_logs` | Synchronisation history — `records_received`, `status`, timestamps |
-| `settings` | Business configuration including `population` |
-| `users`, `criminals`, `victims`, `audit_logs`, `notifications` | Supporting tables |
+| `incidents` | The core record. One row per reported crime incident. Holds `incident_code`, `case_number`, `crime_type`, `category`, `incident_date`, `incident_time`, location (`street`, `sitio`, `latitude`, `longitude`), victim and suspect fields, officer/unit fields, `status`, `priority`, `description`, `evidence`, and `synced_at`. Every KPI, table, and Metabase chart reads from here. |
+| `sync_logs` | An audit trail of data-import runs. Columns: `status`, `records_received`, `source`, `created_at`. Feeds the "Today Imported" / "Month Imported" KPI cards. |
+| `settings` | A single configuration row for the barangay: `barangay`, `population`, `threshold`, `hotspot_threshold`, `categories`. `population` is the denominator for the Crime Rate / 1K KPI. |
 
-`status = 'Archived'` marks soft-deleted incidents; archiving updates the row rather than deleting it.
+Supporting tables include `users`, `criminals`, `victims`, `incident_victim`, `audit_logs`, `app_notifications`, plus Laravel's own `sessions`, `cache`, and `jobs`.
+
+**Archiving, not deleting.** Records are archived by setting `status = 'Archived'` rather than being removed. Every statistic excludes archived rows.
 
 ---
 
-## Authentication & JWT Embedding
+## Metabase & the Cloudflare Tunnel
 
-Two independent JWT mechanisms:
+> ⚠️ **This is the most fragile part of the system and is explicitly a development/demo arrangement, not production infrastructure.**
 
-| Purpose | Secret | Where used |
+### How it is set up
+
+Metabase OSS v0.63.14 runs in Docker **on a local computer**:
+
+- Application database: an **H2 file** in the Docker volume `metabase-data`, mounted at `/metabase.db`. This single file holds every dashboard, question, visualization setting, series colour, parameter mapping, and the embedding secret. **Back it up before changing anything in Metabase.**
+- Data source: the **same Supabase PostgreSQL database** the Laravel API uses, configured separately inside Metabase under *Admin → Databases*.
+
+### How the deployed site reaches it
+
+A **Cloudflare quick tunnel** publishes `http://localhost:3000` at a public `https://<random>.trycloudflare.com` address. That address is stored in the Render environment variable `METABASE_SITE_URL`, and Laravel puts it into the signed embed URL that the browser loads.
+
+```
+Browser (Vercel page)
+   │  iframe src = https://<random>.trycloudflare.com/embed/dashboard/<signed JWT>#...
+   ▼
+Cloudflare quick tunnel  ──▶  cloudflared process  ──▶  localhost:3000 (Metabase)
+```
+
+### Why this is temporary
+
+| Limitation | Consequence |
+|---|---|
+| Quick tunnels get a **new random hostname every restart** | `METABASE_SITE_URL` must be updated in Render and the charts break until it is |
+| The tunnel dies with the `cloudflared` process | Closing the terminal, sleeping, or rebooting takes the charts offline |
+| The host computer must stay awake and online | Charts fail during the demo if the laptop sleeps |
+| No uptime guarantee | Cloudflare may drop an anonymous tunnel at any time |
+
+A permanent deployment would host Metabase on a server with a stable hostname (a named Cloudflare tunnel with a domain, or a cloud host), carrying the H2 file across so dashboard IDs and questions are preserved.
+
+### Re-pointing after the tunnel restarts
+
+1. Start it again: `cloudflared tunnel --url http://localhost:3000` and copy the new hostname.
+2. Metabase → **Admin → Settings → Site URL** → paste the new hostname.
+3. Render → **Environment** → update `METABASE_SITE_URL`.
+
+Render restarts the service automatically, and the container entrypoint rebuilds the configuration cache from the new environment — **no rebuild or redeploy is needed**.
+
+### How Laravel signs the embed URL
+
+`App\Services\MetabaseEmbedService` builds a short-lived JSON Web Token:
+
+```
+payload = { resource: { dashboard: <id> }, params: { …locked filter values… }, exp: now + 10 min }
+token   = HS256(payload, METABASE_EMBEDDING_SECRET_KEY)
+url     = {METABASE_SITE_URL}/embed/dashboard/{token}#bordered=false&titled=false&theme=transparent&hide_parameters=…
+```
+
+The signing secret is read **only** on the backend and is never sent to the browser. The frontend calls `GET /api/embed/metabase/{key}` and receives only the finished URL.
+
+### Dashboard IDs
+
+| Key | Dashboard | ID |
 |---|---|---|
-| User authentication | `SUPABASE_JWT_SECRET` | Validating Supabase access tokens on every API request |
-| Metabase embedding | `METABASE_EMBEDDING_SECRET_KEY` | Signing embed tokens in `MetabaseEmbedService` |
+| `crime` | Crime Dashboard | **2** |
+| `analytics` | Crime Analytics | **3** |
+| `trends` | Crime Trends | **4** |
 
-Rules enforced by the current implementation:
-
-- Neither secret is ever exposed to the frontend or placed in a `VITE_*` variable.
-- The embed endpoint is role-restricted to Administrator and BADAC read-only.
-- The frontend only ever receives the finished URL string.
-
-Roles: **BADAC Administrator** (full access), **Encoder** (data collection), **BADAC** (read-only).
+These IDs live inside the Metabase H2 file. Recreating Metabase from scratch would assign different IDs and break the embed.
 
 ---
 
-## Project Structure
+## Dashboard Pages
+
+| Page | Route | Metabase dashboard | Filter prefix |
+|---|---|---|---|
+| Crime Reporting Dashboard | `/dashboard` | 2 (`crime`) | `dash-` |
+| Statistical Analysis | `/analytics` | 3 (`analytics`) | `ana-` |
+| Trend & Pattern Detection | `/trends` | 4 (`trends`) | `tr-` |
+
+Each page renders its own KPI/table/chart content in React **and** an embedded Metabase dashboard below it, both driven by the same filter bar.
+
+---
+
+## Filtering System
+
+### Available filters
+
+| Filter | Dashboard | Analytics | Trends |
+|---|---|---|---|
+| Date Range (From / To) | ✅ | ✅ | ✅ |
+| Crime Type | ✅ | ✅ | ✅ |
+| Sitio | ✅ | ✅ | ✅ |
+| Status | ✅ | ✅ | ✅ |
+| Category | ✅ | ✅ | ✗ (by design) |
+
+### How React and Metabase filters are connected
+
+Each page namespaces its filter state with a prefix (`dash-`, `ana-`, `tr-`) and then flattens it to a shared shape before sending it onward:
 
 ```
-├── src/                          React application
-│   ├── pages/                    Dashboard, Analytics, Trends, ...
-│   ├── components/
-│   │   ├── MetabaseDashboard.jsx Signed-iframe embed component
-│   │   ├── ui/                   FilterBar, KpiCard, Table, Card, Modal
-│   │   └── charts/               Chart.js wrappers + print summaries
-│   ├── context/                  Auth, Data, Theme, Toast providers
-│   ├── services/                 API wrappers (metabaseService, incidentService, ...)
-│   ├── utils/                    helpers.js (filterRecords), constants.js (COLORS)
-│   └── styles/                   global.css — theme tokens
-├── backend/                      Laravel API
-│   ├── app/Http/Controllers/Api/
-│   ├── app/Services/
-│   ├── config/                   metabase.php, supabase.php, ...
-│   └── routes/api.php
-├── docs/                         CI/CD and security notes
-└── package.json
+React FilterBar
+   │  filters['dash-sitio'] = "Sitio 3"
+   ▼
+baseFilters  { dateFrom, dateTo, crimeType, sitio, status, category }
+   │                                    │
+   │ React side                         │ Metabase side
+   ▼                                    ▼
+filterRecords()                  GET /api/embed/metabase/{key}?sitio=Sitio+3
+(client-side, drives                     │
+ KPIs, tables, Chart.js)                 ▼
+                              MetabaseEmbedController::buildLockedParams()
+                                 • dateFrom + dateTo → date_range "from~to"
+                                 • crimeType → crime_type, sitio → sitio,
+                                   status → status, category → category
+                                         │
+                                         ▼
+                              signed embed URL → iframe reloads
 ```
+
+**Cleared filters mean "show everything."** An empty value is omitted entirely from the parameters sent to Metabase — it is never sent as an empty string, which would filter for blank values and return nothing. This behaviour is verified as part of the checklist below.
+
+Metabase's own filter widgets are hidden inside the iframe (`hide_parameters` in the embed URL) so the React FilterBar remains the only filtering interface a user sees.
+
+---
+
+## KPI Cards
+
+Computed in React in `src/pages/Dashboard.jsx`, over records already filtered by the FilterBar. `filtered` always excludes `status = 'Archived'`.
+
+| KPI | Formula | Meaning |
+|---|---|---|
+| **Total Incidents** | `filtered.length` | All non-archived incidents in the current filter range |
+| **Solved Cases** | count where status ∈ `['Solved', 'Closed']` | Cases no longer being worked |
+| **Pending Cases** | count where status ∈ `['Open', 'Under Investigation']` | Cases still requiring action |
+| **Active Investigations** | count where `status === 'Under Investigation'` | The subset actively being investigated |
+| **Resolution Rate** | `(solved / total) × 100`, 1 decimal | Percentage of cases resolved; `0` when total is 0 |
+| **Crime Rate / 1K** | `(total / settings.population) × 1000`, 2 decimals | Incidents per 1,000 residents; `0` when population is unset |
+| **Today's Incidents** | count where `date === today()` | Incidents recorded today |
+| **This Month** | count where date starts with the current `YYYY-MM` | Incidents recorded this calendar month |
+
+### Synchronisation KPIs
+
+Still present in the current implementation. These read `sync_logs`, **not** `incidents`, and are deliberately **independent of the date-range filter** — they report import activity, not crime activity.
+
+| KPI | Source |
+|---|---|
+| **Today Imported** | Sum of `records_received` from sync logs since midnight today |
+| **Month Imported** | Sum of `records_received` from sync logs since the 1st of this month |
+
+**Layout note:** the cards are split into a primary row (Total, Solved, Pending, Resolution Rate) and a secondary row (everything else). This is a visual grouping only — no calculation differs.
+
+---
+
+## Dashboard Tables
+
+Four tables, all computed in React from the same filtered record set:
+
+| # | Table | Contents |
+|---|---|---|
+| 1 | **Recent Incidents** | The 8 most recent, sorted by date then time descending |
+| 2 | **Hotspots** | Top 8 sitios by incident count |
+| 3 | **Repeat Suspects** | Suspects appearing more than once, top 8 by count |
+| 4 | **Recently Synced** | The 5 most recent records carrying a `synced_at` timestamp |
+
+---
+
+## Metabase Visualization State
+
+Verified current state. All 17 cards across the three dashboards return data.
+
+| Question | Name | Chart type | Notes |
+|---|---|---|---|
+| **Q40** | Crime by Type | **Bar** | Ordinal x-axis |
+| **Q44** | Crime by Status | **Bar** | Single green series |
+| **Q49** | Monthly Incident Trend | **Line** | Ordinal x-axis — every month labelled |
+| **Q50** | Crime Trend by Type | **Line** | 12 crime-type series, each with its own colour |
+| **Q74** | Weekly Incident Trend | **Line** | Timeseries x-axis (weekly data is too dense for ordinal) |
+| **Q77** | Crime by Sitio Trend | **Waterfall** | 7 Sitio series colours; Total column intentionally shown |
+
+### Why the monthly charts use an "Ordinal" x-axis
+
+With Metabase's default **Timeseries** scale, the renderer computes a tick interval and skips labels when they crowd — monthly charts displayed only every second month (January, March, May…). Switching `graph.x_axis.scale` to **Ordinal** makes the axis categorical, which renders one label per data point and auto-rotates them when space is tight.
+
+Applied to **Q49, Q50, and Q77** only. Q74 stays on Timeseries deliberately: it has roughly 47 weekly points, and forcing every label would be unreadable.
+
+### Colour palette
+
+The project uses a fixed palette rather than Metabase's defaults — chiefly `#2E8B47` (green), plus orange, sky, red, indigo, and slate for multi-series charts. Metabase's default blue `#509EE3` should not appear anywhere; its presence indicates a series lost its configured colour.
+
+---
+
+## Backend / API
+
+Laravel 12, served by **nginx + php-fpm** inside a single Docker image.
+
+- All API routes are prefixed `/api` and protected by the `auth:supabase` guard, with role middleware (`role:…`) on top.
+- `GET /up` is Laravel's built-in health route, used by Render's health check. It is **not** under `/api`, so it is not subject to CORS.
+- `GET /api/embed/metabase/{key}` returns `{ "url": "…" }` — the signed Metabase embed URL. Restricted to BADAC administrator and read-only roles.
+
+### CORS
+
+Configured in `backend/config/cors.php`:
+
+```php
+'paths' => ['api/*'],
+'allowed_origins' => array_values(array_unique(array_filter(array_merge(
+    [env('FRONTEND_URL', 'http://localhost:5173')],
+    array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', '')))
+)))),
+'supports_credentials' => false,
+```
+
+Origins come **entirely from the environment** — no deployment URL is hardcoded. `supports_credentials` is `false` because the API is Bearer-token only, with no cookies to protect. Multiple origins may be supplied as a comma-separated list.
+
+### Container start-up
+
+`backend/docker/entrypoint.sh` runs on every container start and:
+
+1. Renders the nginx config, substituting `${PORT}` (supplied by Render).
+2. **Only when `APP_ENV=production`**, runs `config:clear`, `config:cache`, and `route:cache` — building the cache from the **runtime** environment.
+3. Recreates the `storage:link` symlink (non-fatal if it already exists).
+4. Starts php-fpm on `127.0.0.1:9001`, then nginx in the foreground.
+
+**Why caching happens at start-up, not build time.** A Docker build has no environment variables, so caching configuration during the build would store `null` for every value — and a cached config file overrides `env()` at runtime. Building the cache at start-up means it reflects the real injected environment. The `APP_ENV` guard exists because `docker-compose` bind-mounts the source directory for local development, and a cached config file there would contain resolved secrets in the working tree.
 
 ---
 
 ## Environment Configuration
 
-Never commit real credentials. `.env` files are git-ignored.
+> **No secret values appear in this file, and none may be committed to Git.** See [Security](#security).
 
-**Frontend — `.env`** (see `.env.example`)
-
-| Variable | Purpose |
-|---|---|
-| `VITE_API_URL` | Laravel API base URL |
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (public) key — `sb_publishable_...` |
-
-**Backend — `backend/.env`** (see `backend/.env.example`)
+### Frontend (Vercel, and local `.env`)
 
 | Variable | Purpose |
 |---|---|
-| `APP_KEY`, `APP_URL`, `APP_TIMEZONE` | Laravel core |
-| `DB_*` | PostgreSQL connection |
-| `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase auth |
-| `CORS_ALLOWED_ORIGINS`, `FRONTEND_URL` | CORS |
-| `METABASE_SITE_URL` | Metabase base URL, no trailing slash |
-| `METABASE_EMBEDDING_SECRET_KEY` | Static-embedding secret — **backend only** |
-| `METABASE_DASHBOARD_ID_CRIME` | Crime dashboard ID |
-| `METABASE_DASHBOARD_ID_ANALYTICS` | Statistical Analysis dashboard ID |
-| `METABASE_DASHBOARD_ID_TRENDS` | Trend Detection dashboard ID |
+| `VITE_API_URL` | Laravel API base URL, **including the `/api` suffix** |
+| `VITE_SUPABASE_URL` | Supabase project URL (`https://<project-ref>.supabase.co`) |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public Supabase key (`sb_publishable_…`) |
 
-> The four `METABASE_*` variables are **not yet present in `backend/.env.example`** — add them manually when setting up a new environment.
+All three are **build-time** values — see [Deployment Guide](#deployment-guide).
+
+### Backend (Render, and local `backend/.env`)
+
+| Variable | Purpose |
+|---|---|
+| `APP_ENV` | `production` on Render, `local` for development. Gates config caching. |
+| `APP_DEBUG` | Must be `false` in production — debug pages leak environment values |
+| `APP_KEY` | Laravel encryption key |
+| `APP_URL` | Public backend URL |
+| `APP_TIMEZONE` | `Asia/Manila` |
+| `LOG_LEVEL` | `error` in production |
+| `FRONTEND_URL` | Vercel origin — drives CORS |
+| `CORS_ALLOWED_ORIGINS` | Additional allowed origins, comma-separated |
+| `DB_CONNECTION` … `DB_SSLMODE` | Supabase PostgreSQL connection (pooler host, `require`) |
+| `SESSION_*`, `CACHE_STORE`, `QUEUE_CONNECTION` | Framework settings |
+| `SUPABASE_URL` | Used for JWKS discovery **and** the token issuer check — required |
+| `SUPABASE_PROJECT_ID` | Project reference |
+| `SUPABASE_JWT_SECRET` | **Intentionally empty** — legacy path disabled, JWKS is used |
+| `SUPABASE_SERVICE_ROLE_KEY` | Optional; only enables the admin "reset another user's 2FA" action |
+| `METABASE_SITE_URL` | Public Metabase URL (currently the Cloudflare tunnel) |
+| `METABASE_EMBEDDING_SECRET_KEY` | Signs embed JWTs — backend only, never in a `VITE_*` variable |
+| `METABASE_DASHBOARD_ID_CRIME/ANALYTICS/TRENDS` | `2` / `3` / `4` |
+| `MAIL_*` | Defaults to the `log` driver; no auth flow sends mail from Laravel |
+
+**`PORT` must not be set manually.** Render injects it automatically and the entrypoint reads it. Adding it by hand breaks the nginx binding.
 
 ---
 
-## Installation
+## Deployment Guide
+
+```
+Vercel  ──▶  Render  ──▶  Supabase
+                          
+Browser ──▶  Cloudflare tunnel ──▶ local Metabase ──▶ Supabase
+```
+
+### 1. Frontend → Vercel
+
+- Source: the GitHub repository, branch `main`
+- `vercel.json` declares framework (`vite`), build command (`npm run build`), output directory (`dist`), and the SPA rewrite
+- The **SPA rewrite** (`/(.*)` → `/index.html`) is required because routing is client-side — without it, opening `/dashboard` directly returns 404
+- Set the three `VITE_*` variables for **Production, Preview, and Development**
+
+### 2. Backend → Render
+
+| Setting | Value |
+|---|---|
+| Service type | Web Service |
+| Name | `crime-data-analytics-backend` |
+| Runtime | **Docker** |
+| Root directory | `backend` |
+| Dockerfile path | `./Dockerfile` |
+| Branch | `main` |
+| Region | Singapore |
+| Health check path | `/up` |
+| Build / start command | *(leave empty — the Dockerfile's `CMD` runs the entrypoint)* |
+
+Add the backend variables through Render's **Environment** tab. Do not add `PORT`.
+
+### 3. How Vite environment variables work
+
+Vite **inlines** `VITE_*` values into the JavaScript bundle when the site is built. They are not read at runtime.
+
+> **Therefore: changing a `VITE_*` variable in Vercel does nothing until you redeploy.** This is the single most common deployment mistake on this project.
+
+Two consequences:
+- Anything in a `VITE_*` variable is publicly readable in the shipped bundle. Only public values belong there.
+- After updating `VITE_API_URL`, trigger a new deployment.
+
+### 4. How Render environment variables work
+
+Render variables are **runtime** values, read by the container entrypoint on every start. Editing one restarts the service, and the entrypoint rebuilds the config cache from the new values — no rebuild required.
+
+### 5. CORS for the production origin
+
+Set `FRONTEND_URL` and `CORS_ALLOWED_ORIGINS` on Render to the exact Vercel origin — scheme included, **no trailing slash, no path**:
+
+```
+https://crime-data-analytics-ebon.vercel.app
+```
+
+Use the **stable production alias**. Vercel also issues a unique per-deployment URL for every build; those change on every push and are not in the allow-list.
+
+### Deployment order
+
+Because the two hosts reference each other, deploy in this order:
+
+1. Push to `main`
+2. Deploy the frontend to Vercel (a placeholder API URL is fine initially)
+3. Note the production Vercel URL
+4. Deploy the backend to Render, setting `FRONTEND_URL` / `CORS_ALLOWED_ORIGINS` to that URL
+5. Set `VITE_API_URL` in Vercel to the Render URL **+ `/api`**, then **redeploy Vercel**
+6. Add the Vercel origin to Supabase → Authentication → URL Configuration
+7. Start the Cloudflare tunnel and set `METABASE_SITE_URL` in Render
+
+---
+
+## Local Development Guide
+
+### Prerequisites
+
+- Node.js 22+
+- PHP 8.2+ with `pdo_pgsql`
+- Composer 2
+- Docker Desktop (for Metabase)
+- A Supabase project
+
+### Frontend
 
 ```bash
-git clone https://github.com/David-L0830/crime-data-analytics.git
-cd crime-data-analytics
-
-# Frontend
 npm install
-cp .env.example .env          # then fill in values
+cp .env.example .env        # then fill in the three VITE_* values
+npm run dev                 # http://localhost:5173
+```
 
-# Backend
+Other scripts: `npm run build`, `npm run preview`, `npm run lint` (oxlint).
+
+> Vite reads `.env` **at start-up**. After editing it, restart the dev server.
+
+### Backend
+
+```bash
 cd backend
 composer install
-cp .env.example .env          # then fill in values, including the METABASE_* keys
+cp .env.example .env        # then fill in DB, Supabase and Metabase values
 php artisan key:generate
+php artisan migrate         # only on a fresh database
+php artisan serve           # http://localhost:8000
 ```
 
-**Metabase setup** — install Metabase OSS, connect it to the same PostgreSQL database, then for each dashboard enable *Static embedding* and publish it. Copy the embedding secret key into `METABASE_EMBEDDING_SECRET_KEY` and the dashboard IDs into the three `METABASE_DASHBOARD_ID_*` variables.
+Useful commands:
+
+```bash
+php artisan route:list --path=up   # confirm the health route
+php artisan config:clear           # after editing .env
+php artisan view:clear             # clear compiled Blade caches
+php artisan test                   # 74 tests, in-memory SQLite
+```
+
+> If `.env` changes seem to have no effect, a stale configuration cache is the usual cause. Run `php artisan config:clear`.
+
+### Metabase
+
+```bash
+docker start metabase              # existing container, http://localhost:3000
+```
+
+Metabase stores everything in the `metabase-data` Docker volume. **Back it up before making changes:**
+
+```bash
+docker stop metabase
+docker run --rm -v metabase-data:/data -v "<backup-dir>":/backup \
+  alpine tar czf /backup/metabase-h2-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
+docker start metabase
+```
+
+Metabase must be stopped during the copy — H2 database files can be corrupted if copied while open. Metabase serves HTTP 503 for the first ~30 seconds after starting.
+
+### Docker Compose (optional)
+
+`docker-compose.yml` builds the frontend and backend containers for local use. It is **not** used for production deployment; Vercel and Render build from the repository directly.
+
+### Supabase
+
+Add `http://localhost:5173/login` and `/reset-password` to Supabase → Authentication → URL Configuration, or local sign-in will be rejected.
 
 ---
 
-## Development
+## Verification Checklist
 
-```bash
-npm run dev                              # Vite dev server (default :5173)
-cd backend && php artisan serve          # Laravel API (default :8000)
-```
+Run through this before a demo. Starred items are worth re-checking on the day.
 
-Metabase runs separately on its own port (`METABASE_SITE_URL`).
+### Infrastructure
 
----
+- [ ] ★ Vercel frontend loads at `https://crime-data-analytics-ebon.vercel.app`
+- [ ] Deep links (`/dashboard`, `/analytics`, `/trends`) load directly — confirms the SPA rewrite
+- [ ] ★ `GET /up` on Render returns **200**
+- [ ] ★ Production API is reachable from the browser
+- [ ] ★ Supabase project is **active**, not paused
+- [ ] ★ Cloudflare tunnel responds and matches `METABASE_SITE_URL` in Render
 
-## Build
+### Authentication
 
-```bash
-npm run build       # production bundle into dist/
-npm run preview     # preview the built bundle
-npm run lint        # oxlint
-```
+- [ ] ★ Login succeeds with a real account
+- [ ] Supabase returns 200 on the token request
+- [ ] `GET /api/user` returns the user after authentication
+- [ ] No CORS errors in the browser console
+- [ ] CORS preflight from the production Vercel origin returns the **matching** `Access-Control-Allow-Origin`
 
----
+### Data & dashboards
 
-## Testing / Verification
+- [ ] ★ KPI cards show real figures, not zeros or blanks
+- [ ] All four dashboard tables populate
+- [ ] ★ All three Metabase dashboards render — no "not available right now" card
+- [ ] **17 / 17** Metabase cards return data
+- [ ] Dashboard IDs are still 2 / 3 / 4
 
-There is no automated test suite in this repository. Verification is done with the build, the linter, PHP syntax checks, and manual checks against the database.
+### Filters
 
-```bash
-npm run build
-npm run lint
-php -l backend/app/Services/MetabaseEmbedService.php
-php -l backend/app/Http/Controllers/Api/MetabaseEmbedController.php
-```
+- [ ] ★ Date Range narrows both charts and tables
+- [ ] Crime Type, Sitio, and Status each filter correctly
+- [ ] Category filters on the Analytics page
+- [ ] ★ **Clearing every filter restores the full dataset**
 
-When changing filter or embed behaviour, confirm that a filter actually changes the underlying result rather than only returning HTTP 200 — a dashboard can return a successful response while silently ignoring or blanking a parameter.
+### Visualization types
+
+- [ ] Q40 Bar · Q44 Bar · Q49 Line · Q50 Line · Q74 Line · Q77 Waterfall
+- [ ] Q50 shows 12 series; Q77 shows 7 Sitio colours
+- [ ] Metabase's default blue `#509EE3` appears nowhere
+
+### Security
+
+- [ ] ★ No secrets committed — `git status` clean, no `.env` tracked
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
-| `Analytics dashboard is not configured yet.` (503) | A `METABASE_DASHBOARD_ID_*` variable is missing |
-| `Unknown dashboard.` (404) | `dashboardKey` is not one of `crime` / `analytics` / `trends` |
-| `Embedding is not enabled for this object.` | Static embedding was never published for that dashboard |
-| `You must specify a value for :<slug> in the JWT.` | The parameter is **Locked**; locked parameters require a value on every request and reject `null` |
-| `Unknown parameter :<slug>.` | A parameter was sent that the dashboard does not declare |
-| A card renders but ignores a filter | The dashboard parameter is not mapped to that card |
-| A card returns zero rows under any filter | A slug mismatch, or a mapping targeting the wrong column |
-| Chart shows one default-blue series instead of many | The breakout column is missing from `graph.dimensions` |
-| Metabase filter widgets visible in the embed | `hide_parameters` missing for that dashboard key |
+### "Sign-in is not configured. Please contact your Administrator."
 
-After changing embed appearance, hard-refresh — the previous embed URL may be cached.
+**Symptom** — the message appears immediately; no network request to Supabase.
+**Cause** — `isSupabaseConfigured` is false, meaning `VITE_SUPABASE_URL` **or** `VITE_SUPABASE_PUBLISHABLE_KEY` was missing at build time.
+**Fix** — confirm both are set in Vercel for the right environment, then **redeploy**. Verify by checking the deployed bundle contains the real project URL rather than `placeholder.supabase.co`.
+
+### "Invalid email or password" when the password is correct
+
+**Symptom** — Supabase returns 401.
+**Cause** — usually the **API key**, not the credentials. Legacy `anon` keys are permanently disabled once a project migrates to JWT signing keys. The frontend maps any 400/401 to this message, so a disabled key looks like a wrong password.
+**Fix** — use the new publishable key (`sb_publishable_…`) in `VITE_SUPABASE_PUBLISHABLE_KEY`, then redeploy.
+
+### "Unable to sign in right now. Please try again."
+
+**Symptom** — Supabase authentication returns 200, then `GET /api/user` fails.
+**Cause** — the frontend cannot reach the Laravel API. Most often `VITE_API_URL` is unset and falling back to `http://localhost:8000/api`, which is blocked as mixed content and points at the *viewer's* machine.
+**Fix** — set `VITE_API_URL` to the Render URL **+ `/api`** and redeploy. Confirm the bundle contains `onrender.com` and not `localhost:8000`.
+
+### CORS error on `/api/user`
+
+**Symptom** — DevTools shows a CORS failure; the response carries an `Access-Control-Allow-Origin` that does not match the page origin.
+**Cause** — you are browsing a **per-deployment** Vercel URL (`…-<hash>-<team>.vercel.app`) rather than the production alias. Only the alias is in the allow-list.
+**Fix** — use `https://crime-data-analytics-ebon.vercel.app`. Chasing per-deployment URLs is futile: the hash changes on every push.
+
+### Vercel environment variable "not applying"
+
+**Symptom** — a variable is set in Vercel, but the deployed site behaves as if it were missing.
+**Cause** — either the variable is not enabled for the environment being built, or the site was not rebuilt after the change.
+**Fix** — tick **Production, Preview, and Development**, then redeploy. `VITE_*` values are compiled in; saving alone changes nothing.
+
+### Render `/up` returns 404
+
+**Symptom** — the deploy shows healthy logs, but the health URL 404s.
+**Cause** — almost always **timing**. Render's edge returns a plain 404 for an `onrender.com` hostname until the first deploy is routed, and during cold starts.
+**Fix** — wait and retry. If it persists, confirm the health check path is `/up` and that the logs show all four `[entrypoint]` lines. A genuine nginx misconfiguration would produce nginx's own 404 page rather than Laravel's.
+
+### Laravel config cache serving stale values
+
+**Symptom** — an environment change has no effect.
+**Cause** — a cached config file overrides `env()`.
+**Fix** — locally, `php artisan config:clear`. On Render, simply restart: the entrypoint rebuilds the cache from the current environment on every start.
+
+### Metabase charts fail with "password authentication failed"
+
+**Symptom** — every Metabase card errors with `unable-to-acquire-connection`. Repeated failures may escalate to `ECIRCUITBREAKER … too many authentication failures`.
+**Cause** — the Supabase database password was rotated. **Metabase stores its own copy of the credentials**, separate from `backend/.env`.
+**Fix** — Metabase → **Admin → Databases** → the PostgreSQL connection → update the password → Save. Rotating that password requires updating **three** places: `backend/.env`, Metabase's connection, and Render's `DB_PASSWORD`. If the circuit breaker has tripped, allow a few minutes before retrying.
+
+### Rotating the Metabase embedding secret
+
+**When** — if the secret is ever exposed.
+**How** — Metabase → **Admin → Settings → Embedding → Static embedding** → regenerate, then update `METABASE_EMBEDDING_SECRET_KEY` in `backend/.env` and Render.
+**Effect** — existing signed URLs stop working immediately, which is harmless given the 10-minute token lifetime. Dashboards, questions, visualization settings, and colours are **not** affected.
+**Afterwards** — take a fresh H2 backup; older archives contain the previous secret.
+
+### Charts stop loading but KPIs and tables still work
+
+**Cause** — the Cloudflare tunnel died or changed hostname. Laravel is fine; only the iframe target is unreachable.
+**Fix** — restart the tunnel and re-point `METABASE_SITE_URL` (see [Metabase & the Cloudflare Tunnel](#metabase--the-cloudflare-tunnel)).
+
+### A Metabase chart shows the wrong visualization type
+
+**Symptom** — a chart appears as Area or Bar when it should be Line, or months are skipped on the x-axis.
+**Cause** — the chart type was changed accidentally in the Metabase UI. The type picker sits beside the Axes panel, and switching it preserves dimensions, metrics, and colours — so only the display type changes and it is easy to miss.
+**Fix** — open the question, set the correct type from the [visualization table](#metabase-visualization-state), confirm the x-axis Scale is unchanged, and save. If months are being skipped, the Scale is `timeseries` and should be `ordinal`.
+
+### Files appearing under `backend/storage/framework/views`
+
+**Symptom** — unfamiliar `.php` files with hashed names keep showing in `git status`; editors may flag them.
+**Cause** — these are **Laravel-generated compiled Blade caches**, not source files. They are regenerated automatically.
+**Fix** — never edit them by hand. Clear them with `php artisan view:clear`. The directory carries a `.gitignore` (`*` plus `!.gitignore`) so its contents are ignored while the directory itself stays in the repository — Laravel errors with "Please provide a valid cache path" if the directory is missing.
+
+---
+
+## Security
+
+**Secrets must never be committed to GitHub.** `.env` files are git-ignored and must stay that way.
+
+### What lives where
+
+| Secret | Where it belongs | Never |
+|---|---|---|
+| Database password | `backend/.env`, Render, Metabase's own connection | In the repo or any `VITE_*` variable |
+| `APP_KEY` | `backend/.env`, Render | In the repo |
+| `METABASE_EMBEDDING_SECRET_KEY` | `backend/.env`, Render | In the browser or any `VITE_*` variable |
+| `SUPABASE_SERVICE_ROLE_KEY` | `backend/.env`, Render (optional) | **Absolutely never** in frontend code |
+| `SUPABASE_JWT_SECRET` | Intentionally empty | — |
+| Supabase **publishable** key | `.env`, Vercel — public by design | Confusing it with the secret key |
+
+### Why the publishable key is different
+
+`VITE_*` values are compiled into the JavaScript bundle and are readable by anyone who opens the site. The publishable key is designed for that: it identifies the project without granting privileges. Row-level security and Supabase Auth enforce access. **Never** put a service-role key, database password, or embedding secret in a `VITE_*` variable.
+
+### Supabase JWT verification
+
+The backend verifies access tokens against the project's **JWKS** endpoint using the published ES256 public keys. `SUPABASE_JWT_SECRET` is deliberately blank: the legacy shared secret was revoked, and leaving the variable empty disables the older verification path entirely, so a leaked legacy secret could not be used to forge tokens.
+
+### If a secret is exposed
+
+1. Treat it as compromised — rotate it, do not merely remove it from view.
+2. Rotate at the source (Supabase dashboard, Metabase admin, `php artisan key:generate`).
+3. Update every consumer: `backend/.env`, Render, and — for the database password — Metabase's connection.
+4. Remember that rotating the database password breaks Metabase until its connection is updated too.
+
+### Handling environment files
+
+- Never paste a full `.env` into a chat, an issue, or a third-party tool.
+- Never commit generated files that contain resolved secrets. `bootstrap/cache/config.php` holds every value in plaintext and is git-ignored for this reason.
+- Prefer typing values directly into the Vercel and Render dashboards.
 
 ---
 
 ## Known Limitations
 
-**Metabase OSS (no Enterprise whitelabeling)**
+### Demo/pre-oral dependencies
+
+- **Metabase runs on a local computer behind a temporary Cloudflare tunnel.** Charts require that machine to be awake, online, and running `cloudflared`. The hostname changes whenever the tunnel restarts.
+- **Render's free tier idles out** after roughly 15 minutes and takes ~50 seconds to wake. Load the site a few minutes before presenting.
+- **Supabase free projects pause after about 7 days of inactivity.** Open the app at least twice a week, and check the day before a demo.
+- **Uploaded avatars do not survive redeploys** — they are written to a container filesystem that Render discards on each deploy.
+
+### Metabase OSS (no Enterprise whitelabeling)
 
 - Metabase typography is fixed (Lato) and **does not match** the application's Manrope/Inter type.
 - Axis labels, gridlines, tick marks, legends, tooltips, and the loading state keep Metabase's own styling — they cannot be themed in OSS.
 - No custom application colours, logo, or loading text.
 - Embedded charts do not follow the application's dark-mode toggle; the theme is fixed at URL-generation time.
 
-**Functional**
+### Functional
 
 - *Crime by Status* cannot show semantic per-status colours while it remains a single-series bar chart.
-- **Dashboard 2's `sitio` parameter currently returns no rows.** The parameter is declared and mapped, but filtering by Sitio yields 0 on Dashboard 2 while Dashboards 3 and 4 return the expected result — the mapping appears to target the wrong column and needs correcting in the Metabase UI. React-side Sitio filtering is unaffected.
+- **Dashboard 2's `sitio` parameter returns no rows.** The parameter is declared and mapped, but on Dashboard 2 it targets the same field as `crime_type`, so filtering by Sitio yields 0 there while Dashboards 3 and 4 behave correctly. Needs correcting in the Metabase UI. React-side Sitio filtering is unaffected.
 - Trend Detection has no Category filter by design.
-- No automated test suite.
+- Metabase's waterfall chart type officially supports a single dimension; Q77 supplies two. This is an accepted, intentional configuration.
+
+---
+
+## Project Structure
+
+```
+.
+├── src/                        React application
+│   ├── components/             UI, layout, charts, MetabaseDashboard
+│   ├── context/                Auth, Data, Theme, Toast providers
+│   ├── lib/supabaseClient.js   Supabase client (publishable key)
+│   ├── pages/                  Dashboard, Analytics, Trends, Records, …
+│   ├── services/               api.js + one module per API area
+│   └── utils/                  helpers, constants, chart insights
+├── backend/                    Laravel 12 API
+│   ├── app/
+│   │   ├── Http/Controllers/Api/   including MetabaseEmbedController
+│   │   ├── Http/Middleware/        EnsureRole, EnsureSupabaseAal2, audit log
+│   │   └── Services/               MetabaseEmbedService, SupabaseTokenValidator
+│   ├── config/                 cors.php, metabase.php, supabase.php, …
+│   ├── docker/                 nginx template, php-fpm pool, entrypoint.sh
+│   ├── routes/api.php          all API routes
+│   └── Dockerfile              nginx + php-fpm image used by Render
+├── docs/                       supplementary documentation
+├── vercel.json                 Vercel build + SPA rewrite
+├── docker-compose.yml          local containers (not used in production)
+└── README.md
+```
 
 ---
 
@@ -492,7 +808,7 @@ After changing embed appearance, hard-refresh — the previous embed URL may be 
 ```bash
 git status
 git diff
-npm run build
+npm run build          # verify the build before committing
 git add -A
 git diff --cached
 git commit -m "Describe the change"
@@ -501,7 +817,8 @@ git push
 
 Guidelines used in this repository:
 
-- Never commit `.env` files, secrets, tokens, or credentials — they are git-ignored.
+- **Never commit `.env` files, secrets, tokens, or credentials** — they are git-ignored.
 - Verify the build before committing.
 - Keep changes to filtering, embedding, and data logic separate from presentation-only changes.
-- Metabase dashboards, questions, parameters, and mappings live **inside Metabase**, not in this repository — schema or parameter changes there must be applied through the Metabase UI and are not captured by git.
+- Metabase dashboards, questions, parameters, and mappings live **inside Metabase**, not in this repository — changes there must be made through the Metabase UI and are not captured by git.
+- Laravel-generated files (compiled Blade views, config caches) must not be committed.
