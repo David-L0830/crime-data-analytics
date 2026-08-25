@@ -21,14 +21,19 @@ export default function Landing() {
   const { currentUser, initializing } = useAuth();
 
   useEffect(() => {
-    document.title = 'BADAC Analytics — Crime Data Analytics and Reporting System';
+    document.title =
+      'BADAC Analytics — Crime Data Analytics and Reporting System';
     // Smooth in-page scrolling for the nav anchors, applied to the document
     // (not just this component) since anchor scrolling happens on the
     // window. Removed on unmount so it never leaks into the authenticated
     // app's pages. Respects prefers-reduced-motion per Task 18.
-    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const prefersReducedMotion = window.matchMedia?.(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
     const previous = document.documentElement.style.scrollBehavior;
-    document.documentElement.style.scrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
+    document.documentElement.style.scrollBehavior = prefersReducedMotion
+      ? 'auto'
+      : 'smooth';
     return () => {
       document.documentElement.style.scrollBehavior = previous;
     };

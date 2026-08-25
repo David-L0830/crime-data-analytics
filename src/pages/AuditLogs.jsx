@@ -23,13 +23,28 @@ import { Icons } from '../components/icons';
 // rows already in the database keep rendering with their color; nothing
 // server-side writes fewer CREATE rows and no existing row's action value
 // changes — this only narrows the dropdown.
-const ACTIONS = ['LOGIN', 'LOGOUT', 'REPORT_GENERATED', 'REPORT_EXPORTED', 'UPDATE', 'ARCHIVE', 'SYNC_COMPLETED'];
+const ACTIONS = [
+  'LOGIN',
+  'LOGOUT',
+  'REPORT_GENERATED',
+  'REPORT_EXPORTED',
+  'UPDATE',
+  'ARCHIVE',
+  'SYNC_COMPLETED',
+];
 const TARGET_TYPES = ['auth', 'report', 'user', 'resident', 'incident'];
 
 const ACTION_COLORS = {
-  LOGIN: 'var(--accent)', LOGOUT: 'var(--warning)', SYNC_STARTED: 'var(--info)', SYNC_COMPLETED: 'var(--success)',
-  SYNC_FAILED: 'var(--danger)', REPORT_GENERATED: 'var(--accent)', REPORT_EXPORTED: 'var(--accent)',
-  CREATE: 'var(--success)', UPDATE: 'var(--info)', ARCHIVE: 'var(--warning)',
+  LOGIN: 'var(--accent)',
+  LOGOUT: 'var(--warning)',
+  SYNC_STARTED: 'var(--info)',
+  SYNC_COMPLETED: 'var(--success)',
+  SYNC_FAILED: 'var(--danger)',
+  REPORT_GENERATED: 'var(--accent)',
+  REPORT_EXPORTED: 'var(--accent)',
+  CREATE: 'var(--success)',
+  UPDATE: 'var(--info)',
+  ARCHIVE: 'var(--warning)',
   // DELETE kept so any historical DELETE audit entries still render with a
   // color instead of falling back to plain text — it's just no longer a
   // filter option (removed from ACTIONS above) or something new code emits.
@@ -46,35 +61,68 @@ export default function AuditLogs() {
   const [filters, setFilters] = useState(() => {
     const incoming = location.state?.filters;
     if (!incoming) return {};
-    return { 'audit-action': incoming.action, 'audit-dateFrom': incoming.dateFrom, 'audit-dateTo': incoming.dateTo };
+    return {
+      'audit-action': incoming.action,
+      'audit-dateFrom': incoming.dateFrom,
+      'audit-dateTo': incoming.dateTo,
+    };
   });
 
-  const filtered = useMemo(() => auditLogs.filter((log) => {
-    if (filters['audit-action'] && log.action !== filters['audit-action']) return false;
-    if (filters['audit-target'] && log.targetType !== filters['audit-target']) return false;
-    // Checkpoint 26 — verified: log.timestamp is an ISO string with a fixed
-    // +08:00 offset (AuditLogResource::toArray -> Carbon::toIso8601String(),
-    // app.timezone is 'Asia/Manila' — see backend/config/app.php — which has
-    // no DST, so the offset never changes). String comparison against the
-    // plain 'YYYY-MM-DD' filter values is safe here: a same-offset ISO
-    // string is lexically ordered identically to its chronological order,
-    // and a shorter date-only prefix always sorts before any same-day
-    // timestamp that extends it, so the FROM boundary is naturally
-    // inclusive without needing a 'T00:00:00' suffix. No UTC/local
-    // conversion bug — the appended 'T23:59:59' below make the TO boundary
-    // explicitly inclusive too.
-    if (filters['audit-dateFrom'] && log.timestamp < filters['audit-dateFrom']) return false;
-    if (filters['audit-dateTo'] && log.timestamp > `${filters['audit-dateTo']}T23:59:59`) return false;
-    return true;
-  }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 200), [auditLogs, filters]);
+  const filtered = useMemo(
+    () =>
+      auditLogs
+        .filter((log) => {
+          if (filters['audit-action'] && log.action !== filters['audit-action'])
+            return false;
+          if (
+            filters['audit-target'] &&
+            log.targetType !== filters['audit-target']
+          )
+            return false;
+          // Checkpoint 26 — verified: log.timestamp is an ISO string with a fixed
+          // +08:00 offset (AuditLogResource::toArray -> Carbon::toIso8601String(),
+          // app.timezone is 'Asia/Manila' — see backend/config/app.php — which has
+          // no DST, so the offset never changes). String comparison against the
+          // plain 'YYYY-MM-DD' filter values is safe here: a same-offset ISO
+          // string is lexically ordered identically to its chronological order,
+          // and a shorter date-only prefix always sorts before any same-day
+          // timestamp that extends it, so the FROM boundary is naturally
+          // inclusive without needing a 'T00:00:00' suffix. No UTC/local
+          // conversion bug — the appended 'T23:59:59' below make the TO boundary
+          // explicitly inclusive too.
+          if (
+            filters['audit-dateFrom'] &&
+            log.timestamp < filters['audit-dateFrom']
+          )
+            return false;
+          if (
+            filters['audit-dateTo'] &&
+            log.timestamp > `${filters['audit-dateTo']}T23:59:59`
+          )
+            return false;
+          return true;
+        })
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .slice(0, 200),
+    [auditLogs, filters],
+  );
 
   return (
     <section className="module">
       <div className="module-toolbar">
-        <h2 className="module-toolbar-title"><Icons.Report size={18} strokeWidth={2} /> Audit Logs</h2>
+        <h2 className="module-toolbar-title">
+          <Icons.Report size={18} strokeWidth={2} /> Audit Logs
+        </h2>
         <Button
           variant="secondary"
-          onClick={() => { if (exportCSV(filtered, `audit_logs_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Audit logs exported', 'success'); }}
+          onClick={() => {
+            if (
+              exportCSV(filtered, `audit_logs_${today()}.csv`, () =>
+                showToast('No data to export', 'error'),
+              )
+            )
+              showToast('Audit logs exported', 'success');
+          }}
         >
           <Icons.Download size={15} strokeWidth={2} /> Export Logs
         </Button>
@@ -82,8 +130,18 @@ export default function AuditLogs() {
 
       <FilterBar
         fields={[
-          { id: 'audit-action', label: 'Action', type: 'select', options: ACTIONS },
-          { id: 'audit-target', label: 'Target Type', type: 'select', options: TARGET_TYPES },
+          {
+            id: 'audit-action',
+            label: 'Action',
+            type: 'select',
+            options: ACTIONS,
+          },
+          {
+            id: 'audit-target',
+            label: 'Target Type',
+            type: 'select',
+            options: TARGET_TYPES,
+          },
           { id: 'audit-dateFrom', label: 'From', type: 'date' },
           { id: 'audit-dateTo', label: 'To', type: 'date' },
         ]}
@@ -93,8 +151,25 @@ export default function AuditLogs() {
       <Card bodyClassName="table-wrap">
         <Table
           columns={[
-            { key: 'timestamp', label: 'Date/Time', render: (v) => new Date(v).toLocaleString('en-PH') },
-            { key: 'action', label: 'Action', render: (v) => <span style={{ color: ACTION_COLORS[v] || 'inherit', fontWeight: 600 }}>{v}</span> },
+            {
+              key: 'timestamp',
+              label: 'Date/Time',
+              render: (v) => new Date(v).toLocaleString('en-PH'),
+            },
+            {
+              key: 'action',
+              label: 'Action',
+              render: (v) => (
+                <span
+                  style={{
+                    color: ACTION_COLORS[v] || 'inherit',
+                    fontWeight: 600,
+                  }}
+                >
+                  {v}
+                </span>
+              ),
+            },
             { key: 'performedBy', label: 'Performed By' },
             { key: 'targetType', label: 'Target Type' },
             { key: 'details', label: 'Details' },

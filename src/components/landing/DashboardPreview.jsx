@@ -17,7 +17,11 @@ const TREND_DATA = [58, 71, 64, 80, 69, 52];
 
 export default function DashboardPreview() {
   return (
-    <div className="landing-preview-panel" role="img" aria-label="Preview of the BADAC Analytics dashboard showing sample crime statistics">
+    <div
+      className="landing-preview-panel"
+      role="img"
+      aria-label="Preview of the BADAC Analytics dashboard showing sample crime statistics"
+    >
       <div className="landing-preview-header">
         <div className="landing-preview-header-title">
           <Icons.LayoutDashboard size={16} strokeWidth={2.25} />

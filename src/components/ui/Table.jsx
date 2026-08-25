@@ -3,12 +3,22 @@ import { Icons } from '../icons';
 
 // Reusable data table. `columns`: [{ key, label, render?(value, row) }]
 // `actions(row)` returns a node rendered in a trailing "Actions" column.
-export default function Table({ columns, rows, actions, onRowClick, emptyMessage = 'No records found.' }) {
+export default function Table({
+  columns,
+  rows,
+  actions,
+  onRowClick,
+  emptyMessage = 'No records found.',
+}) {
   if (!rows || !rows.length) {
     return (
       <div className="empty-state">
-        <div className="empty-icon"><Icons.ClipboardList size={32} strokeWidth={1.5} /></div>
-        <p style={{ color: 'var(--text-muted)', padding: 20 }}>{emptyMessage}</p>
+        <div className="empty-icon">
+          <Icons.ClipboardList size={32} strokeWidth={1.5} />
+        </div>
+        <p style={{ color: 'var(--text-muted)', padding: 20 }}>
+          {emptyMessage}
+        </p>
       </div>
     );
   }
@@ -31,7 +41,16 @@ export default function Table({ columns, rows, actions, onRowClick, emptyMessage
             onClick={onRowClick ? () => onRowClick(row) : undefined}
             role={onRowClick ? 'button' : undefined}
             tabIndex={onRowClick ? 0 : undefined}
-            onKeyDown={onRowClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row); } } : undefined}
+            onKeyDown={
+              onRowClick
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRowClick(row);
+                    }
+                  }
+                : undefined
+            }
           >
             {columns.map((c) => {
               let val = row[c.key];

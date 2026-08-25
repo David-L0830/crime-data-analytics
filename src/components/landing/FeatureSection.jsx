@@ -38,9 +38,14 @@ export default function FeatureSection() {
     <section id="features" className="landing-section landing-features">
       <div className="landing-section-inner">
         <div className="landing-section-heading">
-          <span className="landing-eyebrow landing-eyebrow-muted">Capabilities</span>
+          <span className="landing-eyebrow landing-eyebrow-muted">
+            Capabilities
+          </span>
           <h2>Everything BADAC needs in one platform</h2>
-          <p>Purpose-built modules for managing, understanding, and reporting on crime data across the barangay.</p>
+          <p>
+            Purpose-built modules for managing, understanding, and reporting on
+            crime data across the barangay.
+          </p>
         </div>
 
         <div className="landing-feature-grid">

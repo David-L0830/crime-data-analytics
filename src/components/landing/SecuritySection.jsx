@@ -1,10 +1,26 @@
 import { Icons } from '../icons';
 
 const SECURITY_POINTS = [
-  { icon: Icons.Lock, title: 'Authenticated Access', desc: 'Every session requires sign-in, with optional two-factor verification.' },
-  { icon: Icons.Users, title: 'Role-Based Authorization', desc: 'Personnel only see the modules their role is permitted to access.' },
-  { icon: Icons.ShieldCheck, title: 'Protected Records', desc: 'Crime, criminal, and victim data are safeguarded behind the login wall.' },
-  { icon: Icons.ScrollText, title: 'Audit Logging', desc: 'Key actions are tracked to support accountability and oversight.' },
+  {
+    icon: Icons.Lock,
+    title: 'Authenticated Access',
+    desc: 'Every session requires sign-in, with optional two-factor verification.',
+  },
+  {
+    icon: Icons.Users,
+    title: 'Role-Based Authorization',
+    desc: 'Personnel only see the modules their role is permitted to access.',
+  },
+  {
+    icon: Icons.ShieldCheck,
+    title: 'Protected Records',
+    desc: 'Crime, criminal, and victim data are safeguarded behind the login wall.',
+  },
+  {
+    icon: Icons.ScrollText,
+    title: 'Audit Logging',
+    desc: 'Key actions are tracked to support accountability and oversight.',
+  },
 ];
 
 export default function SecuritySection() {
@@ -12,9 +28,14 @@ export default function SecuritySection() {
     <section id="security" className="landing-section landing-security">
       <div className="landing-section-inner">
         <div className="landing-section-heading">
-          <span className="landing-eyebrow landing-eyebrow-muted">Trust &amp; Safety</span>
+          <span className="landing-eyebrow landing-eyebrow-muted">
+            Trust &amp; Safety
+          </span>
           <h2>Built for Secure Public Safety Data Management</h2>
-          <p>Crime and resident data are sensitive — the system is designed around that from the ground up.</p>
+          <p>
+            Crime and resident data are sensitive — the system is designed
+            around that from the ground up.
+          </p>
         </div>
 
         <div className="landing-security-grid">

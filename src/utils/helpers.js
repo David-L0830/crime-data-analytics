@@ -5,7 +5,11 @@ export function formatDate(d) {
   if (!d || d === '—') return '—';
   const parsed = new Date(d + 'T00:00:00');
   if (Number.isNaN(parsed.getTime())) return d;
-  return parsed.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+  return parsed.toLocaleDateString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function formatTime(t) {
@@ -25,7 +29,8 @@ export function today() {
 // Converts a 'YYYY-MM' label (as produced by Dashboard's monthly grouping)
 // into an inclusive { dateFrom, dateTo } range for filtering records.
 export function monthLabelToRange(monthLabel) {
-  if (!monthLabel || !/^\d{4}-\d{2}$/.test(monthLabel)) return { dateFrom: undefined, dateTo: undefined };
+  if (!monthLabel || !/^\d{4}-\d{2}$/.test(monthLabel))
+    return { dateFrom: undefined, dateTo: undefined };
   const [year, month] = monthLabel.split('-').map(Number);
   const lastDay = new Date(year, month, 0).getDate(); // day 0 of next month = last day of this month
   return {
@@ -91,10 +96,19 @@ export function exportCSV(records, filename, onEmpty) {
   try {
     const keys = Object.keys(records[0]);
     const header = keys.join(',');
-    const rows = records.map((r) => keys
-      .map((k) => `"${csvCell(r[k]).replace(/\r?\n/g, ' ').replace(/"/g, '""')}"`)
-      .join(','));
-    downloadFile(`\ufeff${[header, ...rows].join('\r\n')}`, filename, 'text/csv;charset=utf-8');
+    const rows = records.map((r) =>
+      keys
+        .map(
+          (k) =>
+            `"${csvCell(r[k]).replace(/\r?\n/g, ' ').replace(/"/g, '""')}"`,
+        )
+        .join(','),
+    );
+    downloadFile(
+      `\ufeff${[header, ...rows].join('\r\n')}`,
+      filename,
+      'text/csv;charset=utf-8',
+    );
     return true;
   } catch {
     if (onEmpty) onEmpty();
@@ -118,11 +132,16 @@ export function median(arr) {
 export function mode(arr) {
   if (!arr.length) return null;
   const freq = {};
-  arr.forEach((v) => { freq[v] = (freq[v] || 0) + 1; });
+  arr.forEach((v) => {
+    freq[v] = (freq[v] || 0) + 1;
+  });
   let max = 0;
   let modeVal = arr[0];
   for (const [k, v] of Object.entries(freq)) {
-    if (v > max) { max = v; modeVal = k; }
+    if (v > max) {
+      max = v;
+      modeVal = k;
+    }
   }
   return modeVal;
 }
@@ -140,8 +159,16 @@ export function stdDev(arr) {
 export function linearRegression(points) {
   const n = points.length;
   if (n < 2) return { slope: 0, intercept: 0 };
-  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-  points.forEach(([x, y]) => { sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x; });
+  let sumX = 0,
+    sumY = 0,
+    sumXY = 0,
+    sumX2 = 0;
+  points.forEach(([x, y]) => {
+    sumX += x;
+    sumY += y;
+    sumXY += x * y;
+    sumX2 += x * x;
+  });
   const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
   const intercept = (sumY - slope * sumX) / n;
   return { slope, intercept };
@@ -168,7 +195,9 @@ export function groupBy(arr, key) {
 
 export function countBy(arr, key) {
   const groups = groupBy(arr, key);
-  return Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length]));
+  return Object.fromEntries(
+    Object.entries(groups).map(([k, v]) => [k, v.length]),
+  );
 }
 
 // ===== Filters =====
@@ -185,10 +214,8 @@ export function countBy(arr, key) {
 // '2026-08-14' <= '2026-08-14' is true for TO, exactly as required (see
 // the "records exactly on the FROM/TO date" edge case).
 
-
 export const SOLVED_STATUSES = ['Solved', 'Closed'];
 export const PENDING_STATUSES = ['Open', 'Under Investigation'];
-
 
 export function filterRecords(records, filters) {
   return records.filter((r) => {
@@ -201,7 +228,8 @@ export function filterRecords(records, filters) {
     if (filters.status && r.status !== filters.status) return false;
     if (filters.search) {
       const q = filters.search.toLowerCase();
-      const hay = `${r.caseNumber} ${r.street} ${r.reportingOfficer} ${r.crimeType} ${r.sitio || ''}`.toLowerCase();
+      const hay =
+        `${r.caseNumber} ${r.street} ${r.reportingOfficer} ${r.crimeType} ${r.sitio || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;

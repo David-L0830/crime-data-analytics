@@ -20,7 +20,9 @@ export default function LandingFooter() {
           <div>
             <strong>BADAC Analytics</strong>
             <p>Crime Data Analytics &amp; Reporting System</p>
-            <p className="landing-footer-locality">Barangay 178, North Caloocan</p>
+            <p className="landing-footer-locality">
+              Barangay 178, North Caloocan
+            </p>
           </div>
         </div>
 
@@ -36,29 +38,52 @@ export default function LandingFooter() {
           <span className="landing-footer-contact-line">
             <Icons.Mail size={14} strokeWidth={2} /> {SUPPORT_EMAIL}
           </span>
-          <button type="button" className="landing-footer-link" onClick={() => setLegalModal('help')}>
+          <button
+            type="button"
+            className="landing-footer-link"
+            onClick={() => setLegalModal('help')}
+          >
             Help Desk
           </button>
         </div>
 
         <div className="landing-footer-col">
           <h4>Legal</h4>
-          <button type="button" className="landing-footer-link" onClick={() => setLegalModal('privacy')}>
+          <button
+            type="button"
+            className="landing-footer-link"
+            onClick={() => setLegalModal('privacy')}
+          >
             Privacy Policy
           </button>
-          <button type="button" className="landing-footer-link" onClick={() => setLegalModal('terms')}>
+          <button
+            type="button"
+            className="landing-footer-link"
+            onClick={() => setLegalModal('terms')}
+          >
             Terms of Use
           </button>
         </div>
       </div>
 
       <div className="landing-footer-bottom">
-        <p>&copy; 2026 Barangay 178 &mdash; North Caloocan. All rights reserved.</p>
+        <p>
+          &copy; 2026 Barangay 178 &mdash; North Caloocan. All rights reserved.
+        </p>
       </div>
 
-      <PrivacyPolicyModal open={legalModal === 'privacy'} onClose={() => setLegalModal(null)} />
-      <TermsOfUseModal open={legalModal === 'terms'} onClose={() => setLegalModal(null)} />
-      <HelpDeskModal open={legalModal === 'help'} onClose={() => setLegalModal(null)} />
+      <PrivacyPolicyModal
+        open={legalModal === 'privacy'}
+        onClose={() => setLegalModal(null)}
+      />
+      <TermsOfUseModal
+        open={legalModal === 'terms'}
+        onClose={() => setLegalModal(null)}
+      />
+      <HelpDeskModal
+        open={legalModal === 'help'}
+        onClose={() => setLegalModal(null)}
+      />
     </footer>
   );
 }

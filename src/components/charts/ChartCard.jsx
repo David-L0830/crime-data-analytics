@@ -6,7 +6,15 @@ import { Icons } from '../icons';
 // Wraps Chart.js in a React component so every page can declare a chart with
 // plain data instead of manually managing canvas refs / chart teardown.
 // `type`: 'line' | 'bar' | 'doughnut' | 'pie'  `labels`: string[]  `datasets`: Chart.js dataset[]
-export default function ChartCard({ title, type, labels, datasets, options = {}, height = 260, onOpenSummary }) {
+export default function ChartCard({
+  title,
+  type,
+  labels,
+  datasets,
+  options = {},
+  height = 260,
+  onOpenSummary,
+}) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
   const { theme } = useTheme();
@@ -29,7 +37,9 @@ export default function ChartCard({ title, type, labels, datasets, options = {},
 
     const isDark = theme === 'dark';
     const textColor = isDark ? 'rgba(255, 255, 255, 0.7)' : '#555555';
-    const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+    const gridColor = isDark
+      ? 'rgba(255, 255, 255, 0.08)'
+      : 'rgba(0, 0, 0, 0.06)';
 
     const defaults = {
       responsive: true,
@@ -40,8 +50,15 @@ export default function ChartCard({ title, type, labels, datasets, options = {},
       scales: ['doughnut', 'pie'].includes(type)
         ? {}
         : {
-            x: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } },
-            y: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor }, beginAtZero: true },
+            x: {
+              ticks: { color: textColor, font: { size: 10 } },
+              grid: { color: gridColor },
+            },
+            y: {
+              ticks: { color: textColor, font: { size: 10 } },
+              grid: { color: gridColor },
+              beginAtZero: true,
+            },
           },
     };
 
@@ -94,10 +111,21 @@ export default function ChartCard({ title, type, labels, datasets, options = {},
       {title && <h3>{title}</h3>}
       {interactive && <span className="chart-card-hint">View summary</span>}
       {isEmpty ? (
-        <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          style={{
+            height,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
           <div className="empty-state" style={{ padding: '16px 24px' }}>
-            <div className="empty-icon"><Icons.BarChart3 size={28} strokeWidth={1.5} /></div>
-            <p style={{ color: 'var(--text-muted)' }}>No data for the selected range.</p>
+            <div className="empty-icon">
+              <Icons.BarChart3 size={28} strokeWidth={1.5} />
+            </div>
+            <p style={{ color: 'var(--text-muted)' }}>
+              No data for the selected range.
+            </p>
           </div>
         </div>
       ) : (

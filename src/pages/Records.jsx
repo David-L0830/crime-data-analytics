@@ -19,7 +19,8 @@ export default function Records() {
     {
       key: 'criminal',
       title: 'Criminal Record',
-      description: 'Search and manage criminal profiles, charges, and case history.',
+      description:
+        'Search and manage criminal profiles, charges, and case history.',
       count: criminals.length,
       Icon: CriminalIcon,
       to: '/criminal-records/criminal',
@@ -42,7 +43,14 @@ export default function Records() {
         </p>
       </div>
 
-      <div className="records-landing-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+      <div
+        className="records-landing-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 16,
+        }}
+      >
         {options.map(({ key, title, description, count, Icon, to }) => (
           <Card key={key} className="records-landing-card">
             <button
@@ -67,7 +75,9 @@ export default function Records() {
                 <strong style={{ fontSize: '1.05rem' }}>{title}</strong>
               </span>
               <span style={{ color: 'var(--text-muted)' }}>{description}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{count} on file</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                {count} on file
+              </span>
             </button>
           </Card>
         ))}

@@ -53,7 +53,8 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
   // JSON.stringify/Content-Type: application/json path for it and let the
   // browser set its own multipart Content-Type (with boundary) instead —
   // setting that header manually breaks the boundary parsing.
-  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  const isFormData =
+    typeof FormData !== 'undefined' && body instanceof FormData;
 
   const accessToken = token || (await currentAccessToken());
 
@@ -72,12 +73,19 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
   } catch {
     // fetch() itself threw — DNS/connection failure, offline, CORS, etc.
     // The server was never reached, unlike every branch below.
-    throw new ApiError('Unable to reach the server. Check your connection and try again.', 0, null, 'network');
+    throw new ApiError(
+      'Unable to reach the server. Check your connection and try again.',
+      0,
+      null,
+      'network',
+    );
   }
 
   if (response.status === 204) return null;
 
-  const isJson = response.headers.get('content-type')?.includes('application/json');
+  const isJson = response.headers
+    .get('content-type')
+    ?.includes('application/json');
   const payload = isJson ? await response.json().catch(() => null) : null;
 
   if (!response.ok) {
@@ -86,7 +94,8 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
     // hasn't completed its second factor — a materially different case
     // from "not signed in at all", so it gets its own type and keeps the
     // backend's own explanatory message.
-    const isMfaRequired = response.status === 401 && payload?.mfaRequired === true;
+    const isMfaRequired =
+      response.status === 401 && payload?.mfaRequired === true;
 
     const type = isMfaRequired
       ? 'mfa_required'
@@ -104,13 +113,21 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
 
     const message =
       payload?.message ||
-      (type === 'unauthenticated' && 'You are not signed in. Please log in again.') ||
+      (type === 'unauthenticated' &&
+        'You are not signed in. Please log in again.') ||
       (type === 'forbidden' && 'You do not have permission to do that.') ||
       (type === 'not_found' && 'The requested record was not found.') ||
       (type === 'validation' && 'Please check the form for errors.') ||
-      (type === 'server' && 'Something went wrong on the server. Please try again.') ||
+      (type === 'server' &&
+        'Something went wrong on the server. Please try again.') ||
       'Something went wrong.';
-    throw new ApiError(message, response.status, payload?.errors, type, isMfaRequired);
+    throw new ApiError(
+      message,
+      response.status,
+      payload?.errors,
+      type,
+      isMfaRequired,
+    );
   }
 
   return payload;
@@ -119,13 +136,17 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
 // Unwraps Laravel API Resource collections/singles ({ data: ... }) into plain
 // arrays/objects, since every existing page expects plain records.
 function unwrap(payload) {
-  if (payload && typeof payload === 'object' && 'data' in payload) return payload.data;
+  if (payload && typeof payload === 'object' && 'data' in payload)
+    return payload.data;
   return payload;
 }
 
 export const api = {
   get: (path, opts) => request(path, { method: 'GET', ...opts }).then(unwrap),
-  post: (path, body, opts) => request(path, { method: 'POST', body, ...opts }).then(unwrap),
-  put: (path, body, opts) => request(path, { method: 'PUT', body, ...opts }).then(unwrap),
-  delete: (path, opts) => request(path, { method: 'DELETE', ...opts }).then(unwrap),
+  post: (path, body, opts) =>
+    request(path, { method: 'POST', body, ...opts }).then(unwrap),
+  put: (path, body, opts) =>
+    request(path, { method: 'PUT', body, ...opts }).then(unwrap),
+  delete: (path, opts) =>
+    request(path, { method: 'DELETE', ...opts }).then(unwrap),
 };

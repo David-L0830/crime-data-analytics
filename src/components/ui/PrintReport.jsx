@@ -7,11 +7,7 @@ export default function PrintReport({ title, meta }) {
           printed report — see the .print-report-header rule in
           global.css for why this is intentionally not position: fixed. */}
       <div className="print-report-header print-only">
-        <img
-          src={logo}
-          alt="Barangay 178 Logo"
-          className="print-report-logo"
-        />
+        <img src={logo} alt="Barangay 178 Logo" className="print-report-logo" />
 
         <div className="print-report-brand">
           <div className="print-report-title">
@@ -26,9 +22,7 @@ export default function PrintReport({ title, meta }) {
 
       {/* Appears in the normal document flow */}
       <div className="print-report-title-block print-only">
-        <div className="print-report-main-title">
-          {title}
-        </div>
+        <div className="print-report-main-title">{title}</div>
 
         {meta && meta.length > 0 && (
           <div className="print-report-meta">

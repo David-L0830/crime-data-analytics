@@ -14,14 +14,15 @@ export default function AboutSection() {
           </span>
           <h2>About BADAC Analytics</h2>
           <p>
-            BADAC Analytics is a Crime Data Analytics and Reporting System designed to help
-            authorized personnel of Barangay 178, North Caloocan manage crime-related information
-            and transform collected records into meaningful analytical insights.
+            BADAC Analytics is a Crime Data Analytics and Reporting System
+            designed to help authorized personnel of Barangay 178, North
+            Caloocan manage crime-related information and transform collected
+            records into meaningful analytical insights.
           </p>
           <p>
-            The system supports data management, visualization, analytics, mapping, and reporting
-            to assist public safety planning and decision-making for the Barangay Anti-Drug Abuse
-            Council (BADAC).
+            The system supports data management, visualization, analytics,
+            mapping, and reporting to assist public safety planning and
+            decision-making for the Barangay Anti-Drug Abuse Council (BADAC).
           </p>
         </div>
       </div>

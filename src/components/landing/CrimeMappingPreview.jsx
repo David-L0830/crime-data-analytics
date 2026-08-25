@@ -17,22 +17,41 @@ export default function CrimeMappingPreview() {
     <section className="landing-section landing-mapping">
       <div className="landing-section-inner landing-mapping-inner">
         <div className="landing-section-heading landing-mapping-heading">
-          <span className="landing-eyebrow landing-eyebrow-muted">GIS Mapping</span>
+          <span className="landing-eyebrow landing-eyebrow-muted">
+            GIS Mapping
+          </span>
           <h2>See Where Crime Happens</h2>
           <p>
-            Authorized personnel can visualize incident locations across Barangay 178 —
-            spotting hotspots, streets, and sitios that need attention at a glance.
+            Authorized personnel can visualize incident locations across
+            Barangay 178 — spotting hotspots, streets, and sitios that need
+            attention at a glance.
           </p>
           <ul className="landing-benefit-list landing-mapping-list">
-            <li><Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Barangay-wide boundary view</li>
-            <li><Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Heatmap-style risk visualization</li>
-            <li><Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Street &amp; sitio-level detail</li>
+            <li>
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Barangay-wide
+              boundary view
+            </li>
+            <li>
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Heatmap-style
+              risk visualization
+            </li>
+            <li>
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Street &amp;
+              sitio-level detail
+            </li>
           </ul>
         </div>
 
-        <div className="landing-map-panel" role="img" aria-label="Stylized preview of the BADAC Analytics crime mapping module with sample markers">
+        <div
+          className="landing-map-panel"
+          role="img"
+          aria-label="Stylized preview of the BADAC Analytics crime mapping module with sample markers"
+        >
           <div className="landing-map-panel-header">
-            <span><Icons.MapPin size={15} strokeWidth={2.25} /> Barangay 178 &middot; Sample View</span>
+            <span>
+              <Icons.MapPin size={15} strokeWidth={2.25} /> Barangay 178
+              &middot; Sample View
+            </span>
             <span className="landing-preview-badge">
               <Icons.Info size={12} strokeWidth={2.5} /> System Preview
             </span>
@@ -50,9 +69,15 @@ export default function CrimeMappingPreview() {
             ))}
           </div>
           <div className="landing-map-legend">
-            <span><i className="landing-legend-dot landing-legend-high" /> High risk</span>
-            <span><i className="landing-legend-dot landing-legend-medium" /> Medium</span>
-            <span><i className="landing-legend-dot landing-legend-low" /> Low</span>
+            <span>
+              <i className="landing-legend-dot landing-legend-high" /> High risk
+            </span>
+            <span>
+              <i className="landing-legend-dot landing-legend-medium" /> Medium
+            </span>
+            <span>
+              <i className="landing-legend-dot landing-legend-low" /> Low
+            </span>
           </div>
         </div>
       </div>

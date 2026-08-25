@@ -1,10 +1,26 @@
 import { Icons } from '../icons';
 
 const FLOW_STEPS = [
-  { icon: Icons.Database, label: 'Data', desc: 'Incidents & records are logged' },
-  { icon: Icons.BarChart3, label: 'Analysis', desc: 'Patterns & trends surfaced' },
-  { icon: Icons.TrendingUp, label: 'Insights', desc: 'Hotspots & risks identified' },
-  { icon: Icons.CheckCircle2, label: 'Better Decisions', desc: 'Evidence-based action' },
+  {
+    icon: Icons.Database,
+    label: 'Data',
+    desc: 'Incidents & records are logged',
+  },
+  {
+    icon: Icons.BarChart3,
+    label: 'Analysis',
+    desc: 'Patterns & trends surfaced',
+  },
+  {
+    icon: Icons.TrendingUp,
+    label: 'Insights',
+    desc: 'Hotspots & risks identified',
+  },
+  {
+    icon: Icons.CheckCircle2,
+    label: 'Better Decisions',
+    desc: 'Evidence-based action',
+  },
 ];
 
 const BENEFITS = [
@@ -21,9 +37,14 @@ export default function AnalyticsFlow() {
     <section id="analytics" className="landing-section landing-analytics">
       <div className="landing-section-inner">
         <div className="landing-section-heading">
-          <span className="landing-eyebrow landing-eyebrow-muted">Data-Driven</span>
+          <span className="landing-eyebrow landing-eyebrow-muted">
+            Data-Driven
+          </span>
           <h2>Turn Crime Records Into Actionable Insights</h2>
-          <p>BADAC Analytics transforms collected crime records into insight the council can act on.</p>
+          <p>
+            BADAC Analytics transforms collected crime records into insight the
+            council can act on.
+          </p>
         </div>
 
         <div className="landing-flow">

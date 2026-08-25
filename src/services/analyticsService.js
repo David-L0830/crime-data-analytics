@@ -17,7 +17,10 @@ export const analyticsService = {
   // makes them callable correctly whenever one does, without changing any
   // live behavior today.
   overview: (token) => api.get('/analytics', token ? { token } : undefined),
-  crimeTypes: (token) => api.get('/analytics/crime-types', token ? { token } : undefined),
-  monthly: (token) => api.get('/analytics/monthly', token ? { token } : undefined),
-  locations: (token) => api.get('/analytics/locations', token ? { token } : undefined),
+  crimeTypes: (token) =>
+    api.get('/analytics/crime-types', token ? { token } : undefined),
+  monthly: (token) =>
+    api.get('/analytics/monthly', token ? { token } : undefined),
+  locations: (token) =>
+    api.get('/analytics/locations', token ? { token } : undefined),
 };

@@ -6,8 +6,10 @@ export const victimService = {
   // existing fetch pattern unchanged.
   list: (token) => api.get('/victims', token ? { token } : undefined),
   get: (id, token) => api.get(`/victims/${id}`, token ? { token } : undefined),
-  create: (data, token) => api.post('/victims', data, token ? { token } : undefined),
-  update: (id, data, token) => api.put(`/victims/${id}`, data, token ? { token } : undefined),
+  create: (data, token) =>
+    api.post('/victims', data, token ? { token } : undefined),
+  update: (id, data, token) =>
+    api.put(`/victims/${id}`, data, token ? { token } : undefined),
   // Checkpoint 20 — replaces remove() (DELETE /victims/{id}, which
   // physically deleted the row). archive() calls the new
   // PUT /victims/{id}/archive endpoint, which sets status to 'Archived'.
@@ -15,5 +17,6 @@ export const victimService = {
   // have never had a delete button — verified via grep), but the service
   // method now exists and points at a real, working backend endpoint for
   // whenever that UI is built.
-  archive: (id, token) => api.put(`/victims/${id}/archive`, {}, token ? { token } : undefined),
+  archive: (id, token) =>
+    api.put(`/victims/${id}/archive`, {}, token ? { token } : undefined),
 };

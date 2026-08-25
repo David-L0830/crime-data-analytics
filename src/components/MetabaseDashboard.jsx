@@ -6,7 +6,12 @@ import { Icons } from './icons';
 // fresh, short-lived embed URL from the Laravel API on mount (and
 // whenever `dashboardKey` changes) — the actual Metabase secret never
 // reaches this component; it only ever receives the finished URL.
-export default function MetabaseDashboard({ dashboardKey, filters = {}, title, height = 800 }) {
+export default function MetabaseDashboard({
+  dashboardKey,
+  filters = {},
+  title,
+  height = 800,
+}) {
   const [url, setUrl] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -24,7 +29,8 @@ export default function MetabaseDashboard({ dashboardKey, filters = {}, title, h
         if (!cancelled) setUrl(data?.url || null);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message || 'Unable to load analytics dashboard.');
+        if (!cancelled)
+          setError(err.message || 'Unable to load analytics dashboard.');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -38,7 +44,15 @@ export default function MetabaseDashboard({ dashboardKey, filters = {}, title, h
 
   if (loading) {
     return (
-      <div className="card" style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        className="card"
+        style={{
+          height,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div className="spinner" />
       </div>
     );
@@ -46,10 +60,22 @@ export default function MetabaseDashboard({ dashboardKey, filters = {}, title, h
 
   if (error || !url) {
     return (
-      <div className="card" style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        className="card"
+        style={{
+          height,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div className="empty-state" style={{ padding: '16px 24px' }}>
-          <div className="empty-icon"><Icons.BarChart3 size={28} strokeWidth={1.5} /></div>
-          <p style={{ color: 'var(--text-muted)' }}>{error || 'Analytics dashboard is not available right now.'}</p>
+          <div className="empty-icon">
+            <Icons.BarChart3 size={28} strokeWidth={1.5} />
+          </div>
+          <p style={{ color: 'var(--text-muted)' }}>
+            {error || 'Analytics dashboard is not available right now.'}
+          </p>
         </div>
       </div>
     );

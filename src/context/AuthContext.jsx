@@ -46,10 +46,14 @@ export function AuthProvider({ children }) {
   // param wherever avatarUrl is rendered (see avatarSrc below), forcing a
   // fresh fetch regardless of what the backend's URL looks like.
   const [avatarVersion, setAvatarVersion] = useState(0);
-  const bumpAvatarVersion = useCallback(() => setAvatarVersion((v) => v + 1), []);
+  const bumpAvatarVersion = useCallback(
+    () => setAvatarVersion((v) => v + 1),
+    [],
+  );
   const avatarSrc = useCallback(
-    (url) => (url ? `${url}${url.includes('?') ? '&' : '?'}v=${avatarVersion}` : url),
-    [avatarVersion]
+    (url) =>
+      url ? `${url}${url.includes('?') ? '&' : '?'}v=${avatarVersion}` : url,
+    [avatarVersion],
   );
 
   // Shared by loginWithEmail, the Google onAuthStateChange listener below,
@@ -101,7 +105,11 @@ export function AuthProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event !== 'SIGNED_IN' || session?.user?.app_metadata?.provider !== 'google') return;
+      if (
+        event !== 'SIGNED_IN' ||
+        session?.user?.app_metadata?.provider !== 'google'
+      )
+        return;
 
       const accessToken = session.access_token;
       if (!accessToken) return;
@@ -119,7 +127,7 @@ export function AuthProvider({ children }) {
           setAuthInitError(
             err instanceof ApiError && err.status === 401
               ? 'No BADAC Analytics account is linked to that Google account. Contact your Administrator.'
-              : 'Unable to sign in right now. Please try again.'
+              : 'Unable to sign in right now. Please try again.',
           );
         });
     });
@@ -130,44 +138,59 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loginWithEmail = useCallback(async (email, password) => {
-    if (!isSupabaseConfigured) {
-      return { success: false, error: 'Sign-in is not configured. Please contact your Administrator.' };
-    }
+  const loginWithEmail = useCallback(
+    async (email, password) => {
+      if (!isSupabaseConfigured) {
+        return {
+          success: false,
+          error:
+            'Sign-in is not configured. Please contact your Administrator.',
+        };
+      }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      // Supabase's own message is safe to show as-is for invalid-credential
-      // cases (it does not confirm/deny account existence); anything else
-      // (network, config) gets a generic message instead of leaking detail.
-      const message =
-        error.status === 400 || error.status === 401 ? 'Invalid email or password.' : 'Unable to sign in right now. Please try again.';
-      return { success: false, error: message };
-    }
+      if (error) {
+        // Supabase's own message is safe to show as-is for invalid-credential
+        // cases (it does not confirm/deny account existence); anything else
+        // (network, config) gets a generic message instead of leaking detail.
+        const message =
+          error.status === 400 || error.status === 401
+            ? 'Invalid email or password.'
+            : 'Unable to sign in right now. Please try again.';
+        return { success: false, error: message };
+      }
 
-    const accessToken = data.session?.access_token;
-    if (!accessToken) {
-      return { success: false, error: 'Unable to sign in right now. Please try again.' };
-    }
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        return {
+          success: false,
+          error: 'Unable to sign in right now. Please try again.',
+        };
+      }
 
-    try {
-      // Resolves straight to { success, user } — MFA step-up is no longer
-      // part of this flow.
-      return await finishSupabaseLogin(accessToken);
-    } catch (err) {
-      // Supabase authenticated the person, but no Laravel account is
-      // linked (SupabaseTokenValidator never auto-creates one). Don't
-      // leave a dangling Supabase session behind for an account that
-      // isn't authorized in this application.
-      await supabase.auth.signOut().catch(() => {});
-      const message =
-        err instanceof ApiError && err.status === 401
-          ? 'This email is not registered in BADAC Analytics. Contact your Administrator.'
-          : 'Unable to sign in right now. Please try again.';
-      return { success: false, error: message };
-    }
-  }, [finishSupabaseLogin]);
+      try {
+        // Resolves straight to { success, user } — MFA step-up is no longer
+        // part of this flow.
+        return await finishSupabaseLogin(accessToken);
+      } catch (err) {
+        // Supabase authenticated the person, but no Laravel account is
+        // linked (SupabaseTokenValidator never auto-creates one). Don't
+        // leave a dangling Supabase session behind for an account that
+        // isn't authorized in this application.
+        await supabase.auth.signOut().catch(() => {});
+        const message =
+          err instanceof ApiError && err.status === 401
+            ? 'This email is not registered in BADAC Analytics. Contact your Administrator.'
+            : 'Unable to sign in right now. Please try again.';
+        return { success: false, error: message };
+      }
+    },
+    [finishSupabaseLogin],
+  );
 
   const loginWithGoogle = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -188,7 +211,10 @@ export function AuthProvider({ children }) {
     });
 
     if (error) {
-      return { success: false, error: 'Unable to start Google sign-in. Please try again.' };
+      return {
+        success: false,
+        error: 'Unable to start Google sign-in. Please try again.',
+      };
     }
 
     // Success here just means the redirect to Google was initiated.
@@ -246,7 +272,7 @@ export function AuthProvider({ children }) {
       const role = ROLES[currentUser.role];
       return Boolean(role && role.modules.includes(module));
     },
-    [currentUser]
+    [currentUser],
   );
 
   const can = useCallback(
@@ -255,7 +281,7 @@ export function AuthProvider({ children }) {
       const perms = PERMISSIONS[currentUser.role] || [];
       return perms.includes(permission);
     },
-    [currentUser]
+    [currentUser],
   );
 
   const value = {

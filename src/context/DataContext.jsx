@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { today } from '../utils/helpers';
 import { SITIOS, CRIME_TYPES, CATEGORIES, STATUSES } from '../utils/constants';
 import { AuthContext } from './AuthContext';
@@ -29,8 +36,13 @@ function normalizeSettings(raw) {
     barangay: raw.barangay ?? DEFAULT_SETTINGS.barangay,
     population: raw.population ?? DEFAULT_SETTINGS.population,
     threshold: raw.threshold ?? DEFAULT_SETTINGS.threshold,
-    hotspotThreshold: raw.hotspot_threshold ?? raw.hotspotThreshold ?? DEFAULT_SETTINGS.hotspotThreshold,
-    categories: raw.categories?.length ? raw.categories : DEFAULT_SETTINGS.categories,
+    hotspotThreshold:
+      raw.hotspot_threshold ??
+      raw.hotspotThreshold ??
+      DEFAULT_SETTINGS.hotspotThreshold,
+    categories: raw.categories?.length
+      ? raw.categories
+      : DEFAULT_SETTINGS.categories,
   };
 }
 
@@ -59,8 +71,13 @@ export function DataProvider({ children }) {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      setRecords([]); setCriminals([]); setVictims([]); setAuditLogs([]);
-      setNotifications([]); setSyncLogs([]); setSettings(DEFAULT_SETTINGS);
+      setRecords([]);
+      setCriminals([]);
+      setVictims([]);
+      setAuditLogs([]);
+      setNotifications([]);
+      setSyncLogs([]);
+      setSettings(DEFAULT_SETTINGS);
       setLoading(false);
       return;
     }
@@ -119,7 +136,8 @@ export function DataProvider({ children }) {
         (r) =>
           r.status === 'rejected' &&
           r.reason instanceof ApiError &&
-          (r.reason.type === 'mfa_required' || r.reason.type === 'unauthenticated')
+          (r.reason.type === 'mfa_required' ||
+            r.reason.type === 'unauthenticated'),
       );
       if (authFailure) {
         const message =
@@ -138,13 +156,21 @@ export function DataProvider({ children }) {
       // already handled above. What's left here is a genuine problem:
       // the backend unreachable, a 500, or similar.
       const genuineFailure = results.find(
-        (r) => r.status === 'rejected' && !(r.reason instanceof ApiError && r.reason.status === 403)
+        (r) =>
+          r.status === 'rejected' &&
+          !(r.reason instanceof ApiError && r.reason.status === 403),
       );
       if (genuineFailure) {
         setError(
           genuineFailure.reason instanceof ApiError
-            ? { type: genuineFailure.reason.type, message: genuineFailure.reason.message }
-            : { type: 'unknown', message: 'Unable to load data from the server.' }
+            ? {
+                type: genuineFailure.reason.type,
+                message: genuineFailure.reason.message,
+              }
+            : {
+                type: 'unknown',
+                message: 'Unable to load data from the server.',
+              },
         );
       }
 
@@ -158,7 +184,10 @@ export function DataProvider({ children }) {
   }, [isAuthenticated]);
 
   const refreshAuditLogs = useCallback(() => {
-    auditLogService.list().then(setAuditLogs).catch(() => {});
+    auditLogService
+      .list()
+      .then(setAuditLogs)
+      .catch(() => {});
   }, []);
 
   // Local audit-log entries are no longer created client-side — every
@@ -171,8 +200,12 @@ export function DataProvider({ children }) {
   // ===== Incidents =====
   const isDuplicateCaseNumber = useCallback(
     (caseNumber, excludeId) =>
-      records.some((r) => r.caseNumber.toLowerCase() === caseNumber.toLowerCase() && r.id !== excludeId),
-    [records]
+      records.some(
+        (r) =>
+          r.caseNumber.toLowerCase() === caseNumber.toLowerCase() &&
+          r.id !== excludeId,
+      ),
+    [records],
   );
 
   const validateRecord = useCallback(
@@ -182,59 +215,79 @@ export function DataProvider({ children }) {
       if (!data.crimeType) errors.push('Crime type is required.');
       if (!data.date) errors.push('Date is required.');
       if (!data.sitio) errors.push('Sitio is required.');
-      if (data.caseNumber && isDuplicateCaseNumber(data.caseNumber.trim(), excludeId)) {
+      if (
+        data.caseNumber &&
+        isDuplicateCaseNumber(data.caseNumber.trim(), excludeId)
+      ) {
         errors.push('Case number already exists.');
       }
       return errors;
     },
-    [isDuplicateCaseNumber]
+    [isDuplicateCaseNumber],
   );
 
-  const updateRecord = useCallback(async (id, data) => {
-    const updated = await incidentService.update(id, data);
-    setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
-    refreshAuditLogs();
-  }, [refreshAuditLogs]);
+  const updateRecord = useCallback(
+    async (id, data) => {
+      const updated = await incidentService.update(id, data);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
 
-  const addRecord = useCallback(async (data) => {
-    const created = await incidentService.create(data);
-    setRecords((prev) => [created, ...prev]);
-    refreshAuditLogs();
-    return created;
-  }, [refreshAuditLogs]);
+  const addRecord = useCallback(
+    async (data) => {
+      const created = await incidentService.create(data);
+      setRecords((prev) => [created, ...prev]);
+      refreshAuditLogs();
+      return created;
+    },
+    [refreshAuditLogs],
+  );
 
   // Checkpoint 20 — replaces deleteRecord(). Archive is persistent: the
   // incident stays in `records` with status 'Archived' (list pages filter
   // it out of the default view themselves) instead of being removed from
   // state, matching the backend's new behavior of updating the row rather
   // than deleting it.
-  const archiveRecord = useCallback(async (id) => {
-    const updated = await incidentService.archive(id);
-    setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
-    refreshAuditLogs();
-  }, [refreshAuditLogs]);
+  const archiveRecord = useCallback(
+    async (id) => {
+      const updated = await incidentService.archive(id);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
 
   // ===== Victims =====
   // Checkpoint 20 — new. No page currently calls this (VictimRecords.jsx /
   // VictimProfile.jsx have no delete/archive button today), but it's
   // exposed here so that UI can be added later without touching
   // DataContext again.
-  const archiveVictim = useCallback(async (id) => {
-    const updated = await victimService.archive(id);
-    setVictims((prev) => prev.map((v) => (v.id === id ? updated : v)));
-    refreshAuditLogs();
-  }, [refreshAuditLogs]);
+  const archiveVictim = useCallback(
+    async (id) => {
+      const updated = await victimService.archive(id);
+      setVictims((prev) => prev.map((v) => (v.id === id ? updated : v)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
 
   // ===== Criminals =====
-  const archiveCriminal = useCallback(async (id) => {
-    const updated = await criminalService.archive(id);
-    setCriminals((prev) => prev.map((c) => (c.id === id ? updated : c)));
-    refreshAuditLogs();
-  }, [refreshAuditLogs]);
+  const archiveCriminal = useCallback(
+    async (id) => {
+      const updated = await criminalService.archive(id);
+      setCriminals((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
 
   // ===== Notifications =====
   const markNotificationRead = useCallback(async (id) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+    );
     try {
       await notificationService.markRead(id);
     } catch {
@@ -253,7 +306,9 @@ export function DataProvider({ children }) {
     let previous;
     setNotifications((prev) => {
       previous = prev;
-      return prev.map((n) => (!title || n.title === title ? { ...n, read: true } : n));
+      return prev.map((n) =>
+        !title || n.title === title ? { ...n, read: true } : n,
+      );
     });
     try {
       await notificationService.markAllRead(title);
@@ -263,44 +318,59 @@ export function DataProvider({ children }) {
     }
   }, []);
 
-  const unreadNotificationCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications],
+  );
   const unreadHotspotAlertCount = useMemo(
-    () => notifications.filter((n) => n.title === 'Hotspot Alert' && !n.read).length,
-    [notifications]
+    () =>
+      notifications.filter((n) => n.title === 'Hotspot Alert' && !n.read)
+        .length,
+    [notifications],
   );
 
   // ===== Settings =====
-  const saveSettings = useCallback(async (next) => {
-    const payload = {
-      barangay: next.barangay,
-      population: next.population,
-      threshold: next.threshold,
-      hotspotThreshold: next.hotspotThreshold,
-      categories: next.categories,
-    };
-    const raw = await settingsService.update(payload);
-    setSettings(normalizeSettings(raw));
-    refreshAuditLogs();
-  }, [refreshAuditLogs]);
+  const saveSettings = useCallback(
+    async (next) => {
+      const payload = {
+        barangay: next.barangay,
+        population: next.population,
+        threshold: next.threshold,
+        hotspotThreshold: next.hotspotThreshold,
+        categories: next.categories,
+      };
+      const raw = await settingsService.update(payload);
+      setSettings(normalizeSettings(raw));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
 
   // ===== Sync-derived helpers (mirrors original DataStore) =====
   const getLastSync = useCallback(
     () => syncLogs.find((l) => l.status === 'completed') || null,
-    [syncLogs]
+    [syncLogs],
   );
   const sumImported = useCallback(
     (sinceMs) =>
       syncLogs
-        .filter((l) => l.status === 'completed' && new Date(l.timestamp).getTime() >= sinceMs)
+        .filter(
+          (l) =>
+            l.status === 'completed' &&
+            new Date(l.timestamp).getTime() >= sinceMs,
+        )
         .reduce((sum, l) => sum + (l.recordsReceived || 0), 0),
-    [syncLogs]
+    [syncLogs],
   );
   const getTodayImportedCount = useCallback(() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
     return sumImported(d.getTime());
   }, [sumImported]);
   const getThisMonthImportedCount = useCallback(() => {
-    const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0);
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
     return sumImported(d.getTime());
   }, [sumImported]);
 
@@ -310,23 +380,53 @@ export function DataProvider({ children }) {
   const backup = useCallback(
     () =>
       JSON.stringify(
-        { records, criminals, victims, settings, auditLogs, notifications, syncLogs, exportedAt: new Date().toISOString() },
+        {
+          records,
+          criminals,
+          victims,
+          settings,
+          auditLogs,
+          notifications,
+          syncLogs,
+          exportedAt: new Date().toISOString(),
+        },
         null,
-        2
+        2,
       ),
-    [records, criminals, victims, settings, auditLogs, notifications, syncLogs]
+    [records, criminals, victims, settings, auditLogs, notifications, syncLogs],
   );
 
   const value = {
-    records, criminals, victims, auditLogs, notifications, syncLogs, settings,
-    loading, error,
-    SITIOS, CRIME_TYPES, CATEGORIES: settings.categories?.length ? settings.categories : CATEGORIES, STATUSES,
-    validateRecord, updateRecord, archiveRecord, addRecord,
-    archiveVictim, archiveCriminal,
-    markNotificationRead, markAllNotificationsRead, unreadNotificationCount, unreadHotspotAlertCount,
+    records,
+    criminals,
+    victims,
+    auditLogs,
+    notifications,
+    syncLogs,
+    settings,
+    loading,
+    error,
+    SITIOS,
+    CRIME_TYPES,
+    CATEGORIES: settings.categories?.length ? settings.categories : CATEGORIES,
+    STATUSES,
+    validateRecord,
+    updateRecord,
+    archiveRecord,
+    addRecord,
+    archiveVictim,
+    archiveCriminal,
+    markNotificationRead,
+    markAllNotificationsRead,
+    unreadNotificationCount,
+    unreadHotspotAlertCount,
     saveSettings,
-    getLastSync, getTodayImportedCount, getThisMonthImportedCount,
-    backup, addAuditLog, today,
+    getLastSync,
+    getTodayImportedCount,
+    getThisMonthImportedCount,
+    backup,
+    addAuditLog,
+    today,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

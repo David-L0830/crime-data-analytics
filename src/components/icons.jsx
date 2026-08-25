@@ -68,7 +68,12 @@ import {
 // (same 24x24/stroke conventions as lucide) rather than adding a new
 // dependency, so it drops straight into the same `<Icons.X size strokeWidth />`
 // call sites as everything else in this file.
-function Headset({ size = 24, strokeWidth = 2, color = 'currentColor', ...rest }) {
+function Headset({
+  size = 24,
+  strokeWidth = 2,
+  color = 'currentColor',
+  ...rest
+}) {
   return (
     <svg
       width={size}

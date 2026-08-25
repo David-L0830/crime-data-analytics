@@ -32,7 +32,11 @@ export default function MainLayout() {
 
   return (
     <div className={`app ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
-      <Sidebar open={mobileOpen} collapsed={sidebarCollapsed} onNavigate={() => setMobileOpen(false)} />
+      <Sidebar
+        open={mobileOpen}
+        collapsed={sidebarCollapsed}
+        onNavigate={() => setMobileOpen(false)}
+      />
       <main className="main-content">
         <Header onMenuToggle={handleMenuToggle} />
         <div className="content-area">
@@ -42,7 +46,13 @@ export default function MainLayout() {
             </div>
           )}
           {loading ? (
-            <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div
+              style={{
+                padding: '48px',
+                textAlign: 'center',
+                color: 'var(--text-muted)',
+              }}
+            >
               Loading dashboard data…
             </div>
           ) : (

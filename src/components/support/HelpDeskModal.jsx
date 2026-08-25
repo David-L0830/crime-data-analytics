@@ -27,7 +27,8 @@ export default function HelpDeskModal({ open, onClose }) {
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState(null); // 'sent' | 'error' | null
 
-  const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const update = (field) => (e) =>
+    setForm((f) => ({ ...f, [field]: e.target.value }));
 
   const handleClose = () => {
     setForm(initialForm);
@@ -39,7 +40,8 @@ export default function HelpDeskModal({ open, onClose }) {
   const validate = () => {
     const next = {};
     if (!form.name.trim()) next.name = 'Please enter your name.';
-    if (!form.contact.trim()) next.contact = 'Please enter an email or phone number.';
+    if (!form.contact.trim())
+      next.contact = 'Please enter an email or phone number.';
     if (!form.category) next.category = 'Please select an issue category.';
     if (!form.message.trim()) next.message = 'Please describe the issue.';
     setErrors(next);
@@ -74,28 +76,31 @@ export default function HelpDeskModal({ open, onClose }) {
     <Modal open={open} onClose={handleClose} title="Help Desk" size="lg">
       <div className="helpdesk-content">
         <div className="helpdesk-support-row">
-          <span className="helpdesk-support-icon"><Icons.Headset size={18} strokeWidth={2} /></span>
+          <span className="helpdesk-support-icon">
+            <Icons.Headset size={18} strokeWidth={2} />
+          </span>
           <div>
             <strong>Need assistance?</strong>
             <p>
               Reach BADAC Support directly at{' '}
-              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or fill out the form
-              below and we'll open a pre-filled email to send from your own inbox.
+              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or fill
+              out the form below and we'll open a pre-filled email to send from
+              your own inbox.
             </p>
           </div>
         </div>
 
         {status === 'sent' && (
           <div className="login-success" style={{ marginBottom: 16 }}>
-            Your email app should now be opening with your message pre-filled to BADAC
-            Support. Please review and send it from there to complete your request — this
-            form doesn't submit directly to a ticketing system.
+            Your email app should now be opening with your message pre-filled to
+            BADAC Support. Please review and send it from there to complete your
+            request — this form doesn't submit directly to a ticketing system.
           </div>
         )}
         {status === 'error' && (
           <div className="login-error" style={{ marginBottom: 16 }}>
-            We couldn't open your email app automatically. Please email {SUPPORT_EMAIL}{' '}
-            directly instead.
+            We couldn't open your email app automatically. Please email{' '}
+            {SUPPORT_EMAIL} directly instead.
           </div>
         )}
 
@@ -121,17 +126,27 @@ export default function HelpDeskModal({ open, onClose }) {
                 onChange={update('contact')}
                 placeholder="you@example.com"
               />
-              {errors.contact && <div className="field-error">{errors.contact}</div>}
+              {errors.contact && (
+                <div className="field-error">{errors.contact}</div>
+              )}
             </div>
             <div className="form-group full">
               <label htmlFor="hd-category">Issue Category</label>
-              <select id="hd-category" value={form.category} onChange={update('category')}>
+              <select
+                id="hd-category"
+                value={form.category}
+                onChange={update('category')}
+              >
                 <option value="">Select an issue type…</option>
                 {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
               </select>
-              {errors.category && <div className="field-error">{errors.category}</div>}
+              {errors.category && (
+                <div className="field-error">{errors.category}</div>
+              )}
             </div>
             <div className="form-group full">
               <label htmlFor="hd-message">Describe the Issue</label>
@@ -142,13 +157,19 @@ export default function HelpDeskModal({ open, onClose }) {
                 onChange={update('message')}
                 placeholder="Tell us what happened, what you expected, and any error messages you saw."
               />
-              {errors.message && <div className="field-error">{errors.message}</div>}
+              {errors.message && (
+                <div className="field-error">{errors.message}</div>
+              )}
             </div>
           </div>
 
           <div className="modal-footer">
-            <Button type="button" variant="secondary" onClick={handleClose}>Close</Button>
-            <Button type="submit" variant="primary">Send to Support</Button>
+            <Button type="button" variant="secondary" onClick={handleClose}>
+              Close
+            </Button>
+            <Button type="submit" variant="primary">
+              Send to Support
+            </Button>
           </div>
         </form>
       </div>

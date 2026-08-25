@@ -26,7 +26,10 @@ function computeAge(dob) {
 function Field({ label, value }) {
   return (
     <div>
-      <strong>{label}:</strong> {value === null || value === undefined || value === '' ? 'Not available' : value}
+      <strong>{label}:</strong>{' '}
+      {value === null || value === undefined || value === ''
+        ? 'Not available'
+        : value}
     </div>
   );
 }
@@ -37,14 +40,20 @@ export default function VictimProfile() {
   const { victims } = useData();
   const { showToast } = useToast();
 
-  const victim = useMemo(() => victims.find((v) => String(v.id) === String(id)), [victims, id]);
+  const victim = useMemo(
+    () => victims.find((v) => String(v.id) === String(id)),
+    [victims, id],
+  );
 
   if (!victim) {
     return (
       <section className="module">
         <div className="empty-state" style={{ padding: 60 }}>
           <p style={{ color: 'var(--text-muted)' }}>Victim record not found.</p>
-          <Button variant="secondary" onClick={() => navigate('/criminal-records')}>
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/criminal-records')}
+          >
             <Icons.Back size={15} strokeWidth={2} /> Back to Records
           </Button>
         </div>
@@ -65,7 +74,16 @@ export default function VictimProfile() {
         <div className="toolbar-actions">
           <Button
             variant="secondary"
-            onClick={() => { if (exportCSV([victim], `victim_${victim.victimId}_${today()}.csv`, () => showToast('Could not export profile.', 'error'))) showToast('Profile exported', 'success'); }}
+            onClick={() => {
+              if (
+                exportCSV(
+                  [victim],
+                  `victim_${victim.victimId}_${today()}.csv`,
+                  () => showToast('Could not export profile.', 'error'),
+                )
+              )
+                showToast('Profile exported', 'success');
+            }}
           >
             <Icons.Download size={15} strokeWidth={2} /> Export Profile
           </Button>
@@ -85,8 +103,13 @@ export default function VictimProfile() {
           </div>
           <div className="profile-header-info">
             <h2>{victim.fullName}</h2>
-            {victim.alias && <p className="profile-alias">Alias: {victim.alias}</p>}
-            <p className="profile-id"><Icons.IdCard size={14} strokeWidth={2} /> Victim ID: {victim.victimId}</p>
+            {victim.alias && (
+              <p className="profile-alias">Alias: {victim.alias}</p>
+            )}
+            <p className="profile-id">
+              <Icons.IdCard size={14} strokeWidth={2} /> Victim ID:{' '}
+              {victim.victimId}
+            </p>
             <Badge status={victim.status || 'Active'} />
           </div>
         </div>
@@ -98,12 +121,17 @@ export default function VictimProfile() {
             <Field label="Full Name" value={victim.fullName} />
             <Field label="Alias / Known As" value={victim.alias} />
             <Field label="Gender" value={victim.gender} />
-            <Field label="Date of Birth" value={victim.dateOfBirth ? formatDate(victim.dateOfBirth) : null} />
+            <Field
+              label="Date of Birth"
+              value={victim.dateOfBirth ? formatDate(victim.dateOfBirth) : null}
+            />
             <Field label="Age" value={age} />
             <Field label="Civil Status" value={victim.civilStatus} />
             <Field label="Nationality" value={victim.nationality} />
             <Field label="Contact Information" value={victim.contactNumber} />
-            <div className="full"><Field label="Address" value={victim.address} /></div>
+            <div className="full">
+              <Field label="Address" value={victim.address} />
+            </div>
           </div>
         </Card>
 
@@ -113,25 +141,37 @@ export default function VictimProfile() {
               columns={[
                 { key: 'caseNumber', label: 'Case Number' },
                 { key: 'charge', label: 'Charge' },
-                { key: 'status', label: 'Case Status', render: (v) => <Badge status={v} /> },
+                {
+                  key: 'status',
+                  label: 'Case Status',
+                  render: (v) => <Badge status={v} />,
+                },
                 {
                   key: 'relatedCriminals',
                   label: 'Related Criminal',
-                  render: (v) => (v && v.length ? v.map((c) => c.fullName).join(', ') : '—'),
+                  render: (v) =>
+                    v && v.length ? v.map((c) => c.fullName).join(', ') : '—',
                 },
               ]}
               rows={victim.relatedCases}
               actions={(row) => {
                 const suspect = row.relatedCriminals && row.relatedCriminals[0];
                 return suspect ? (
-                  <Button size="sm" variant="secondary" className="print-hidden" onClick={() => navigate(`/criminal-records/${suspect.id}`)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="print-hidden"
+                    onClick={() => navigate(`/criminal-records/${suspect.id}`)}
+                  >
                     View Case
                   </Button>
                 ) : null;
               }}
             />
           ) : (
-            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>This victim is not linked to any case yet.</p>
+            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>
+              This victim is not linked to any case yet.
+            </p>
           )}
         </Card>
       </div>

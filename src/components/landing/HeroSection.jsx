@@ -23,13 +23,17 @@ export default function HeroSection() {
           </p>
 
           <p className="landing-hero-desc">
-            A centralized platform for managing, analyzing, visualizing, and reporting
-            crime-related data for Barangay 178, North Caloocan — built to help the
-            Barangay Anti-Drug Abuse Council turn records into safer, data-driven decisions.
+            A centralized platform for managing, analyzing, visualizing, and
+            reporting crime-related data for Barangay 178, North Caloocan —
+            built to help the Barangay Anti-Drug Abuse Council turn records into
+            safer, data-driven decisions.
           </p>
 
           <div className="landing-hero-cta">
-            <Link to="/login" className="btn btn-primary landing-hero-cta-primary">
+            <Link
+              to="/login"
+              className="btn btn-primary landing-hero-cta-primary"
+            >
               Access System <Icons.ArrowRight size={17} strokeWidth={2.25} />
             </Link>
             <a href="#features" className="btn btn-secondary">
@@ -38,9 +42,18 @@ export default function HeroSection() {
           </div>
 
           <ul className="landing-hero-points">
-            <li><Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Manage crime records</li>
-            <li><Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Analyze trends &amp; patterns</li>
-            <li><Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Visualize crime locations</li>
+            <li>
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Manage crime
+              records
+            </li>
+            <li>
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Analyze trends
+              &amp; patterns
+            </li>
+            <li>
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Visualize
+              crime locations
+            </li>
           </ul>
         </div>
 

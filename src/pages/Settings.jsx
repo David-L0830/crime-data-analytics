@@ -12,7 +12,9 @@ export default function Settings() {
 
   const [newCategory, setNewCategory] = useState('');
   const [threshold, setThreshold] = useState(settings.threshold ?? 5);
-  const [hotspotThreshold, setHotspotThreshold] = useState(settings.hotspotThreshold ?? 3);
+  const [hotspotThreshold, setHotspotThreshold] = useState(
+    settings.hotspotThreshold ?? 3,
+  );
   const [population, setPopulation] = useState(settings.population ?? 15000);
   const fileInputRef = useRef(null);
 
@@ -57,7 +59,11 @@ export default function Settings() {
   };
 
   const handleBackup = () => {
-    const backup = JSON.stringify({ settings, exportedAt: new Date().toISOString() }, null, 2);
+    const backup = JSON.stringify(
+      { settings, exportedAt: new Date().toISOString() },
+      null,
+      2,
+    );
     downloadFile(backup, `brgy178_backup_${today()}.json`, 'application/json');
     showToast('Backup downloaded', 'success');
   };
@@ -68,7 +74,10 @@ export default function Settings() {
     const file = e.target.files[0];
     if (!file) return;
     // Frontend-only prototype: restoring isn't wired to a persistence layer yet.
-    showToast('Restore requires a backend connection — not available in this frontend prototype.', 'info');
+    showToast(
+      'Restore requires a backend connection — not available in this frontend prototype.',
+      'info',
+    );
     e.target.value = '';
   };
 
@@ -90,50 +99,108 @@ export default function Settings() {
               placeholder="New category name"
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addCategory(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addCategory();
+              }}
             />
-            <Button size="sm" onClick={addCategory}>Add</Button>
+            <Button size="sm" onClick={addCategory}>
+              Add
+            </Button>
           </div>
         </Card>
 
         <Card title="System Settings">
           <div className="form-group">
             <label>Crime Rate Threshold (per 1000 pop)</label>
-            <input type="number" value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+            <input
+              type="number"
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+            />
           </div>
           <div className="form-group">
             <label>Hotspot Alert Threshold</label>
-            <input type="number" value={hotspotThreshold} onChange={(e) => setHotspotThreshold(e.target.value)} />
+            <input
+              type="number"
+              value={hotspotThreshold}
+              onChange={(e) => setHotspotThreshold(e.target.value)}
+            />
           </div>
           <div className="form-group">
             <label>Barangay Population</label>
-            <input type="number" value={population} onChange={(e) => setPopulation(e.target.value)} />
+            <input
+              type="number"
+              value={population}
+              onChange={(e) => setPopulation(e.target.value)}
+            />
           </div>
-          <Button onClick={handleSaveSettings}><Icons.Save size={15} strokeWidth={2} /> Save Settings</Button>
+          <Button onClick={handleSaveSettings}>
+            <Icons.Save size={15} strokeWidth={2} /> Save Settings
+          </Button>
         </Card>
 
         <Card title="Data Backup & Restore">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 12 }}>
-            Export all system data as JSON backup or restore from a previous backup.
+          <p
+            style={{
+              color: 'var(--text-secondary)',
+              fontSize: '0.85rem',
+              marginBottom: 12,
+            }}
+          >
+            Export all system data as JSON backup or restore from a previous
+            backup.
           </p>
           <div className="export-bar">
-            <Button variant="secondary" onClick={handleBackup}><Icons.Down size={15} strokeWidth={2} /> Download Backup</Button>
-            <Button variant="secondary" onClick={handleRestoreClick}><Icons.Up size={15} strokeWidth={2} /> Restore Backup</Button>
-            <input type="file" ref={fileInputRef} accept=".json" className="hidden" onChange={handleRestoreFile} />
+            <Button variant="secondary" onClick={handleBackup}>
+              <Icons.Down size={15} strokeWidth={2} /> Download Backup
+            </Button>
+            <Button variant="secondary" onClick={handleRestoreClick}>
+              <Icons.Up size={15} strokeWidth={2} /> Restore Backup
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".json"
+              className="hidden"
+              onChange={handleRestoreFile}
+            />
           </div>
         </Card>
 
         <Card title="Database Maintenance">
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 12 }}>
+          <p
+            style={{
+              color: 'var(--text-secondary)',
+              fontSize: '0.85rem',
+              marginBottom: 12,
+            }}
+          >
             Clear old audit logs, optimize storage, and reset sample data.
           </p>
           <div className="export-bar">
-            <Button variant="secondary" onClick={() => showToast('Audit logs older than 90 days will be cleared.', 'info')}><Icons.Archive size={15} strokeWidth={2} /> Clear Old Logs</Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                showToast(
+                  'Audit logs older than 90 days will be cleared.',
+                  'info',
+                )
+              }
+            >
+              <Icons.Archive size={15} strokeWidth={2} /> Clear Old Logs
+            </Button>
             <Button
               variant="danger"
               onClick={() => {
-                if (window.confirm('Reset sample data? This will restore the original mock dataset the next time the app loads.')) {
-                  showToast('Reset requires a backend connection — not available in this frontend prototype.', 'info');
+                if (
+                  window.confirm(
+                    'Reset sample data? This will restore the original mock dataset the next time the app loads.',
+                  )
+                ) {
+                  showToast(
+                    'Reset requires a backend connection — not available in this frontend prototype.',
+                    'info',
+                  );
                 }
               }}
             >

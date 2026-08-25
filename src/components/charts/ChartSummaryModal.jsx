@@ -11,8 +11,18 @@ import { Icons } from '../icons';
 // analysis logic out of this file means every chart on the Dashboard can
 // reuse the exact same modal without any chart-specific branching in here.
 export default function ChartSummaryModal({
-  open, onClose, title, description, rowLabel = 'Label', valueLabel = 'Value',
-  labels = [], datasets = [], insight, kpis, onDrillDown, activeFiltersLabel,
+  open,
+  onClose,
+  title,
+  description,
+  rowLabel = 'Label',
+  valueLabel = 'Value',
+  labels = [],
+  datasets = [],
+  insight,
+  kpis,
+  onDrillDown,
+  activeFiltersLabel,
 }) {
   const values = datasets[0]?.data ?? [];
   const rows = labels.map((label, i) => ({
@@ -32,11 +42,11 @@ export default function ChartSummaryModal({
       onClose={onClose}
       title={title}
       size="lg"
-      footer={(
+      footer={
         <Button variant="secondary" onClick={() => window.print()}>
           <Icons.Report size={15} strokeWidth={2} /> Print / Save as PDF
         </Button>
-      )}
+      }
     >
       <PrintReport title={title} meta={printMeta} />
 
@@ -58,9 +68,7 @@ export default function ChartSummaryModal({
         </div>
       )}
 
-      <h3 className="chart-summary-breakdown-title">
-        Detailed Breakdown
-      </h3>
+      <h3 className="chart-summary-breakdown-title">Detailed Breakdown</h3>
 
       {onDrillDown && (
         <p className="chart-summary-drilldown-hint">
@@ -75,11 +83,7 @@ export default function ChartSummaryModal({
             { key: 'value', label: valueLabel },
           ]}
           rows={rows}
-          onRowClick={
-            onDrillDown
-              ? (row) => onDrillDown(row.label)
-              : undefined
-          }
+          onRowClick={onDrillDown ? (row) => onDrillDown(row.label) : undefined}
         />
       </div>
     </Modal>

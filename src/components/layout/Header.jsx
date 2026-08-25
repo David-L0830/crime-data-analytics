@@ -10,7 +10,12 @@ export default function Header({ onMenuToggle }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
-  const { notifications, markNotificationRead, markAllNotificationsRead, unreadNotificationCount } = useData();
+  const {
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    unreadNotificationCount,
+  } = useData();
   const { showToast } = useToast();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const wrapperRef = useRef(null);
@@ -22,7 +27,10 @@ export default function Header({ onMenuToggle }) {
     try {
       await markAllNotificationsRead();
     } catch {
-      showToast('Could not mark notifications as read. Check your connection and try again.', 'error');
+      showToast(
+        'Could not mark notifications as read. Check your connection and try again.',
+        'error',
+      );
     } finally {
       setMarkingAllRead(false);
     }
@@ -34,17 +42,26 @@ export default function Header({ onMenuToggle }) {
   // of silently falling through to 'Dashboard'.
   const segments = location.pathname.split('/').filter(Boolean);
   const moduleId = segments[0] || 'dashboard';
-  const title = PAGE_TITLES[segments.slice(0, 2).join('/')] || PAGE_TITLES[moduleId] || 'Dashboard';
+  const title =
+    PAGE_TITLES[segments.slice(0, 2).join('/')] ||
+    PAGE_TITLES[moduleId] ||
+    'Dashboard';
 
   useEffect(() => {
     const onClickOutside = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setDropdownOpen(false);
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target))
+        setDropdownOpen(false);
     };
     document.addEventListener('click', onClickOutside);
     return () => document.removeEventListener('click', onClickOutside);
   }, []);
 
-  const currentDate = new Date().toLocaleDateString('en-PH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const currentDate = new Date().toLocaleDateString('en-PH', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
 
   // Every notification is expected to lead somewhere — mark it read, close
   // the dropdown, then route based on what it's about:
@@ -66,9 +83,16 @@ export default function Header({ onMenuToggle }) {
       return;
     }
 
-    if (n.title === 'New Incident' || n.title === 'Case Resolved' || n.title === 'Overdue Case') {
+    if (
+      n.title === 'New Incident' ||
+      n.title === 'Case Resolved' ||
+      n.title === 'Overdue Case'
+    ) {
       const caseMatch = n.message.match(/\bCN-\d{4}-\d+\b/);
-      navigate('/incident-feed', caseMatch ? { state: { search: caseMatch[0] } } : undefined);
+      navigate(
+        '/incident-feed',
+        caseMatch ? { state: { search: caseMatch[0] } } : undefined,
+      );
       return;
     }
 
@@ -87,29 +111,53 @@ export default function Header({ onMenuToggle }) {
 
   return (
     <header className="topbar">
-      <button className="menu-toggle" onClick={onMenuToggle} aria-label="Toggle sidebar">
+      <button
+        className="menu-toggle"
+        onClick={onMenuToggle}
+        aria-label="Toggle sidebar"
+      >
         <Icons.Menu size={19} strokeWidth={2} />
       </button>
       <h1>{title}</h1>
       <div className="topbar-actions">
         <div className="notif-bell-wrapper" ref={wrapperRef}>
-          <button className="notif-bell-btn" title="Notifications" onClick={(e) => { e.stopPropagation(); setDropdownOpen((o) => !o); }}>
+          <button
+            className="notif-bell-btn"
+            title="Notifications"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDropdownOpen((o) => !o);
+            }}
+          >
             <Icons.Bell size={18} strokeWidth={2} />
-            <span className={`notif-bell-count ${unreadNotificationCount ? '' : 'hidden'}`}>
+            <span
+              className={`notif-bell-count ${unreadNotificationCount ? '' : 'hidden'}`}
+            >
               {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
             </span>
           </button>
           <div className={`notif-dropdown ${dropdownOpen ? '' : 'hidden'}`}>
             <div className="notif-dropdown-header">
               <span>Notifications</span>
-              <button className="btn btn-sm btn-ghost" onClick={handleMarkAllRead} disabled={markingAllRead}>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={handleMarkAllRead}
+                disabled={markingAllRead}
+              >
                 {markingAllRead ? 'Marking…' : 'Mark all read'}
               </button>
             </div>
             <div className="notif-dropdown-list">
-              {notifications.length === 0 && <div className="notif-dropdown-item">No notifications</div>}
+              {notifications.length === 0 && (
+                <div className="notif-dropdown-item">No notifications</div>
+              )}
               {notifications.map((n) => {
-                const NotifIcon = n.type === 'success' ? Icons.CheckCircle2 : n.type === 'warning' ? Icons.AlertTriangle : Icons.Info;
+                const NotifIcon =
+                  n.type === 'success'
+                    ? Icons.CheckCircle2
+                    : n.type === 'warning'
+                      ? Icons.AlertTriangle
+                      : Icons.Info;
                 return (
                   <div
                     key={n.id}
@@ -126,7 +174,9 @@ export default function Header({ onMenuToggle }) {
                     <div>
                       <div className="notif-dropdown-title">{n.title}</div>
                       <div className="notif-dropdown-msg">{n.message}</div>
-                      <div className="notif-dropdown-time">{new Date(n.timestamp).toLocaleString('en-PH')}</div>
+                      <div className="notif-dropdown-time">
+                        {new Date(n.timestamp).toLocaleString('en-PH')}
+                      </div>
                     </div>
                   </div>
                 );
@@ -134,8 +184,17 @@ export default function Header({ onMenuToggle }) {
             </div>
           </div>
         </div>
-        <button className="theme-toggle" title="Toggle theme" onClick={toggleTheme} aria-label="Toggle theme">
-          {theme === 'dark' ? <Icons.Sun size={17} strokeWidth={2} /> : <Icons.Moon size={17} strokeWidth={2} />}
+        <button
+          className="theme-toggle"
+          title="Toggle theme"
+          onClick={toggleTheme}
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? (
+            <Icons.Sun size={17} strokeWidth={2} />
+          ) : (
+            <Icons.Moon size={17} strokeWidth={2} />
+          )}
         </button>
         <span className="current-date">{currentDate}</span>
       </div>

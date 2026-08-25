@@ -29,15 +29,20 @@ export default function CriminalRecords() {
   const filtered = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
     return criminals.filter((c) => {
-      if (filters['crim-status'] && c.status !== filters['crim-status']) return false;
+      if (filters['crim-status'] && c.status !== filters['crim-status'])
+        return false;
       // Default operational list shows active criminal records; Archived
       // criminals remain stored and retrievable by explicitly selecting
       // "Archived" in the Status filter above. Mirrors VictimRecords.jsx.
       if (!filters['crim-status'] && c.status === 'Archived') return false;
-      if (filters['crim-gender'] && c.gender !== filters['crim-gender']) return false;
+      if (filters['crim-gender'] && c.gender !== filters['crim-gender'])
+        return false;
       if (q) {
-        const caseNumbers = (c.relatedIncidents || []).map((i) => i.caseNumber).join(' ');
-        const hay = `${c.criminalId} ${c.fullName} ${c.alias || ''} ${c.relatedCaseNumber || ''} ${caseNumbers} ${(c.charges || []).join(' ')}`.toLowerCase();
+        const caseNumbers = (c.relatedIncidents || [])
+          .map((i) => i.caseNumber)
+          .join(' ');
+        const hay =
+          `${c.criminalId} ${c.fullName} ${c.alias || ''} ${c.relatedCaseNumber || ''} ${caseNumbers} ${(c.charges || []).join(' ')}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -49,7 +54,11 @@ export default function CriminalRecords() {
   // (can('archive_record')) is added in the next step alongside the button.
   const handleArchive = async (criminal) => {
     if (archivingId) return;
-    if (!window.confirm(`Archive the criminal record for ${criminal.fullName}? It will be removed from the active list but kept on file and can still be found via the Status filter.`)) {
+    if (
+      !window.confirm(
+        `Archive the criminal record for ${criminal.fullName}? It will be removed from the active list but kept on file and can still be found via the Status filter.`,
+      )
+    ) {
       return;
     }
     setArchivingId(criminal.id);
@@ -77,7 +86,14 @@ export default function CriminalRecords() {
         <div className="toolbar-actions">
           <Button
             variant="secondary"
-            onClick={() => { if (exportCSV(filtered, `criminal_records_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Criminal records exported', 'success'); }}
+            onClick={() => {
+              if (
+                exportCSV(filtered, `criminal_records_${today()}.csv`, () =>
+                  showToast('No data to export', 'error'),
+                )
+              )
+                showToast('Criminal records exported', 'success');
+            }}
           >
             <Icons.Download size={15} strokeWidth={2} /> Export CSV
           </Button>
@@ -86,8 +102,18 @@ export default function CriminalRecords() {
 
       <FilterBar
         fields={[
-          { id: 'crim-status', label: 'Status', type: 'select', options: CRIMINAL_STATUSES },
-          { id: 'crim-gender', label: 'Gender', type: 'select', options: ['Male', 'Female'] },
+          {
+            id: 'crim-status',
+            label: 'Status',
+            type: 'select',
+            options: CRIMINAL_STATUSES,
+          },
+          {
+            id: 'crim-gender',
+            label: 'Gender',
+            type: 'select',
+            options: ['Male', 'Female'],
+          },
         ]}
         onApply={setFilters}
       />
@@ -99,14 +125,26 @@ export default function CriminalRecords() {
             { key: 'fullName', label: 'Full Name' },
             { key: 'alias', label: 'Alias', render: (v) => v || '—' },
             { key: 'gender', label: 'Gender' },
-            { key: 'charges', label: 'Charges', render: (v) => (v || []).join(', ') || '—' },
-            { key: 'relatedCaseNumber', label: 'Case', render: (v) => v || '—' },
+            {
+              key: 'charges',
+              label: 'Charges',
+              render: (v) => (v || []).join(', ') || '—',
+            },
+            {
+              key: 'relatedCaseNumber',
+              label: 'Case',
+              render: (v) => v || '—',
+            },
             { key: 'status', label: 'Status' },
           ]}
           rows={filtered}
           actions={(row) => (
             <>
-              <Button size="sm" variant="secondary" onClick={() => navigate(`/criminal-records/${row.id}`)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate(`/criminal-records/${row.id}`)}
+              >
                 View Profile
               </Button>
               {can('archive_record') && row.status !== 'Archived' && (

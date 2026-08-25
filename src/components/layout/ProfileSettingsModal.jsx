@@ -15,7 +15,8 @@ import { Icons } from '../icons';
 // so the sidebar's own name/avatar update immediately — no separate mock
 // "profile" store.
 export default function ProfileSettingsModal({ open, onClose }) {
-  const { currentUser, updateCurrentUser, avatarSrc, bumpAvatarVersion } = useAuth();
+  const { currentUser, updateCurrentUser, avatarSrc, bumpAvatarVersion } =
+    useAuth();
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
 
@@ -50,13 +51,19 @@ export default function ProfileSettingsModal({ open, onClose }) {
     }
     setSaving(true);
     try {
-      const updated = await authService.updateProfile({ fullName: fullName.trim() });
+      const updated = await authService.updateProfile({
+        fullName: fullName.trim(),
+      });
       updateCurrentUser(updated);
       showToast('Profile updated.', 'success');
     } catch (err) {
       showToast(
-        err instanceof ApiError ? (err.errors ? Object.values(err.errors).flat().join(' ') : err.message) : 'Could not update profile.',
-        'error'
+        err instanceof ApiError
+          ? err.errors
+            ? Object.values(err.errors).flat().join(' ')
+            : err.message
+          : 'Could not update profile.',
+        'error',
       );
     } finally {
       setSaving(false);
@@ -93,8 +100,12 @@ export default function ProfileSettingsModal({ open, onClose }) {
       showToast('Profile picture updated.', 'success');
     } catch (err) {
       showToast(
-        err instanceof ApiError ? (err.errors ? Object.values(err.errors).flat().join(' ') : err.message) : 'Could not upload picture.',
-        'error'
+        err instanceof ApiError
+          ? err.errors
+            ? Object.values(err.errors).flat().join(' ')
+            : err.message
+          : 'Could not upload picture.',
+        'error',
       );
     } finally {
       setUploading(false);
@@ -107,12 +118,16 @@ export default function ProfileSettingsModal({ open, onClose }) {
       open={open}
       onClose={onClose}
       title="Profile Settings"
-      footer={(
+      footer={
         <>
-          <Button variant="secondary" onClick={onClose}>Close</Button>
-          <Button onClick={handleSaveDetails} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</Button>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          <Button onClick={handleSaveDetails} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </Button>
         </>
-      )}
+      }
     >
       <div className="profile-settings-avatar-row">
         <div className="profile-settings-avatar">
@@ -134,9 +149,16 @@ export default function ProfileSettingsModal({ open, onClose }) {
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            <Icons.Camera size={14} strokeWidth={2} /> {uploading ? 'Uploading…' : 'Change Picture'}
+            <Icons.Camera size={14} strokeWidth={2} />{' '}
+            {uploading ? 'Uploading…' : 'Change Picture'}
           </Button>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', margin: '6px 0 0' }}>
+          <p
+            style={{
+              color: 'var(--text-muted)',
+              fontSize: '0.75rem',
+              margin: '6px 0 0',
+            }}
+          >
             JPG, PNG or WEBP. Up to 4MB.
           </p>
           <input
@@ -151,7 +173,11 @@ export default function ProfileSettingsModal({ open, onClose }) {
 
       <div className="form-group">
         <label>Full Name</label>
-        <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <input
+          type="text"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+        />
       </div>
       <div className="form-group">
         <label>Username</label>
@@ -162,7 +188,8 @@ export default function ProfileSettingsModal({ open, onClose }) {
         <input type="text" value={currentUser?.roleLabel || ''} disabled />
       </div>
       <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-        Username, email and role aren't editable from here. Contact your Administrator to change them.
+        Username, email and role aren't editable from here. Contact your
+        Administrator to change them.
       </p>
     </Modal>
   );

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules
+backend/vendor
+
+# Build output
+dist
+backend/public/build
+
+# Laravel runtime / generated
+backend/storage
+backend/bootstrap/cache
+
+# Lockfiles and generated manifests
+package-lock.json
+backend/composer.lock
+
+# Environment / secrets
+.env
+.env.*
+
+# PHP is formatted by Laravel Pint, not Prettier
+*.php

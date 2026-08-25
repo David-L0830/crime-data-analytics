@@ -8,13 +8,35 @@ import FilterBar from '../components/ui/FilterBar';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
-import { IncidentViewModal, IncidentEditModal, IncidentCreateModal } from '../components/incidents/IncidentModal';
-import { filterRecords, formatDate, formatTime, exportCSV, today, SOLVED_STATUSES, PENDING_STATUSES } from '../utils/helpers';
+import {
+  IncidentViewModal,
+  IncidentEditModal,
+  IncidentCreateModal,
+} from '../components/incidents/IncidentModal';
+import {
+  filterRecords,
+  formatDate,
+  formatTime,
+  exportCSV,
+  today,
+  SOLVED_STATUSES,
+  PENDING_STATUSES,
+} from '../utils/helpers';
 import { TYPE_CATEGORY_MAP } from '../utils/constants';
 import { Icons } from '../components/icons';
 
 export default function IncidentFeed() {
-  const { records, SITIOS, CRIME_TYPES, CATEGORIES, STATUSES, validateRecord, updateRecord, archiveRecord, addRecord } = useData();
+  const {
+    records,
+    SITIOS,
+    CRIME_TYPES,
+    CATEGORIES,
+    STATUSES,
+    validateRecord,
+    updateRecord,
+    archiveRecord,
+    addRecord,
+  } = useData();
   const { can, currentUser } = useAuth();
   const { showToast } = useToast();
   const location = useLocation();
@@ -23,8 +45,11 @@ export default function IncidentFeed() {
     const incoming = location.state?.filters;
     if (!incoming) return {};
     return {
-      'inc-crimeType': incoming.crimeType, 'inc-sitio': incoming.sitio, 'inc-status': incoming.status,
-      'inc-dateFrom': incoming.dateFrom, 'inc-dateTo': incoming.dateTo,
+      'inc-crimeType': incoming.crimeType,
+      'inc-sitio': incoming.sitio,
+      'inc-status': incoming.status,
+      'inc-dateFrom': incoming.dateFrom,
+      'inc-dateTo': incoming.dateTo,
     };
   });
   const [search, setSearch] = useState('');
@@ -41,35 +66,44 @@ export default function IncidentFeed() {
     if (location.state?.search) setSearch(location.state.search);
   }, [location.state]);
 
-  const filtered = useMemo(
-    () => {
-      const results = filterRecords(records, {
-        crimeType: filters['inc-crimeType'], category: filters['inc-category'], sitio: filters['inc-sitio'],
-        status: filters['inc-status'], dateFrom: filters['inc-dateFrom'], dateTo: filters['inc-dateTo'],
-        search: debouncedSearch,
-      });
-      // Checkpoint 20, Task 14 — the default operational list should show
-      // active records; Archived incidents remain stored and retrievable
-      // by explicitly selecting "Archived" in the Status filter above.
-      const withArchiveRule = filters['inc-status'] ? results : results.filter((r) => r.status !== 'Archived');
-      const group = location.state?.statusGroup;
-      if (group === 'solved') return withArchiveRule.filter((r) => SOLVED_STATUSES.includes(r.status));
-      if (group === 'pending') return withArchiveRule.filter((r) => PENDING_STATUSES.includes(r.status));
-      return withArchiveRule;
-    },
-    [records, filters, debouncedSearch, location.state]
-  );
+  const filtered = useMemo(() => {
+    const results = filterRecords(records, {
+      crimeType: filters['inc-crimeType'],
+      category: filters['inc-category'],
+      sitio: filters['inc-sitio'],
+      status: filters['inc-status'],
+      dateFrom: filters['inc-dateFrom'],
+      dateTo: filters['inc-dateTo'],
+      search: debouncedSearch,
+    });
+    // Checkpoint 20, Task 14 — the default operational list should show
+    // active records; Archived incidents remain stored and retrievable
+    // by explicitly selecting "Archived" in the Status filter above.
+    const withArchiveRule = filters['inc-status']
+      ? results
+      : results.filter((r) => r.status !== 'Archived');
+    const group = location.state?.statusGroup;
+    if (group === 'solved')
+      return withArchiveRule.filter((r) => SOLVED_STATUSES.includes(r.status));
+    if (group === 'pending')
+      return withArchiveRule.filter((r) => PENDING_STATUSES.includes(r.status));
+    return withArchiveRule;
+  }, [records, filters, debouncedSearch, location.state]);
 
   // BADAC Administrator may edit any record; an Encoder may only correct
   // incidents they personally encoded (Part H-30 of the RBAC spec). The
   // backend enforces the same rule independently — this is just so the
   // Encoder isn't shown an Edit action that will 403.
   const canEditRecord = (record) =>
-    can('edit_any_record') || (can('edit_own_incident') && record.reportedBy === currentUser?.id);
+    can('edit_any_record') ||
+    (can('edit_own_incident') && record.reportedBy === currentUser?.id);
 
   const handleEdit = (record) => {
     if (!canEditRecord(record)) {
-      showToast('You may only update incidents you personally encoded.', 'error');
+      showToast(
+        'You may only update incidents you personally encoded.',
+        'error',
+      );
       return;
     }
     setViewing(null);
@@ -81,15 +115,23 @@ export default function IncidentFeed() {
   // evaluates false for Encoder — matching PUT /incidents/{incident}/archive
   // now being role:badac_admin-only on the backend (routes/api.php).
   const canArchiveRecord = (record) =>
-    can('archive_record') || (can('archive_own_incident') && record.reportedBy === currentUser?.id);
+    can('archive_record') ||
+    (can('archive_own_incident') && record.reportedBy === currentUser?.id);
 
   const handleArchive = async (record) => {
     if (!canArchiveRecord(record)) {
-      showToast('You may only archive incidents you personally encoded.', 'error');
+      showToast(
+        'You may only archive incidents you personally encoded.',
+        'error',
+      );
       return;
     }
     if (archivingId) return; // prevent duplicate requests while one is in flight
-    if (!window.confirm('Archive this record? It will be removed from the active list but kept on file and can still be found via the Status filter.')) {
+    if (
+      !window.confirm(
+        'Archive this record? It will be removed from the active list but kept on file and can still be found via the Status filter.',
+      )
+    ) {
       return;
     }
     setArchivingId(record.id);
@@ -149,7 +191,11 @@ export default function IncidentFeed() {
           <Button
             variant="secondary"
             onClick={() => {
-              if (exportCSV(filtered, `incidents_${today()}.csv`, () => showToast('No data to export', 'error'))) {
+              if (
+                exportCSV(filtered, `incidents_${today()}.csv`, () =>
+                  showToast('No data to export', 'error'),
+                )
+              ) {
                 showToast('Incidents exported', 'success');
               }
             }}
@@ -166,10 +212,25 @@ export default function IncidentFeed() {
 
       <FilterBar
         fields={[
-          { id: 'inc-crimeType', label: 'Crime Type', type: 'select', options: CRIME_TYPES },
-          { id: 'inc-category', label: 'Category', type: 'select', options: CATEGORIES },
+          {
+            id: 'inc-crimeType',
+            label: 'Crime Type',
+            type: 'select',
+            options: CRIME_TYPES,
+          },
+          {
+            id: 'inc-category',
+            label: 'Category',
+            type: 'select',
+            options: CATEGORIES,
+          },
           { id: 'inc-sitio', label: 'Sitio', type: 'select', options: SITIOS },
-          { id: 'inc-status', label: 'Status', type: 'select', options: STATUSES },
+          {
+            id: 'inc-status',
+            label: 'Status',
+            type: 'select',
+            options: STATUSES,
+          },
           { id: 'inc-dateFrom', label: 'From', type: 'date' },
           { id: 'inc-dateTo', label: 'To', type: 'date' },
         ]}
@@ -193,7 +254,13 @@ export default function IncidentFeed() {
           rows={filtered}
           actions={(row) => (
             <>
-              <Button size="sm" variant="secondary" onClick={() => setViewing(row)}>View</Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setViewing(row)}
+              >
+                View
+              </Button>
               {canArchiveRecord(row) && (
                 <Button
                   size="sm"

@@ -42,7 +42,9 @@ export const supabaseMfaService = {
   // actually has it in an authenticator app), entirely via Supabase's own
   // API.
   enroll: async () => {
-    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+    const { data, error } = await supabase.auth.mfa.enroll({
+      factorType: 'totp',
+    });
     if (error) throw error;
     return data; // { id, totp: { qr_code, secret, uri } }
   },
@@ -51,7 +53,10 @@ export const supabaseMfaService = {
   // Supabase's challenge + verify steps. On success the current session is
   // promoted to aal2 and this returns the refreshed session.
   challengeAndVerify: async (factorId, code) => {
-    const { data, error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code });
+    const { data, error } = await supabase.auth.mfa.challengeAndVerify({
+      factorId,
+      code,
+    });
     if (error) throw error;
     return data;
   },
@@ -66,7 +71,8 @@ export const supabaseMfaService = {
   // session hasn't completed it yet — that's the signal AuthContext uses
   // to show a step-up challenge instead of treating login as finished.
   getAssuranceLevel: async () => {
-    const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    const { data, error } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if (error) throw error;
     return data;
   },
@@ -82,10 +88,16 @@ export const supabaseMfaService = {
   // Returns null if no verified TOTP factor exists — callers must handle
   // that (it means "nothing to challenge", not an error).
   selectActiveTotpFactor: (factors) => {
-    const candidates = (factors?.totp ?? []).filter((f) => f.status === 'verified');
+    const candidates = (factors?.totp ?? []).filter(
+      (f) => f.status === 'verified',
+    );
     if (candidates.length === 0) return null;
-    return candidates.reduce((latest, f) => (
-      !latest || new Date(f.updated_at) > new Date(latest.updated_at) ? f : latest
-    ), null);
+    return candidates.reduce(
+      (latest, f) =>
+        !latest || new Date(f.updated_at) > new Date(latest.updated_at)
+          ? f
+          : latest,
+      null,
+    );
   },
 };

@@ -54,9 +54,18 @@ export default function AppRoutes() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
 
-      <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+      <Route
+        element={
+          <ProtectedRoute>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="/dashboard" element={guarded('dashboard', Dashboard)} />
-        <Route path="/incident-feed" element={guarded('incident-feed', IncidentFeed)} />
+        <Route
+          path="/incident-feed"
+          element={guarded('incident-feed', IncidentFeed)}
+        />
         {/* Checkpoint 28 — /residents route removed with the Resident
             Registry module. */}
         <Route path="/mapping" element={guarded('mapping', Mapping)} />
@@ -67,13 +76,31 @@ export default function AppRoutes() {
             existing CriminalRecords/VictimRecords implementations; the
             detail routes are unchanged so any existing bookmarks/links to a
             specific criminal or victim profile keep working. */}
-        <Route path="/criminal-records" element={guarded('criminal-records', Records)} />
-        <Route path="/criminal-records/criminal" element={guarded('criminal-records', CriminalRecords)} />
-        <Route path="/criminal-records/victim" element={guarded('criminal-records', VictimRecords)} />
-        <Route path="/criminal-records/victims/:id" element={guarded('criminal-records', VictimProfile)} />
-        <Route path="/criminal-records/:id" element={guarded('criminal-records', CriminalProfile)} />
+        <Route
+          path="/criminal-records"
+          element={guarded('criminal-records', Records)}
+        />
+        <Route
+          path="/criminal-records/criminal"
+          element={guarded('criminal-records', CriminalRecords)}
+        />
+        <Route
+          path="/criminal-records/victim"
+          element={guarded('criminal-records', VictimRecords)}
+        />
+        <Route
+          path="/criminal-records/victims/:id"
+          element={guarded('criminal-records', VictimProfile)}
+        />
+        <Route
+          path="/criminal-records/:id"
+          element={guarded('criminal-records', CriminalProfile)}
+        />
         <Route path="/audit-logs" element={guarded('audit-logs', AuditLogs)} />
-        <Route path="/user-management" element={guarded('user-management', UserManagement)} />
+        <Route
+          path="/user-management"
+          element={guarded('user-management', UserManagement)}
+        />
         <Route path="/settings" element={guarded('settings', Settings)} />
         {/* Checkpoint 28 — /security route removed; its Two-Factor
             Authentication content moved into /user-management (see

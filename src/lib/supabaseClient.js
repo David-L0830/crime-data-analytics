@@ -21,13 +21,15 @@ const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 // nothing calls a real method on it until then. Every caller that needs a
 // live Supabase session checks `isSupabaseConfigured` first and fails
 // predictably instead of hitting a cryptic client error.
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl && supabasePublishableKey,
+);
 
 if (!isSupabaseConfigured && import.meta.env.DEV) {
   // eslint-disable-next-line no-console
   console.warn(
     '[supabaseClient] VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY are not set — ' +
-      'sign-in will not work until they are configured (see .env.example).'
+      'sign-in will not work until they are configured (see .env.example).',
   );
 }
 
@@ -38,12 +40,16 @@ if (!isSupabaseConfigured && import.meta.env.DEV) {
 // skipping creation entirely so every caller can rely on `supabase` always
 // being a real client instance (never null/undefined) and gate on
 // `isSupabaseConfigured` instead of null-checking `supabase` everywhere.
-export const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabasePublishableKey || 'placeholder-publishable-key', {
-  auth: {
-    // Persist the Supabase session in localStorage under its own key.
-    storageKey: 'cdars_supabase_auth',
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabasePublishableKey || 'placeholder-publishable-key',
+  {
+    auth: {
+      // Persist the Supabase session in localStorage under its own key.
+      storageKey: 'cdars_supabase_auth',
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+    },
   },
-});
+);

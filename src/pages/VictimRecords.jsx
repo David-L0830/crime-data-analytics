@@ -31,15 +31,20 @@ export default function VictimRecords() {
   const filtered = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
     return victims.filter((v) => {
-      if (filters['victim-gender'] && v.gender !== filters['victim-gender']) return false;
-      if (filters['victim-status'] && v.status !== filters['victim-status']) return false;
+      if (filters['victim-gender'] && v.gender !== filters['victim-gender'])
+        return false;
+      if (filters['victim-status'] && v.status !== filters['victim-status'])
+        return false;
       // Checkpoint 20, Task 14 — default operational list shows active
       // victim records; Archived victims remain stored and retrievable by
       // explicitly selecting "Archived" in the Status filter above.
       if (!filters['victim-status'] && v.status === 'Archived') return false;
       if (q) {
-        const caseNumbers = (v.relatedCases || []).map((c) => c.caseNumber).join(' ');
-        const hay = `${v.victimId} ${v.fullName} ${v.alias || ''} ${caseNumbers}`.toLowerCase();
+        const caseNumbers = (v.relatedCases || [])
+          .map((c) => c.caseNumber)
+          .join(' ');
+        const hay =
+          `${v.victimId} ${v.fullName} ${v.alias || ''} ${caseNumbers}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -53,7 +58,11 @@ export default function VictimRecords() {
   // and Encoder never had a criminal-records route at all.
   const handleArchive = async (victim) => {
     if (archivingId) return;
-    if (!window.confirm(`Archive the victim record for ${victim.fullName}? It will be removed from the active list but kept on file and can still be found via the Status filter.`)) {
+    if (
+      !window.confirm(
+        `Archive the victim record for ${victim.fullName}? It will be removed from the active list but kept on file and can still be found via the Status filter.`,
+      )
+    ) {
       return;
     }
     setArchivingId(victim.id);
@@ -81,7 +90,14 @@ export default function VictimRecords() {
         <div className="toolbar-actions">
           <Button
             variant="secondary"
-            onClick={() => { if (exportCSV(filtered, `victim_records_${today()}.csv`, () => showToast('No data to export', 'error'))) showToast('Victim records exported', 'success'); }}
+            onClick={() => {
+              if (
+                exportCSV(filtered, `victim_records_${today()}.csv`, () =>
+                  showToast('No data to export', 'error'),
+                )
+              )
+                showToast('Victim records exported', 'success');
+            }}
           >
             <Icons.Download size={15} strokeWidth={2} /> Export CSV
           </Button>
@@ -90,8 +106,18 @@ export default function VictimRecords() {
 
       <FilterBar
         fields={[
-          { id: 'victim-gender', label: 'Gender', type: 'select', options: ['Male', 'Female'] },
-          { id: 'victim-status', label: 'Status', type: 'select', options: VICTIM_STATUSES },
+          {
+            id: 'victim-gender',
+            label: 'Gender',
+            type: 'select',
+            options: ['Male', 'Female'],
+          },
+          {
+            id: 'victim-status',
+            label: 'Status',
+            type: 'select',
+            options: VICTIM_STATUSES,
+          },
         ]}
         onApply={setFilters}
       />
@@ -104,13 +130,26 @@ export default function VictimRecords() {
             { key: 'alias', label: 'Alias', render: (v) => v || '—' },
             { key: 'gender', label: 'Gender' },
             { key: 'contactNumber', label: 'Contact', render: (v) => v || '—' },
-            { key: 'status', label: 'Status', render: (v) => <Badge status={v || 'Active'} /> },
-            { key: 'relatedCases', label: 'Cases', render: (v) => (v || []).map((c) => c.caseNumber).join(', ') || '—' },
+            {
+              key: 'status',
+              label: 'Status',
+              render: (v) => <Badge status={v || 'Active'} />,
+            },
+            {
+              key: 'relatedCases',
+              label: 'Cases',
+              render: (v) =>
+                (v || []).map((c) => c.caseNumber).join(', ') || '—',
+            },
           ]}
           rows={filtered}
           actions={(row) => (
             <>
-              <Button size="sm" variant="secondary" onClick={() => navigate(`/criminal-records/victims/${row.id}`)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate(`/criminal-records/victims/${row.id}`)}
+              >
                 View Profile
               </Button>
               {can('archive_record') && row.status !== 'Archived' && (

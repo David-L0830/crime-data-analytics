@@ -31,27 +31,44 @@ export default function LandingNavbar() {
   const handleNavClick = () => setOpen(false);
 
   return (
-    <header className={`landing-navbar${scrolled ? ' landing-navbar-scrolled' : ''}`}>
+    <header
+      className={`landing-navbar${scrolled ? ' landing-navbar-scrolled' : ''}`}
+    >
       <div className="landing-navbar-inner">
         <a href="#home" className="landing-brand" onClick={handleNavClick}>
-          <img src={logo} alt="Barangay 178 Seal" className="landing-brand-logo" />
+          <img
+            src={logo}
+            alt="Barangay 178 Seal"
+            className="landing-brand-logo"
+          />
           <span className="landing-brand-text">
             <strong>BADAC Analytics</strong>
             <small>Barangay 178 &middot; North Caloocan</small>
           </span>
         </a>
 
-        <nav className={`landing-nav-links${open ? ' landing-nav-links-open' : ''}`} aria-label="Primary">
+        <nav
+          className={`landing-nav-links${open ? ' landing-nav-links-open' : ''}`}
+          aria-label="Primary"
+        >
           {NAV_LINKS.map((link) => (
             <a key={link.href} href={link.href} onClick={handleNavClick}>
               {link.label}
             </a>
           ))}
           <div className="landing-nav-links-actions">
-            <Link to="/login" className="landing-nav-login" onClick={handleNavClick}>
+            <Link
+              to="/login"
+              className="landing-nav-login"
+              onClick={handleNavClick}
+            >
               Login
             </Link>
-            <Link to="/login" className="btn btn-primary btn-sm" onClick={handleNavClick}>
+            <Link
+              to="/login"
+              className="btn btn-primary btn-sm"
+              onClick={handleNavClick}
+            >
               Access System <Icons.ArrowRight size={15} strokeWidth={2.25} />
             </Link>
           </div>
@@ -61,12 +78,23 @@ export default function LandingNavbar() {
           <button
             type="button"
             className="landing-icon-btn"
-            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            aria-label={
+              theme === 'dark'
+                ? 'Switch to light theme'
+                : 'Switch to dark theme'
+            }
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? <Icons.Sun size={18} strokeWidth={2} /> : <Icons.Moon size={18} strokeWidth={2} />}
+            {theme === 'dark' ? (
+              <Icons.Sun size={18} strokeWidth={2} />
+            ) : (
+              <Icons.Moon size={18} strokeWidth={2} />
+            )}
           </button>
-          <Link to="/login" className="btn btn-secondary btn-sm landing-navbar-login-desktop">
+          <Link
+            to="/login"
+            className="btn btn-secondary btn-sm landing-navbar-login-desktop"
+          >
             Login
           </Link>
           <button
@@ -76,7 +104,11 @@ export default function LandingNavbar() {
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
           >
-            {open ? <Icons.Close size={20} strokeWidth={2} /> : <Icons.Menu size={20} strokeWidth={2} />}
+            {open ? (
+              <Icons.Close size={20} strokeWidth={2} />
+            ) : (
+              <Icons.Menu size={20} strokeWidth={2} />
+            )}
           </button>
         </div>
       </div>

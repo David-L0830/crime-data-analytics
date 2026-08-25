@@ -20,7 +20,8 @@ export const authService = {
   // Same endpoint, but with an explicit token — used right after a fresh
   // sign-in/MFA verification, before relying on the Supabase client's
   // in-memory session to have settled.
-  currentUserViaSupabaseToken: (accessToken) => api.get('/user', { token: accessToken }),
+  currentUserViaSupabaseToken: (accessToken) =>
+    api.get('/user', { token: accessToken }),
   // Sidebar Profile Settings ("⋮" menu). Self-service only: these always
   // act on the signed-in caller's own account (see ProfileController) —
   // there is no {id} parameter because there is no "edit someone else's

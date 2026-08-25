@@ -2,10 +2,19 @@ import { useEffect } from 'react';
 
 // Generic modal shell matching the original `.modal` / `.modal-content` styling.
 // `size="lg"` applies the original `.modal-lg` width for record view/edit modals.
-export default function Modal({ open, onClose, title, size, footer, children }) {
+export default function Modal({
+  open,
+  onClose,
+  title,
+  size,
+  footer,
+  children,
+}) {
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -28,18 +37,26 @@ export default function Modal({ open, onClose, title, size, footer, children }) 
     if (!open) return undefined;
     document.body.classList.add('modal-open');
     return () => {
-      if (!document.querySelector('.modal')) document.body.classList.remove('modal-open');
+      if (!document.querySelector('.modal'))
+        document.body.classList.remove('modal-open');
     };
   }, [open]);
 
   if (!open) return null;
 
   return (
-    <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+    <div
+      className="modal"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose?.();
+      }}
+    >
       <div className={`modal-content ${size === 'lg' ? 'modal-lg' : ''}`}>
         <div className="modal-header">
           <h2>{title}</h2>
-          <button className="modal-close" onClick={onClose}>&times;</button>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
         </div>
         {children}
         {footer && <div className="modal-footer">{footer}</div>}

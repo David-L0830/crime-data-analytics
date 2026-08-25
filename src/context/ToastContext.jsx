@@ -15,7 +15,9 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className={`toast ${toast?.type || ''} ${toast ? '' : 'hidden'}`}>{toast?.message}</div>
+      <div className={`toast ${toast?.type || ''} ${toast ? '' : 'hidden'}`}>
+        {toast?.message}
+      </div>
     </ToastContext.Provider>
   );
 }

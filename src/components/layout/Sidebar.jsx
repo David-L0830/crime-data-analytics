@@ -40,7 +40,9 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
   };
   const hideNavTip = () => setHoveredNavTip(null);
 
-  const onRecordsSubroute = RECORDS_SUBITEMS.some((s) => location.pathname.startsWith(s.to));
+  const onRecordsSubroute = RECORDS_SUBITEMS.some((s) =>
+    location.pathname.startsWith(s.to),
+  );
 
   // Auto-open the submenu when navigation (not a sidebar click) lands on a
   // Criminal/Victim Records sub-route, e.g. a deep link or the "view record"
@@ -82,83 +84,103 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
       <nav className="sidebar-nav" onScroll={hideNavTip}>
         {(() => {
           let lastSection = null;
-          return NAV_ITEMS.filter((item) => hasAccess(item.id) && !(currentUser?.role === 'encoder' && item.id === 'user-management')).map((item) => {
-          const NavIcon = NAV_ICONS[item.icon] || NAV_ICONS.dashboard;
-          const isRecords = item.id === RECORDS_ITEM_ID;
-          const showSectionLabel = !collapsed && item.section !== lastSection;
-          lastSection = item.section;
-          const sectionLabel = showSectionLabel
-            ? <div className="nav-section-label">{NAV_SECTION_LABELS[item.section]}</div>
-            : null;
+          return NAV_ITEMS.filter(
+            (item) =>
+              hasAccess(item.id) &&
+              !(
+                currentUser?.role === 'encoder' && item.id === 'user-management'
+              ),
+          ).map((item) => {
+            const NavIcon = NAV_ICONS[item.icon] || NAV_ICONS.dashboard;
+            const isRecords = item.id === RECORDS_ITEM_ID;
+            const showSectionLabel = !collapsed && item.section !== lastSection;
+            lastSection = item.section;
+            const sectionLabel = showSectionLabel ? (
+              <div className="nav-section-label">
+                {NAV_SECTION_LABELS[item.section]}
+              </div>
+            ) : null;
 
-          if (!isRecords) {
+            if (!isRecords) {
+              return (
+                <div key={item.id}>
+                  {sectionLabel}
+                  <NavLink
+                    to={`/${item.id}`}
+                    className={({ isActive }) =>
+                      `nav-item ${isActive ? 'active' : ''}`
+                    }
+                    onClick={onNavigate}
+                    title={collapsed ? undefined : item.label}
+                    aria-label={item.label}
+                    onMouseEnter={showNavTip(item.label)}
+                    onMouseLeave={hideNavTip}
+                  >
+                    <span className="nav-icon">
+                      <NavIcon size={19} strokeWidth={2} />
+                    </span>
+                    <span className="nav-label">{item.label}</span>
+                  </NavLink>
+                </div>
+              );
+            }
+
             return (
               <div key={item.id}>
                 {sectionLabel}
-                <NavLink
-                to={`/${item.id}`}
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                onClick={onNavigate}
-                title={collapsed ? undefined : item.label}
-                aria-label={item.label}
-                onMouseEnter={showNavTip(item.label)}
-                onMouseLeave={hideNavTip}
-              >
-                <span className="nav-icon"><NavIcon size={19} strokeWidth={2} /></span>
-                <span className="nav-label">{item.label}</span>
-              </NavLink>
+                <div className="nav-group">
+                  <NavLink
+                    to={`/${item.id}`}
+                    end
+                    className={({ isActive }) =>
+                      `nav-item nav-item-parent ${isActive || onRecordsSubroute ? 'active' : ''}`
+                    }
+                    onClick={onNavigate}
+                    title={collapsed ? undefined : item.label}
+                    aria-label={item.label}
+                    onMouseEnter={showNavTip(item.label)}
+                    onMouseLeave={hideNavTip}
+                  >
+                    <span className="nav-icon">
+                      <NavIcon size={19} strokeWidth={2} />
+                    </span>
+                    <span className="nav-label">{item.label}</span>
+                    <button
+                      type="button"
+                      className={`nav-expand-btn ${recordsExpanded ? 'expanded' : ''}`}
+                      aria-label={
+                        recordsExpanded ? 'Collapse Records' : 'Expand Records'
+                      }
+                      aria-expanded={recordsExpanded}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRecordsExpanded((v) => !v);
+                      }}
+                    >
+                      <Icons.ChevronRight size={15} strokeWidth={2.25} />
+                    </button>
+                  </NavLink>
+                  {recordsExpanded && (
+                    <div className="nav-submenu">
+                      {RECORDS_SUBITEMS.map((sub) => (
+                        <NavLink
+                          key={sub.to}
+                          to={sub.to}
+                          className={({ isActive }) =>
+                            `nav-subitem ${isActive ? 'active' : ''}`
+                          }
+                          onClick={onNavigate}
+                        >
+                          {sub.label}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             );
-          }
-
-          return (
-            <div key={item.id}>
-              {sectionLabel}
-              <div className="nav-group">
-              <NavLink
-                to={`/${item.id}`}
-                end
-                className={({ isActive }) => `nav-item nav-item-parent ${isActive || onRecordsSubroute ? 'active' : ''}`}
-                onClick={onNavigate}
-                title={collapsed ? undefined : item.label}
-                aria-label={item.label}
-                onMouseEnter={showNavTip(item.label)}
-                onMouseLeave={hideNavTip}
-              >
-                <span className="nav-icon"><NavIcon size={19} strokeWidth={2} /></span>
-                <span className="nav-label">{item.label}</span>
-                <button
-                  type="button"
-                  className={`nav-expand-btn ${recordsExpanded ? 'expanded' : ''}`}
-                  aria-label={recordsExpanded ? 'Collapse Records' : 'Expand Records'}
-                  aria-expanded={recordsExpanded}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setRecordsExpanded((v) => !v);
-                  }}
-                >
-                  <Icons.ChevronRight size={15} strokeWidth={2.25} />
-                </button>
-              </NavLink>
-              {recordsExpanded && (
-                <div className="nav-submenu">
-                  {RECORDS_SUBITEMS.map((sub) => (
-                    <NavLink
-                      key={sub.to}
-                      to={sub.to}
-                      className={({ isActive }) => `nav-subitem ${isActive ? 'active' : ''}`}
-                      onClick={onNavigate}
-                    >
-                      {sub.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          );
-        });
+          });
         })()}
       </nav>
 
@@ -228,7 +250,10 @@ export default function Sidebar({ open, collapsed, onNavigate }) {
         </div>
       )}
 
-      <ProfileSettingsModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ProfileSettingsModal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+      />
     </aside>
   );
 }

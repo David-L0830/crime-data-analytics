@@ -98,7 +98,10 @@ export default function TwoFactorSelfService() {
     setConfirming(true);
     setSetupError('');
     try {
-      await supabaseMfaService.challengeAndVerify(setupData.id, confirmCode.trim());
+      await supabaseMfaService.challengeAndVerify(
+        setupData.id,
+        confirmCode.trim(),
+      );
 
       const { data } = await supabase.auth.getSession();
       const accessToken = data.session?.access_token;
@@ -113,7 +116,11 @@ export default function TwoFactorSelfService() {
       await loadStatus();
       showToast('Two-factor authentication enabled.', 'success');
     } catch (err) {
-      setSetupError(err instanceof ApiError || err instanceof Error ? err.message : 'That code is invalid or has expired.');
+      setSetupError(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : 'That code is invalid or has expired.',
+      );
     } finally {
       setConfirming(false);
     }
@@ -134,7 +141,9 @@ export default function TwoFactorSelfService() {
       setFactor(null);
       showToast('Two-factor authentication disabled.', 'success');
     } catch (err) {
-      setDisableError(err?.message || 'Could not disable two-factor authentication.');
+      setDisableError(
+        err?.message || 'Could not disable two-factor authentication.',
+      );
     } finally {
       setDisabling(false);
     }
@@ -144,7 +153,7 @@ export default function TwoFactorSelfService() {
     if (!setupData?.totp?.secret) return;
     navigator.clipboard?.writeText(setupData.totp.secret).then(
       () => showToast('Secret key copied.', 'success'),
-      () => {}
+      () => {},
     );
   };
 
@@ -168,17 +177,30 @@ export default function TwoFactorSelfService() {
             <div>
               <p style={{ margin: 0, fontWeight: 600 }}>
                 Factor status:{' '}
-                <span className={`status-badge status-${factor ? 'Active' : 'Inactive'}`}>
+                <span
+                  className={`status-badge status-${factor ? 'Active' : 'Inactive'}`}
+                >
                   {factor ? 'Enrolled' : 'Not enrolled'}
                 </span>
               </p>
               <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
                 Current session:{' '}
-                <span className={`status-badge status-${currentUser?.authAssuranceLevel === 'aal2' ? 'Active' : 'Inactive'}`}>
-                  {currentUser?.authAssuranceLevel === 'aal2' ? 'Verified (AAL2)' : 'Not verified (AAL1)'}
+                <span
+                  className={`status-badge status-${currentUser?.authAssuranceLevel === 'aal2' ? 'Active' : 'Inactive'}`}
+                >
+                  {currentUser?.authAssuranceLevel === 'aal2'
+                    ? 'Verified (AAL2)'
+                    : 'Not verified (AAL1)'}
                 </span>
               </p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: 6, maxWidth: 480 }}>
+              <p
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.85rem',
+                  marginTop: 6,
+                  maxWidth: 480,
+                }}
+              >
                 {factor
                   ? 'Your account requires a code from your authenticator app every time you sign in.'
                   : 'Add an extra layer of security to your account by requiring a code from an authenticator app when you sign in.'}
@@ -186,7 +208,13 @@ export default function TwoFactorSelfService() {
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {factor ? (
-                <Button variant="danger" onClick={() => { setDisableOpen(true); setDisableError(''); }}>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    setDisableOpen(true);
+                    setDisableError('');
+                  }}
+                >
                   Disable 2FA
                 </Button>
               ) : (
@@ -202,14 +230,19 @@ export default function TwoFactorSelfService() {
         open={setupOpen}
         onClose={closeSetup}
         title="Set Up Two-Factor Authentication"
-        footer={(
+        footer={
           <>
-            <Button variant="secondary" onClick={closeSetup}>Cancel</Button>
-            <Button onClick={handleConfirm} disabled={confirming || settingUp || !setupData}>
+            <Button variant="secondary" onClick={closeSetup}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirm}
+              disabled={confirming || settingUp || !setupData}
+            >
               {confirming ? 'Verifying…' : 'Enable 2FA'}
             </Button>
           </>
-        )}
+        }
       >
         {settingUp ? (
           <div className="empty-state" style={{ padding: 24 }}>
@@ -218,13 +251,20 @@ export default function TwoFactorSelfService() {
         ) : setupData ? (
           <form onSubmit={handleConfirm}>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.):
+              Scan this QR code with your authenticator app (Google
+              Authenticator, Authy, 1Password, etc.):
             </p>
             {setupData.totp?.qr_code && (
               // Supabase returns an inline SVG QR code string — safe to
               // render directly (Supabase's own response, not user input).
               <div
-                style={{ background: '#fff', padding: 12, borderRadius: 8, maxWidth: 200, margin: '8px 0' }}
+                style={{
+                  background: '#fff',
+                  padding: 12,
+                  borderRadius: 8,
+                  maxWidth: 200,
+                  margin: '8px 0',
+                }}
                 dangerouslySetInnerHTML={{ __html: setupData.totp.qr_code }}
               />
             )}
@@ -233,7 +273,12 @@ export default function TwoFactorSelfService() {
             </p>
             <div className="two-factor-secret-box">
               <code>{setupData.totp?.secret}</code>
-              <button type="button" className="two-factor-link" onClick={copySecret} title="Copy secret key">
+              <button
+                type="button"
+                className="two-factor-link"
+                onClick={copySecret}
+                title="Copy secret key"
+              >
                 <Icons.Save size={14} strokeWidth={2} />
               </button>
             </div>
@@ -262,18 +307,24 @@ export default function TwoFactorSelfService() {
         open={disableOpen}
         onClose={() => setDisableOpen(false)}
         title="Disable Two-Factor Authentication"
-        footer={(
+        footer={
           <>
-            <Button variant="secondary" onClick={() => setDisableOpen(false)}>Cancel</Button>
-            <Button variant="danger" onClick={handleUnenroll} disabled={disabling}>
+            <Button variant="secondary" onClick={() => setDisableOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleUnenroll}
+              disabled={disabling}
+            >
               {disabling ? 'Disabling…' : 'Disable 2FA'}
             </Button>
           </>
-        )}
+        }
       >
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-          This removes your authenticator-app factor. Your account will no longer require a second factor to sign
-          in.
+          This removes your authenticator-app factor. Your account will no
+          longer require a second factor to sign in.
         </p>
         {disableError && <div className="login-error">{disableError}</div>}
       </Modal>

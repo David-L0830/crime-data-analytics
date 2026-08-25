@@ -5,14 +5,21 @@
 // so no component changes are required when a backend is introduced.
 
 import {
-  SITIOS, STREETS, CRIME_TYPES, TYPE_CATEGORY_MAP, OFFICERS,
-  BARANGAY_178_CENTER, CRIMINAL_STATUSES, RESIDENT_STATUSES,
+  SITIOS,
+  STREETS,
+  CRIME_TYPES,
+  TYPE_CATEGORY_MAP,
+  OFFICERS,
+  BARANGAY_178_CENTER,
+  CRIMINAL_STATUSES,
+  RESIDENT_STATUSES,
 } from './constants';
 
 // Small seeded PRNG so the mock dataset is stable across reloads (nicer demo UX)
 function mulberry32(seed) {
   return function () {
-    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -27,19 +34,130 @@ const randInt = (min, max) => Math.floor(rand() * (max - min + 1)) + min;
 // not exist as a real place and none of these names refer to real people).
 // Kept separate from the Resident Registry's own name pool below so the two
 // datasets don't read as literally the same 50 people.
-const MALE_FIRST_NAMES = ['Juan', 'Pedro', 'Jose', 'Carlos', 'Antonio', 'Manuel', 'Francisco', 'Ramon', 'Eduardo', 'Rafael', 'Fernando', 'Miguel', 'Ricardo', 'Jaime', 'Arturo', 'Rogelio', 'Ruben', 'Ernesto', 'Gregorio', 'Luis', 'Vicente', 'Alberto', 'Roberto', 'Samuel', 'David', 'Daniel', 'Angelo', 'Marlon', 'Noel', 'Reynaldo'];
-const FEMALE_FIRST_NAMES = ['Maria', 'Ana', 'Elena', 'Rosa', 'Luz', 'Carmen', 'Gloria', 'Teresa', 'Lourdes', 'Mercedes', 'Cristina', 'Adela', 'Dolores', 'Aurora', 'Socorro', 'Leticia', 'Corazon', 'Milagros', 'Nenita', 'Fe', 'Lilia', 'Nena', 'Remedios', 'Perla', 'Luzviminda', 'Angela', 'Sofia', 'Grace', 'Marites', 'Josefina'];
-const CRIME_LAST_NAMES = ['Dela Cruz', 'Santos', 'Reyes', 'Bautista', 'Garcia', 'Mendoza', 'Aquino', 'Flores', 'Lopez', 'Villanueva', 'Gonzales', 'Torres', 'Rivera', 'Castillo', 'Ramos', 'Fernandez', 'Martinez', 'Rosario', 'Diaz', 'Castro', 'Aguilar', 'Hernandez', 'Mercado', 'Alcantara', 'Valdez', 'Soriano', 'Velasco', 'Bernardo', 'Domingo', 'Pascual'];
+const MALE_FIRST_NAMES = [
+  'Juan',
+  'Pedro',
+  'Jose',
+  'Carlos',
+  'Antonio',
+  'Manuel',
+  'Francisco',
+  'Ramon',
+  'Eduardo',
+  'Rafael',
+  'Fernando',
+  'Miguel',
+  'Ricardo',
+  'Jaime',
+  'Arturo',
+  'Rogelio',
+  'Ruben',
+  'Ernesto',
+  'Gregorio',
+  'Luis',
+  'Vicente',
+  'Alberto',
+  'Roberto',
+  'Samuel',
+  'David',
+  'Daniel',
+  'Angelo',
+  'Marlon',
+  'Noel',
+  'Reynaldo',
+];
+const FEMALE_FIRST_NAMES = [
+  'Maria',
+  'Ana',
+  'Elena',
+  'Rosa',
+  'Luz',
+  'Carmen',
+  'Gloria',
+  'Teresa',
+  'Lourdes',
+  'Mercedes',
+  'Cristina',
+  'Adela',
+  'Dolores',
+  'Aurora',
+  'Socorro',
+  'Leticia',
+  'Corazon',
+  'Milagros',
+  'Nenita',
+  'Fe',
+  'Lilia',
+  'Nena',
+  'Remedios',
+  'Perla',
+  'Luzviminda',
+  'Angela',
+  'Sofia',
+  'Grace',
+  'Marites',
+  'Josefina',
+];
+const CRIME_LAST_NAMES = [
+  'Dela Cruz',
+  'Santos',
+  'Reyes',
+  'Bautista',
+  'Garcia',
+  'Mendoza',
+  'Aquino',
+  'Flores',
+  'Lopez',
+  'Villanueva',
+  'Gonzales',
+  'Torres',
+  'Rivera',
+  'Castillo',
+  'Ramos',
+  'Fernandez',
+  'Martinez',
+  'Rosario',
+  'Diaz',
+  'Castro',
+  'Aguilar',
+  'Hernandez',
+  'Mercado',
+  'Alcantara',
+  'Valdez',
+  'Soriano',
+  'Velasco',
+  'Bernardo',
+  'Domingo',
+  'Pascual',
+];
 
 // gender is optional — victims have a recorded gender to match against;
 // suspects don't (no suspectGender field), so it's left undefined and a
 // name is drawn from either pool.
 function randomFullName(gender) {
-  const pool = gender === 'Male' ? MALE_FIRST_NAMES : gender === 'Female' ? FEMALE_FIRST_NAMES : pick([MALE_FIRST_NAMES, FEMALE_FIRST_NAMES]);
+  const pool =
+    gender === 'Male'
+      ? MALE_FIRST_NAMES
+      : gender === 'Female'
+        ? FEMALE_FIRST_NAMES
+        : pick([MALE_FIRST_NAMES, FEMALE_FIRST_NAMES]);
   return `${pick(pool)} ${pick(CRIME_LAST_NAMES)}`;
 }
 
-const MONTHS = ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06', '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12'];
+const MONTHS = [
+  '2025-01',
+  '2025-02',
+  '2025-03',
+  '2025-04',
+  '2025-05',
+  '2025-06',
+  '2025-07',
+  '2025-08',
+  '2025-09',
+  '2025-10',
+  '2025-11',
+  '2025-12',
+];
 const BASE_COUNTS = [8, 7, 9, 8, 10, 12, 14, 13, 11, 10, 8, 7];
 
 function generateIncidents() {
@@ -62,7 +180,10 @@ function generateIncidents() {
       // into neighboring barangays (e.g. Brgy 176, Bagong Silang).
       const lat = BARANGAY_178_CENTER.lat + randInt(-32, 32) / 10000;
       const lng = BARANGAY_178_CENTER.lng + randInt(-32, 32) / 10000;
-      const statusPool = mIndex < 8 ? ['Solved', 'Closed', 'Under Investigation', 'Open'] : ['Open', 'Under Investigation'];
+      const statusPool =
+        mIndex < 8
+          ? ['Solved', 'Closed', 'Under Investigation', 'Open']
+          : ['Open', 'Under Investigation'];
       const status = pick(statusPool);
       const gender = rand() > 0.5 ? 'Male' : 'Female';
       const age = randInt(18, 72);
@@ -94,7 +215,10 @@ function generateIncidents() {
         status,
         description: `${type} incident reported in ${sitio}, Barangay 178, North Caloocan.`,
         evidence: rand() > 0.5 ? `evidence_${id}.pdf` : '',
-        synced_at: rand() > 0.3 ? new Date(Date.now() - randInt(0, 20) * 86400000).toISOString() : null,
+        synced_at:
+          rand() > 0.3
+            ? new Date(Date.now() - randInt(0, 20) * 86400000).toISOString()
+            : null,
       });
       id++;
     }
@@ -103,8 +227,90 @@ function generateIncidents() {
   return incidents;
 }
 
-const FIRST_NAMES = ['Juan', 'Maria', 'Pedro', 'Ana', 'Jose', 'Elena', 'Carlos', 'Rosa', 'Antonio', 'Luz', 'Manuel', 'Carmen', 'Francisco', 'Gloria', 'Ramon', 'Teresa', 'Eduardo', 'Lourdes', 'Rafael', 'Mercedes', 'Fernando', 'Cristina', 'Miguel', 'Adela', 'Ricardo', 'Dolores', 'Jaime', 'Aurora', 'Arturo', 'Socorro', 'Rogelio', 'Leticia', 'Ruben', 'Corazon', 'Ernesto', 'Milagros', 'Gregorio', 'Nenita', 'Luis', 'Fe', 'Vicente', 'Lilia', 'Alberto', 'Nena', 'Roberto', 'Remedios', 'Samuel', 'Perla', 'David', 'Luzviminda'];
-const LAST_NAMES = ['Santos', 'Reyes', 'Cruz', 'Bautista', 'Garcia', 'Mendoza', 'Aquino', 'Flores', 'Lopez', 'Villanueva', 'Gonzales', 'Torres', 'Rivera', 'Castillo', 'Dela Cruz', 'Ramos', 'Fernandez', 'Martinez', 'Rosario', 'Diaz', 'Castro', 'Aguilar', 'Hernandez', 'Mercado', 'Alcantara', 'Valdez', 'Soriano', 'Velasco', 'Manaloto', 'Quijano'];
+const FIRST_NAMES = [
+  'Juan',
+  'Maria',
+  'Pedro',
+  'Ana',
+  'Jose',
+  'Elena',
+  'Carlos',
+  'Rosa',
+  'Antonio',
+  'Luz',
+  'Manuel',
+  'Carmen',
+  'Francisco',
+  'Gloria',
+  'Ramon',
+  'Teresa',
+  'Eduardo',
+  'Lourdes',
+  'Rafael',
+  'Mercedes',
+  'Fernando',
+  'Cristina',
+  'Miguel',
+  'Adela',
+  'Ricardo',
+  'Dolores',
+  'Jaime',
+  'Aurora',
+  'Arturo',
+  'Socorro',
+  'Rogelio',
+  'Leticia',
+  'Ruben',
+  'Corazon',
+  'Ernesto',
+  'Milagros',
+  'Gregorio',
+  'Nenita',
+  'Luis',
+  'Fe',
+  'Vicente',
+  'Lilia',
+  'Alberto',
+  'Nena',
+  'Roberto',
+  'Remedios',
+  'Samuel',
+  'Perla',
+  'David',
+  'Luzviminda',
+];
+const LAST_NAMES = [
+  'Santos',
+  'Reyes',
+  'Cruz',
+  'Bautista',
+  'Garcia',
+  'Mendoza',
+  'Aquino',
+  'Flores',
+  'Lopez',
+  'Villanueva',
+  'Gonzales',
+  'Torres',
+  'Rivera',
+  'Castillo',
+  'Dela Cruz',
+  'Ramos',
+  'Fernandez',
+  'Martinez',
+  'Rosario',
+  'Diaz',
+  'Castro',
+  'Aguilar',
+  'Hernandez',
+  'Mercado',
+  'Alcantara',
+  'Valdez',
+  'Soriano',
+  'Velasco',
+  'Manaloto',
+  'Quijano',
+];
 
 function generateResidents() {
   const residents = [];
@@ -123,7 +329,13 @@ function generateResidents() {
       dateOfBirth: `${birthYear}-01-15`,
       gender: rand() > 0.5 ? 'Male' : 'Female',
       civilStatus: pick(['Single', 'Married', 'Widowed', 'Separated']),
-      occupation: pick(['Employed', 'Self-Employed', 'Student', 'Unemployed', 'Retired']),
+      occupation: pick([
+        'Employed',
+        'Self-Employed',
+        'Student',
+        'Unemployed',
+        'Retired',
+      ]),
       sitio,
       street,
       contactNumber: `09${randInt(100000000, 999999999)}`,
@@ -142,7 +354,10 @@ function generateCriminals(incidents) {
       id: `crim-${i + 1}`,
       criminalId: `CR-${String(i + 1).padStart(4, '0')}`,
       fullName: inc.suspectName,
-      dateOfBirth: `19${randInt(60, 99)}-01-15`.replace('19' + (birthYear - 1900), String(birthYear)),
+      dateOfBirth: `19${randInt(60, 99)}-01-15`.replace(
+        '19' + (birthYear - 1900),
+        String(birthYear),
+      ),
       gender: rand() > 0.5 ? 'Male' : 'Female',
       address: `${randInt(1, 300)} ${pick(STREETS[inc.sitio])}, ${inc.sitio}, Barangay 178`,
       physicalDescription: `${randInt(150, 185)}cm, ${pick(['slim', 'average', 'heavy', 'athletic'])} build`,
@@ -158,13 +373,41 @@ function generateCriminals(incidents) {
 const AUDIT_ACTIONS = [
   { action: 'LOGIN', targetType: 'auth', details: 'User signed in' },
   { action: 'LOGOUT', targetType: 'auth', details: 'User signed out' },
-  { action: 'SYNC_STARTED', targetType: 'sync', details: 'Data synchronization started' },
-  { action: 'SYNC_COMPLETED', targetType: 'sync', details: 'Data synchronization completed' },
-  { action: 'REPORT_GENERATED', targetType: 'report', details: 'Dashboard report generated' },
-  { action: 'REPORT_EXPORTED', targetType: 'report', details: 'Report exported as CSV' },
-  { action: 'UPDATE', targetType: 'resident', details: 'Resident record updated' },
-  { action: 'CREATE', targetType: 'resident', details: 'Resident record created' },
-  { action: 'UPDATE', targetType: 'settings', details: 'System settings updated' },
+  {
+    action: 'SYNC_STARTED',
+    targetType: 'sync',
+    details: 'Data synchronization started',
+  },
+  {
+    action: 'SYNC_COMPLETED',
+    targetType: 'sync',
+    details: 'Data synchronization completed',
+  },
+  {
+    action: 'REPORT_GENERATED',
+    targetType: 'report',
+    details: 'Dashboard report generated',
+  },
+  {
+    action: 'REPORT_EXPORTED',
+    targetType: 'report',
+    details: 'Report exported as CSV',
+  },
+  {
+    action: 'UPDATE',
+    targetType: 'resident',
+    details: 'Resident record updated',
+  },
+  {
+    action: 'CREATE',
+    targetType: 'resident',
+    details: 'Resident record created',
+  },
+  {
+    action: 'UPDATE',
+    targetType: 'settings',
+    details: 'System settings updated',
+  },
 ];
 
 function generateAuditLogs(users) {
@@ -185,11 +428,31 @@ function generateAuditLogs(users) {
 
 function generateNotifications() {
   const items = [
-    { title: 'Hotspot Alert', message: 'Sitio 4 has exceeded the hotspot threshold this week.', type: 'warning' },
-    { title: 'New Incident', message: 'A new incident was logged in Sitio 2.', type: 'info' },
-    { title: 'Case Resolved', message: 'Case CN-2025-0032 was marked as Solved.', type: 'success' },
-    { title: 'Sync Complete', message: 'Data synchronization completed successfully.', type: 'success' },
-    { title: 'Overdue Case', message: 'Case CN-2025-0011 has been Open for over 30 days.', type: 'warning' },
+    {
+      title: 'Hotspot Alert',
+      message: 'Sitio 4 has exceeded the hotspot threshold this week.',
+      type: 'warning',
+    },
+    {
+      title: 'New Incident',
+      message: 'A new incident was logged in Sitio 2.',
+      type: 'info',
+    },
+    {
+      title: 'Case Resolved',
+      message: 'Case CN-2025-0032 was marked as Solved.',
+      type: 'success',
+    },
+    {
+      title: 'Sync Complete',
+      message: 'Data synchronization completed successfully.',
+      type: 'success',
+    },
+    {
+      title: 'Overdue Case',
+      message: 'Case CN-2025-0011 has been Open for over 30 days.',
+      type: 'warning',
+    },
   ];
   return items.map((n, i) => ({
     id: `notif-${i + 1}`,
@@ -207,7 +470,11 @@ function generateSyncLogs() {
       timestamp: new Date(Date.now() - i * 86400000).toISOString(),
       status: rand() > 0.15 ? 'completed' : 'failed',
       recordsReceived: randInt(2, 14),
-      source: pick(['PNP Regional Feed', 'Manual Upload', 'BADAC Field Report']),
+      source: pick([
+        'PNP Regional Feed',
+        'Manual Upload',
+        'BADAC Field Report',
+      ]),
     });
   }
   return logs;
@@ -230,7 +497,14 @@ export function buildMockDataset(users) {
       population: 15000,
       threshold: 5,
       hotspotThreshold: 3,
-      categories: ['Property Crime', 'Violent Crime', 'Drug-Related', 'Financial Crime', 'Cybercrime', 'Public Order'],
+      categories: [
+        'Property Crime',
+        'Violent Crime',
+        'Drug-Related',
+        'Financial Crime',
+        'Cybercrime',
+        'Public Order',
+      ],
     },
   };
   return cachedDataset;

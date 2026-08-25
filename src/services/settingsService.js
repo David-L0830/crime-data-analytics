@@ -13,5 +13,6 @@ export const settingsService = {
   // preserves the exact existing cookie-only call shape Settings.jsx already
   // relies on. Not wired to a live token yet, same reason as get().
   get: (token) => api.get('/settings', token ? { token } : undefined),
-  update: (data, token) => api.put('/settings', data, token ? { token } : undefined),
+  update: (data, token) =>
+    api.put('/settings', data, token ? { token } : undefined),
 };

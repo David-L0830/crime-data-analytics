@@ -19,10 +19,15 @@ export default function FilterBar({ fields, onApply, initialValues, actions }) {
         <div className="filter-group" key={f.id}>
           <label>{f.label}</label>
           {f.type === 'select' ? (
-            <select value={values[f.id] || ''} onChange={(e) => setField(f.id, e.target.value)}>
+            <select
+              value={values[f.id] || ''}
+              onChange={(e) => setField(f.id, e.target.value)}
+            >
               <option value="">All</option>
               {(f.options || []).map((o) => (
-                <option key={o} value={o}>{o}</option>
+                <option key={o} value={o}>
+                  {o}
+                </option>
               ))}
             </select>
           ) : (

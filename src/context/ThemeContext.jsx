@@ -13,7 +13,8 @@ function getInitialTheme() {
   if (stored === 'light' || stored === 'dark') return stored;
   if (typeof window !== 'undefined' && window.matchMedia) {
     try {
-      if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches)
+        return 'dark';
     } catch {
       // matchMedia not available/blocked — fall through to the default.
     }
@@ -31,5 +32,9 @@ export function ThemeProvider({ children }) {
 
   const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
 
-  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
 }

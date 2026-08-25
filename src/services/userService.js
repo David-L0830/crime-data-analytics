@@ -26,9 +26,16 @@ import { api } from './api';
 export const userService = {
   list: (token) => api.get('/users', token ? { token } : undefined),
   get: (id, token) => api.get(`/users/${id}`, token ? { token } : undefined),
-  update: (id, data, token) => api.put(`/users/${id}`, data, token ? { token } : undefined),
-  setActive: (id, isActive, token) => api.put(`/users/${id}/status`, { isActive }, token ? { token } : undefined),
+  update: (id, data, token) =>
+    api.put(`/users/${id}`, data, token ? { token } : undefined),
+  setActive: (id, isActive, token) =>
+    api.put(`/users/${id}/status`, { isActive }, token ? { token } : undefined),
   // Phase 4 — Feature #4. Admin break-glass: clears a user's 2FA entirely
   // (see UserController::disableTwoFactor) — only reachable for badac_admin.
-  disableTwoFactor: (id, token) => api.post(`/users/${id}/two-factor/disable`, undefined, token ? { token } : undefined),
+  disableTwoFactor: (id, token) =>
+    api.post(
+      `/users/${id}/two-factor/disable`,
+      undefined,
+      token ? { token } : undefined,
+    ),
 };

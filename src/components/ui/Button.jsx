@@ -6,9 +6,20 @@ const VARIANT_CLASS = {
 };
 
 export default function Button({
-  children, variant = 'primary', size, icon, className = '', type = 'button', ...rest
+  children,
+  variant = 'primary',
+  size,
+  icon,
+  className = '',
+  type = 'button',
+  ...rest
 }) {
-  const cls = ['btn', VARIANT_CLASS[variant] || VARIANT_CLASS.primary, size === 'sm' ? 'btn-sm' : '', className]
+  const cls = [
+    'btn',
+    VARIANT_CLASS[variant] || VARIANT_CLASS.primary,
+    size === 'sm' ? 'btn-sm' : '',
+    className,
+  ]
     .filter(Boolean)
     .join(' ');
   return (

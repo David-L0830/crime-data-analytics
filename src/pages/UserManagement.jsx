@@ -39,9 +39,15 @@ export default function UserManagement() {
   const load = () => {
     if (!isAdmin) return;
     setLoading(true);
-    userService.list()
+    userService
+      .list()
       .then(setUsers)
-      .catch((err) => showToast(err instanceof ApiError ? err.message : 'Could not load users.', 'error'))
+      .catch((err) =>
+        showToast(
+          err instanceof ApiError ? err.message : 'Could not load users.',
+          'error',
+        ),
+      )
       .finally(() => setLoading(false));
   };
 
@@ -49,7 +55,11 @@ export default function UserManagement() {
 
   const openEdit = (user) => {
     setEditing(user);
-    setForm({ fullName: user.fullName, username: user.username, email: user.email });
+    setForm({
+      fullName: user.fullName,
+      username: user.username,
+      email: user.email,
+    });
   };
 
   const handleSave = async () => {
@@ -61,7 +71,14 @@ export default function UserManagement() {
       showToast('Account updated.', 'success');
       setEditing(null);
     } catch (err) {
-      showToast(err instanceof ApiError ? (err.errors ? Object.values(err.errors).flat().join(' ') : err.message) : 'Could not update account.', 'error');
+      showToast(
+        err instanceof ApiError
+          ? err.errors
+            ? Object.values(err.errors).flat().join(' ')
+            : err.message
+          : 'Could not update account.',
+        'error',
+      );
     } finally {
       setSaving(false);
     }
@@ -69,25 +86,45 @@ export default function UserManagement() {
 
   const toggleActive = async (user) => {
     const next = !user.isActive;
-    if (!window.confirm(`${next ? 'Activate' : 'Deactivate'} ${user.fullName}'s account?`)) return;
+    if (
+      !window.confirm(
+        `${next ? 'Activate' : 'Deactivate'} ${user.fullName}'s account?`,
+      )
+    )
+      return;
 
     try {
       const updated = await userService.setActive(user.id, next);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       showToast(`Account ${next ? 'activated' : 'deactivated'}.`, 'success');
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : 'Could not update account status.', 'error');
+      showToast(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not update account status.',
+        'error',
+      );
     }
   };
 
   const disableUserTwoFactor = async (user) => {
-    if (!window.confirm(`Disable two-factor authentication for ${user.fullName}? They will need to set it up again.`)) return;
+    if (
+      !window.confirm(
+        `Disable two-factor authentication for ${user.fullName}? They will need to set it up again.`,
+      )
+    )
+      return;
     try {
       const updated = await userService.disableTwoFactor(user.id);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       showToast('Two-factor authentication disabled.', 'success');
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : 'Could not disable two-factor authentication.', 'error');
+      showToast(
+        err instanceof ApiError
+          ? err.message
+          : 'Could not disable two-factor authentication.',
+        'error',
+      );
     }
   };
 
@@ -98,7 +135,15 @@ export default function UserManagement() {
     return (
       <section className="module">
         <div className="module-toolbar">
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2
+            style={{
+              fontSize: '1.1rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
             <Icons.Users size={18} strokeWidth={2} /> User Management
           </h2>
         </div>
@@ -118,7 +163,15 @@ export default function UserManagement() {
   return (
     <section className="module">
       <div className="module-toolbar">
-        <h2 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <h2
+          style={{
+            fontSize: '1.1rem',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
           <Icons.Users size={18} strokeWidth={2} /> User Management
         </h2>
       </div>
@@ -130,26 +183,46 @@ export default function UserManagement() {
             { key: 'username', label: 'Username' },
             { key: 'email', label: 'Email' },
             { key: 'roleLabel', label: 'Role' },
-            { key: 'isActive', label: 'Status', render: (v) => <Badge status={v ? 'Active' : 'Inactive'} /> },
-            { key: 'twoFactorEnabled', label: '2FA', render: (v) => <Badge status={v ? 'Active' : 'Inactive'} /> },
+            {
+              key: 'isActive',
+              label: 'Status',
+              render: (v) => <Badge status={v ? 'Active' : 'Inactive'} />,
+            },
+            {
+              key: 'twoFactorEnabled',
+              label: '2FA',
+              render: (v) => <Badge status={v ? 'Active' : 'Inactive'} />,
+            },
           ]}
           rows={users}
           actions={(user) => (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button size="sm" variant="secondary" onClick={() => openEdit(user)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => openEdit(user)}
+              >
                 <Icons.Edit size={14} strokeWidth={2} /> Edit
               </Button>
               <Button
                 size="sm"
                 variant={user.isActive ? 'danger' : 'secondary'}
                 disabled={user.id === currentUser?.id}
-                title={user.id === currentUser?.id ? 'You cannot deactivate your own account' : undefined}
+                title={
+                  user.id === currentUser?.id
+                    ? 'You cannot deactivate your own account'
+                    : undefined
+                }
                 onClick={() => toggleActive(user)}
               >
                 {user.isActive ? 'Deactivate' : 'Activate'}
               </Button>
               {user.twoFactorEnabled && (
-                <Button size="sm" variant="danger" onClick={() => disableUserTwoFactor(user)}>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  onClick={() => disableUserTwoFactor(user)}
+                >
                   Disable 2FA
                 </Button>
               )}
@@ -169,26 +242,43 @@ export default function UserManagement() {
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
         title={editing ? `Edit ${editing.fullName}` : ''}
-        footer={(
+        footer={
           <>
-            <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</Button>
+            <Button variant="secondary" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Changes'}
+            </Button>
           </>
-        )}
+        }
       >
         <div className="form-group">
           <label>Full Name</label>
-          <input type="text" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+          <input
+            type="text"
+            value={form.fullName}
+            onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+          />
         </div>
         <div className="form-group">
           <label>Username</label>
-          <input type="text" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+          <input
+            type="text"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+          />
         </div>
         <div className="form-group">
           <label>Email</label>
-          <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
         </div>
-        {(editing?.role === 'encoder' || editing?.role === 'badac_readonly') && (
+        {(editing?.role === 'encoder' ||
+          editing?.role === 'badac_readonly') && (
           <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
             Role changes aren't supported from this screen.
           </p>

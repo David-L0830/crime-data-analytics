@@ -27,7 +27,10 @@ function computeAge(dob) {
 function Field({ label, value }) {
   return (
     <div>
-      <strong>{label}:</strong> {value === null || value === undefined || value === '' ? 'Not available' : value}
+      <strong>{label}:</strong>{' '}
+      {value === null || value === undefined || value === ''
+        ? 'Not available'
+        : value}
     </div>
   );
 }
@@ -39,16 +42,26 @@ export default function CriminalProfile() {
   const { showToast } = useToast();
   const [photoError, setPhotoError] = useState(false);
 
-  const criminal = useMemo(() => criminals.find((c) => String(c.id) === String(id)), [criminals, id]);
+  const criminal = useMemo(
+    () => criminals.find((c) => String(c.id) === String(id)),
+    [criminals, id],
+  );
 
-  useEffect(() => { setPhotoError(false); }, [id]);
+  useEffect(() => {
+    setPhotoError(false);
+  }, [id]);
 
   if (!criminal) {
     return (
       <section className="module">
         <div className="empty-state" style={{ padding: 60 }}>
-          <p style={{ color: 'var(--text-muted)' }}>Criminal record not found.</p>
-          <Button variant="secondary" onClick={() => navigate('/criminal-records/criminal')}>
+          <p style={{ color: 'var(--text-muted)' }}>
+            Criminal record not found.
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/criminal-records/criminal')}
+          >
             <Icons.Back size={15} strokeWidth={2} /> Back to Criminal Records
           </Button>
         </div>
@@ -58,9 +71,12 @@ export default function CriminalProfile() {
 
   const age = computeAge(criminal.dateOfBirth);
   const statusForHeader = criminal.status || 'Unknown';
-  const StatusIcon = statusForHeader === 'Wanted' ? Icons.Wanted
-    : ['Released', 'Deceased'].includes(statusForHeader) ? Icons.Cleared
-      : Icons.ShieldCheck || Icons.Cleared;
+  const StatusIcon =
+    statusForHeader === 'Wanted'
+      ? Icons.Wanted
+      : ['Released', 'Deceased'].includes(statusForHeader)
+        ? Icons.Cleared
+        : Icons.ShieldCheck || Icons.Cleared;
 
   const physicalFields = [
     ['Height', criminal.height],
@@ -76,13 +92,25 @@ export default function CriminalProfile() {
       <PrintReport title={`Criminal Profile: ${criminal.criminalId}`} />
 
       <div className="module-toolbar export-bar" style={{ marginBottom: 20 }}>
-        <Button variant="ghost" onClick={() => navigate('/criminal-records/criminal')}>
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/criminal-records/criminal')}
+        >
           <Icons.Back size={15} strokeWidth={2} /> Back
         </Button>
         <div className="toolbar-actions">
           <Button
             variant="secondary"
-            onClick={() => { if (exportCSV([criminal], `criminal_${criminal.criminalId}_${today()}.csv`, () => showToast('Could not export profile.', 'error'))) showToast('Profile exported', 'success'); }}
+            onClick={() => {
+              if (
+                exportCSV(
+                  [criminal],
+                  `criminal_${criminal.criminalId}_${today()}.csv`,
+                  () => showToast('Could not export profile.', 'error'),
+                )
+              )
+                showToast('Profile exported', 'success');
+            }}
           >
             <Icons.Download size={15} strokeWidth={2} /> Export Profile
           </Button>
@@ -96,7 +124,11 @@ export default function CriminalProfile() {
         <div className="profile-header">
           <div className="profile-photo">
             {criminal.photoUrl && !photoError ? (
-              <img src={criminal.photoUrl} alt="" onError={() => setPhotoError(true)} />
+              <img
+                src={criminal.photoUrl}
+                alt=""
+                onError={() => setPhotoError(true)}
+              />
             ) : (
               <div className="profile-photo-placeholder">
                 <Icons.Photo size={28} strokeWidth={1.5} />
@@ -106,8 +138,13 @@ export default function CriminalProfile() {
           </div>
           <div className="profile-header-info">
             <h2>{criminal.fullName}</h2>
-            {criminal.alias && <p className="profile-alias">Alias: {criminal.alias}</p>}
-            <p className="profile-id"><Icons.IdCard size={14} strokeWidth={2} /> Criminal ID: {criminal.criminalId}</p>
+            {criminal.alias && (
+              <p className="profile-alias">Alias: {criminal.alias}</p>
+            )}
+            <p className="profile-id">
+              <Icons.IdCard size={14} strokeWidth={2} /> Criminal ID:{' '}
+              {criminal.criminalId}
+            </p>
             <div className="profile-status">
               <StatusIcon size={15} strokeWidth={2} />
               <Badge status={criminal.status} />
@@ -122,22 +159,36 @@ export default function CriminalProfile() {
             <Field label="Full Name" value={criminal.fullName} />
             <Field label="Alias / Known As" value={criminal.alias} />
             <Field label="Gender" value={criminal.gender} />
-            <Field label="Date of Birth" value={criminal.dateOfBirth ? formatDate(criminal.dateOfBirth) : null} />
+            <Field
+              label="Date of Birth"
+              value={
+                criminal.dateOfBirth ? formatDate(criminal.dateOfBirth) : null
+              }
+            />
             <Field label="Age" value={age} />
             <Field label="Civil Status" value={criminal.civilStatus} />
             <Field label="Nationality" value={criminal.nationality} />
             <Field label="Contact Information" value={criminal.contactNumber} />
             <Field label="Sitio" value={criminal.sitio} />
-            <div className="full"><Field label="Address" value={criminal.address} /></div>
+            <div className="full">
+              <Field label="Address" value={criminal.address} />
+            </div>
           </div>
         </Card>
 
         {physicalFields.length > 0 && (
           <Card title="Physical Description">
             <div className="detail-grid">
-              {physicalFields.map(([label, value]) => <Field key={label} label={label} value={value} />)}
+              {physicalFields.map(([label, value]) => (
+                <Field key={label} label={label} value={value} />
+              ))}
               {criminal.physicalDescription && (
-                <div className="full"><Field label="Additional Notes" value={criminal.physicalDescription} /></div>
+                <div className="full">
+                  <Field
+                    label="Additional Notes"
+                    value={criminal.physicalDescription}
+                  />
+                </div>
               )}
             </div>
           </Card>
@@ -147,7 +198,12 @@ export default function CriminalProfile() {
           <div className="detail-grid">
             <Field label="Current Status" value={criminal.status} />
             <Field label="Case Number" value={criminal.relatedCaseNumber} />
-            <div className="full"><Field label="Charges" value={(criminal.charges || []).join(', ') || null} /></div>
+            <div className="full">
+              <Field
+                label="Charges"
+                value={(criminal.charges || []).join(', ') || null}
+              />
+            </div>
           </div>
         </Card>
 
@@ -158,8 +214,12 @@ export default function CriminalProfile() {
                 <div className="case-victim-group" key={incident.id}>
                   <div className="case-victim-group-header">
                     <div>
-                      <span className="case-victim-case-number">{incident.caseNumber}</span>
-                      <span className="case-victim-charge">{incident.crimeType}</span>
+                      <span className="case-victim-case-number">
+                        {incident.caseNumber}
+                      </span>
+                      <span className="case-victim-charge">
+                        {incident.crimeType}
+                      </span>
                     </div>
                     <Badge status={incident.status} />
                   </div>
@@ -168,14 +228,20 @@ export default function CriminalProfile() {
                       {incident.victims.map((victim) => (
                         <li key={victim.id} className="case-victim-item">
                           <div>
-                            <div className="case-victim-name">{victim.fullName}</div>
-                            <div className="case-victim-id">Victim ID: {victim.victimId}</div>
+                            <div className="case-victim-name">
+                              {victim.fullName}
+                            </div>
+                            <div className="case-victim-id">
+                              Victim ID: {victim.victimId}
+                            </div>
                           </div>
                           <Button
                             size="sm"
                             variant="secondary"
                             className="print-hidden"
-                            onClick={() => navigate(`/criminal-records/victims/${victim.id}`)}
+                            onClick={() =>
+                              navigate(`/criminal-records/victims/${victim.id}`)
+                            }
                           >
                             View Victim Profile
                           </Button>
@@ -183,13 +249,18 @@ export default function CriminalProfile() {
                       ))}
                     </ul>
                   ) : (
-                    <p className="case-victim-empty">No victims recorded for this case.</p>
+                    <p className="case-victim-empty">
+                      No victims recorded for this case.
+                    </p>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>No cases on record for this criminal, so no victim information is available.</p>
+            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>
+              No cases on record for this criminal, so no victim information is
+              available.
+            </p>
           )}
         </Card>
 
@@ -199,7 +270,11 @@ export default function CriminalProfile() {
               columns={[
                 { key: 'caseNumber', label: 'Case Number' },
                 { key: 'crimeType', label: 'Crime Type' },
-                { key: 'date', label: 'Date', render: (v) => (v ? formatDate(v) : '—') },
+                {
+                  key: 'date',
+                  label: 'Date',
+                  render: (v) => (v ? formatDate(v) : '—'),
+                },
                 { key: 'location', label: 'Location' },
                 { key: 'sitio', label: 'Sitio' },
                 { key: 'status', label: 'Status' },
@@ -207,7 +282,9 @@ export default function CriminalProfile() {
               rows={criminal.relatedIncidents}
             />
           ) : (
-            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>No related incidents found.</p>
+            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>
+              No related incidents found.
+            </p>
           )}
         </Card>
 
@@ -216,7 +293,11 @@ export default function CriminalProfile() {
             <div className="case-history">
               {criminal.caseHistory.map((event, i) => (
                 <div className="case-history-item" key={i}>
-                  <div className="case-history-date">{event.date ? new Date(event.date).toLocaleDateString('en-PH') : '—'}</div>
+                  <div className="case-history-date">
+                    {event.date
+                      ? new Date(event.date).toLocaleDateString('en-PH')
+                      : '—'}
+                  </div>
                   <div>
                     <div className="case-history-label">{event.label}</div>
                     <div className="case-history-detail">{event.detail}</div>
@@ -225,12 +306,16 @@ export default function CriminalProfile() {
               ))}
             </div>
           ) : (
-            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>No case history available.</p>
+            <p style={{ color: 'var(--text-muted)', padding: '12px 4px' }}>
+              No case history available.
+            </p>
           )}
         </Card>
 
         <Card title="Notes & Remarks">
-          <p style={{ whiteSpace: 'pre-wrap' }}>{criminal.notes || 'Not available'}</p>
+          <p style={{ whiteSpace: 'pre-wrap' }}>
+            {criminal.notes || 'Not available'}
+          </p>
         </Card>
       </div>
     </section>

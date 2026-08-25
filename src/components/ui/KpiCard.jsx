@@ -8,19 +8,51 @@
 // to it, keeps the card's own value/label always readable.
 import { Link } from 'react-router-dom';
 
-export default function KpiCard({ label, value, cls = 'accent', hint, to, state }) {
+export default function KpiCard({
+  label,
+  value,
+  cls = 'accent',
+  hint,
+  to,
+  state,
+}) {
   const Tag = to ? Link : 'div';
   const tagProps = to ? { to, state } : {};
   return (
-    <Tag className={`kpi-card ${cls} ${to ? 'kpi-card-link' : ''}`} {...tagProps}>
+    <Tag
+      className={`kpi-card ${cls} ${to ? 'kpi-card-link' : ''}`}
+      {...tagProps}
+    >
       {hint && (
         <span className="kpi-info" tabIndex={0} aria-label={hint}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-            <line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="2"
+            />
+            <line
+              x1="12"
+              y1="11"
+              x2="12"
+              y2="17"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
             <circle cx="12" cy="7.5" r="1.2" fill="currentColor" />
           </svg>
-          <span className="kpi-info-tooltip" role="tooltip">{hint}</span>
+          <span className="kpi-info-tooltip" role="tooltip">
+            {hint}
+          </span>
         </span>
       )}
       <div className="kpi-value">{value}</div>
