@@ -1,0 +1,48 @@
+{
+  // ---------------------------------------------------------------
+  // Indent-Rainbow (oderwat.indent-rainbow)
+  // Editor-only visualisation of indentation depth.
+  // These settings never alter file contents, formatting or logic.
+  // ---------------------------------------------------------------
+
+  // Full colored block per indent level - the most legible style.
+  "indentRainbow.indicatorStyle": "classic",
+
+  // Six levels (defaults ship four) because the JSX in src/ nests deeply.
+  // Alpha is raised from the default 0.07 so the bands are actually
+  // visible, while staying subtle enough for light and dark themes.
+  "indentRainbow.colors": [
+    "rgba(255,255,64,0.14)",
+    "rgba(127,255,127,0.14)",
+    "rgba(255,127,255,0.14)",
+    "rgba(79,236,236,0.14)",
+    "rgba(255,168,80,0.14)",
+    "rgba(140,160,255,0.14)"
+  ],
+
+  // Indentation that is not a whole multiple of the file's indent size.
+  "indentRainbow.errorColor": "rgba(220,64,64,0.35)",
+
+  // Tabs mixed into space indentation - this project is spaces-only,
+  // so anything highlighted here is an accidental tab.
+  "indentRainbow.tabmixColor": "rgba(200,64,160,0.35)",
+
+  // Don't flag the leading space of ` * ...` PHPDoc/JSDoc continuation
+  // lines or of `//` comments as an indentation error.
+  "indentRainbow.ignoreLinePatterns": [
+    "/[ \t]* [*]/g",
+    "/[ \t]+[/]{2}/g"
+  ],
+
+  // Prose and log output have no meaningful indent structure.
+  "indentRainbow.excludedLanguages": ["plaintext", "log", "markdown"],
+
+  // Colour these, but never mark their indentation as an error.
+  "indentRainbow.ignoreErrorLanguages": ["markdown", "plaintext", "yaml"],
+
+  "indentRainbow.colorOnWhiteSpaceOnly": false,
+  "indentRainbow.updateDelay": 100,
+
+  // Keep VS Code's own guide lines as a crisp edge on top of the bands.
+  "editor.guides.indentation": true
+}
