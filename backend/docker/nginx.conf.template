@@ -1,0 +1,46 @@
+# Nginx front end for the Laravel API container.
+#
+# The image previously ran php-fpm alone on port 9000. php-fpm speaks FastCGI,
+# not HTTP, so nothing could actually answer a browser or a PaaS health check —
+# this file is the missing HTTP server.
+#
+# ${PORT} is the only value substituted at container start (see entrypoint.sh).
+# Render assigns $PORT at runtime; docker-compose falls back to 9000 so the
+# existing local mapping keeps working. php-fpm is moved to 127.0.0.1:9001 by
+# docker/php-fpm-pool.conf so it cannot collide with nginx on that same port.
+
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /var/www/html/public;
+    index index.php;
+
+    charset utf-8;
+    client_max_body_size 12M;
+
+    # Laravel front controller: real files are served directly, everything
+    # else is routed through public/index.php.
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    error_page 404 /index.php;
+
+    location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9001;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_read_timeout 60s;
+    }
+
+    # Never serve dotfiles (.env above all) even if one is copied in.
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}

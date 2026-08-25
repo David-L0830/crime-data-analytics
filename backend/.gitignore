@@ -1,0 +1,13 @@
+# Laravel's cached, fully-resolved configuration.
+#
+# `php artisan config:cache` writes every config value into this one file with
+# env() already evaluated — which means DB_PASSWORD, SUPABASE_JWT_SECRET,
+# SUPABASE_SERVICE_ROLE_KEY and METABASE_EMBEDDING_SECRET_KEY all appear in it
+# in plaintext. It is a generated artifact that must never reach the
+# repository, and it is regenerated on demand, so nothing is lost by ignoring
+# it. The deployed container builds it at start-up (see docker/entrypoint.sh),
+# never at build time and never on a bind-mounted working tree.
+#
+# bootstrap/cache/packages.php and services.php are deliberately NOT listed:
+# they are already tracked here, contain no secrets, and are left as they are.
+bootstrap/cache/config.php
