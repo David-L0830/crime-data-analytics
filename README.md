@@ -340,7 +340,7 @@ Four tables, all computed in React from the same filtered record set:
 | # | Table | Contents |
 |---|---|---|
 | 1 | **Recent Incidents** | The 8 most recent, sorted by date then time descending |
-| 2 | **Hotspots** | Top 8 sitios by incident count |
+| 2 | **Hotspots** | Top 8 streets by incident count |
 | 3 | **Repeat Suspects** | Suspects appearing more than once, top 8 by count |
 | 4 | **Recently Synced** | The 5 most recent records carrying a `synced_at` timestamp |
 

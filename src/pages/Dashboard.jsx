@@ -318,9 +318,21 @@ export default function Dashboard() {
         (b.time || '').localeCompare(a.time || ''),
     )
     .slice(0, 8);
-  const locCounts = countBy(filtered, (r) => `${r.sitio}|${r.street}`);
+  // Group by STREET, not by exact address. `street` is stored house-number
+  // first ("116 Tupas St."), and in practice every incident has a different
+  // number, so keying on the raw value put every incident in its own group and
+  // the table could only ever show a column of 1s — never an actual hotspot.
+  // Stripping the leading house number groups the whole street together. No
+  // street name spans more than one sitio, so the Sitio column stays coherent.
+  // `street` is nullable in the schema, hence the `|| ''` guard before replace.
+  const locCounts = countBy(
+    filtered,
+    (r) => `${r.sitio}|${(r.street || '').replace(/^\s*\d+[A-Za-z]?\s+/, '')}`,
+  );
   const hotspots = Object.entries(locCounts)
-    .sort((a, b) => b[1] - a[1])
+    // Alphabetical tie-break so equal counts render in a stable, predictable
+    // order instead of whatever order the records happened to arrive in.
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 8)
     .map(([k, count]) => {
       const [sitio, location] = k.split('|');
