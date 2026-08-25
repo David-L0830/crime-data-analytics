@@ -304,7 +304,18 @@ export default function Dashboard() {
   // ===== Tables =====
   const recent = [...filtered]
     .sort(
-      (a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time),
+      // `time` is nullable on purpose — incident_time is nullable in the
+      // migration and the Time field is optional in IncidentModal, so
+      // IncidentResource legitimately returns time: null. Calling
+      // .localeCompare on null throws a TypeError during render, and with no
+      // ErrorBoundary above this page that white-screens the whole app rather
+      // than breaking one card. Coercing to '' keeps the ordering intact and
+      // sorts a missing time last within its own date. `date` needs no such
+      // guard: incident_date is NOT NULL in the schema and required by both
+      // StoreIncidentRequest and UpdateIncidentRequest.
+      (a, b) =>
+        b.date.localeCompare(a.date) ||
+        (b.time || '').localeCompare(a.time || ''),
     )
     .slice(0, 8);
   const locCounts = countBy(filtered, (r) => `${r.sitio}|${r.street}`);

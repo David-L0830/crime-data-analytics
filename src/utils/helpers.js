@@ -23,8 +23,21 @@ export function formatTime(t) {
   return `${h12}:${m} ${ampm}`;
 }
 
+// Barangay 178 works in Philippine calendar dates, so "today" must be the
+// Manila date. toISOString() returns the UTC date, which for UTC+8 is still
+// YESTERDAY between 00:00 and 08:00 PH — that made Today's Incidents (and, on
+// the 1st of a month, This Month and monthStart) count the wrong day every
+// morning. en-CA with explicit 2-digit parts yields the same 'YYYY-MM-DD'
+// shape the rest of the app compares against, since a record's `date` is a
+// plain 'YYYY-MM-DD' string from the API (see IncidentResource) and every
+// comparison here is a string comparison, never a Date object.
 export function today() {
-  return new Date().toISOString().split('T')[0];
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 }
 // Converts a 'YYYY-MM' label (as produced by Dashboard's monthly grouping)
 // into an inclusive { dateFrom, dateTo } range for filtering records.
