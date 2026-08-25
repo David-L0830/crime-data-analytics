@@ -57,10 +57,10 @@ unaffected, since Snyk runs as an independent job.
 
 Two optional secrets let CI build the frontend with real public Supabase
 values instead of the local-dev defaults (harmless either way, since only
-the anon/public key ever belongs in frontend code):
+the publishable/public key ever belongs in frontend code):
 
 - `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 
 The Supabase **service role key** (`SUPABASE_SERVICE_ROLE_KEY`) is a
 backend-only secret, is never read by this workflow, and must never be

@@ -374,7 +374,7 @@ Never commit real credentials. `.env` files are git-ignored.
 |---|---|
 | `VITE_API_URL` | Laravel API base URL |
 | `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anon (public) key |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (public) key — `sb_publishable_...` |
 
 **Backend — `backend/.env`** (see `backend/.env.example`)
 
