@@ -369,11 +369,19 @@ export function IncidentCreateModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState([]);
+  // Guards against a double-click submitting the form twice. Without it two
+  // POST /api/incidents fire before the first resolves; the case_number and
+  // incident_code UNIQUE constraints stop a duplicate row being written, but
+  // the second request still surfaces a confusing failure for a save that
+  // actually succeeded. Same in-flight pattern as IncidentFeed's archive
+  // action and ResetPassword's submit.
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
       setForm(emptyForm);
       setErrors([]);
+      setSubmitting(false);
     }
   }, [open]);
 
@@ -389,6 +397,7 @@ export function IncidentCreateModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     const data = {
       ...form,
       victimAge: form.victimAge ? parseInt(form.victimAge, 10) : null,
@@ -402,7 +411,12 @@ export function IncidentCreateModal({
       setErrors(validationErrors);
       return;
     }
-    await onSave(data);
+    setSubmitting(true);
+    try {
+      await onSave(data);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -429,7 +443,7 @@ export function IncidentCreateModal({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" disabled={submitting}>
             <Icons.Save size={15} strokeWidth={2} /> Save Incident
           </Button>
         </div>
@@ -452,6 +466,9 @@ export function IncidentEditModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState([]);
+  // Same in-flight guard as IncidentCreateModal above — a double-click here
+  // fired two PUT /api/incidents/{id} requests for one edit.
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (incident) {
@@ -479,6 +496,7 @@ export function IncidentEditModal({
         evidence: incident.evidence || '',
       });
       setErrors([]);
+      setSubmitting(false);
     }
   }, [incident]);
 
@@ -492,8 +510,9 @@ export function IncidentEditModal({
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     const data = {
       ...form,
       victimAge: form.victimAge ? parseInt(form.victimAge, 10) : null,
@@ -508,7 +527,12 @@ export function IncidentEditModal({
       setErrors(validationErrors);
       return;
     }
-    onSave(incident.id, data);
+    setSubmitting(true);
+    try {
+      await onSave(incident.id, data);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!incident) return null;
@@ -542,7 +566,7 @@ export function IncidentEditModal({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" disabled={submitting}>
             <Icons.Save size={15} strokeWidth={2} /> Save Changes
           </Button>
         </div>

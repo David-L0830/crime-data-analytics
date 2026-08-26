@@ -110,10 +110,15 @@ export default function IncidentFeed() {
     setEditing(record);
   };
 
-  // Only BADAC Administrator may archive incidents. Encoder no longer has
-  // 'archive_own_incident' in PERMISSIONS (constants.js), so this always
-  // evaluates false for Encoder — matching PUT /incidents/{incident}/archive
-  // now being role:badac_admin-only on the backend (routes/api.php).
+  // In this UI only BADAC Administrator sees the Archive action: Encoder has
+  // no 'archive_own_incident' entry in PERMISSIONS (constants.js), so the
+  // second clause always evaluates false for that role.
+  //
+  // This is a frontend restriction only — the backend route is
+  // role:badac_admin,encoder and lets an Encoder archive an incident they
+  // personally encoded (ownership checked in IncidentController::archive()).
+  // The second clause below is kept because it is what would grant the
+  // action if that permission is ever restored. See the note in constants.js.
   const canArchiveRecord = (record) =>
     can('archive_record') ||
     (can('archive_own_incident') && record.reportedBy === currentUser?.id);

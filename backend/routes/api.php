@@ -136,8 +136,8 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
 // Incidents — write side. Not role-restricted at the route level for
 // create/update (Encoder is a legitimate caller of both); IncidentController
 // enforces per-record ownership (reported_by) for Encoder internally on
-// update(). Archive is intentionally NOT in this group — see the
-// admin-only route below.
+// update(). Archive is kept out of this group only so it can carry its own
+// explanatory comment — it allows the same two roles, see the route below.
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])->group(function () {
     Route::post('/incidents', [IncidentController::class, 'store']);
     Route::put('/incidents/{incident}', [IncidentController::class, 'update']);

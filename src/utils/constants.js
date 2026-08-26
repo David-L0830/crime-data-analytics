@@ -237,9 +237,19 @@ export const PERMISSIONS = {
   // edit_own_incident, archive_record, archive_own_incident, manage_settings)
   // since none of them are listed for this role.
   badac_readonly: [],
-  // Encoder no longer has any Archive capability (frontend button removed
-  // AND backend route access removed — see PUT /incidents/{incident}/archive
-  // in backend/routes/api.php, now role:badac_admin only).
+  // Encoder has no Archive capability in the UI: 'archive_own_incident' is
+  // deliberately absent here, so can() returns false and IncidentFeed hides
+  // the Archive action for this role.
+  //
+  // Note this is a FRONTEND-ONLY restriction. The backend still permits it:
+  // PUT /incidents/{incident}/archive is role:badac_admin,encoder in
+  // backend/routes/api.php, with per-record ownership enforced inside
+  // IncidentController::archive(), and that behaviour is documented in
+  // docs/API_ENDPOINTS.md and covered by
+  // tests/Feature/IncidentTest.php::test_encoder_can_archive_their_own_incident.
+  // Whether the UI restriction or the backend policy is the intended rule is
+  // an open business-rule decision; nothing here should be read as a claim
+  // that the route itself is administrator-only.
   encoder: ['create_incident', 'edit_own_incident'],
 };
 
