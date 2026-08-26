@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Criminal;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreCriminalRequest extends FormRequest
 {
@@ -19,7 +21,7 @@ class StoreCriminalRequest extends FormRequest
             'gender' => ['nullable', 'string', 'max:20'],
             'address' => ['nullable', 'string', 'max:255'],
             'physicalDescription' => ['nullable', 'string', 'max:255'],
-            'status' => ['nullable', 'string', 'max:50'],
+            'status' => ['nullable', 'string', Rule::in(Criminal::STATUSES)],
             'charges' => ['nullable', 'array'],
             'charges.*' => ['string', 'max:100'],
             'notes' => ['nullable', 'string'],

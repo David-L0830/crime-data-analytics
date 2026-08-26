@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Incident;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -33,7 +34,7 @@ class StoreIncidentRequest extends FormRequest
             'investigatingOfficer' => ['nullable', 'string', 'max:100'],
             'badgeNumber' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', 'string', 'max:50'],
+            'status' => ['nullable', 'string', Rule::in(Incident::STATUSES)],
             'priority' => ['nullable', 'string', 'max:50'],
             'description' => ['nullable', 'string'],
             'evidence' => ['nullable', 'string', 'max:255'],

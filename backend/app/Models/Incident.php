@@ -9,6 +9,28 @@ class Incident extends Model
 {
     use HasFactory;
 
+    /**
+     * The complete set of incident status values.
+     *
+     * This is the single server-side source of truth, mirroring STATUSES in
+     * src/utils/constants.js (which drives the FilterBar and the incident
+     * form). It exists so Store/UpdateIncidentRequest can validate against a
+     * closed vocabulary instead of accepting any string: an unrecognised
+     * status would be counted by the Dashboard's `total` but by neither
+     * SOLVED_STATUSES nor PENDING_STATUSES, silently breaking the
+     * solved + pending = total identity behind Resolution Rate.
+     *
+     * 'Archived' is deliberately included — IncidentController::archive()
+     * writes it, and the Status filter uses it to surface archived records.
+     */
+    public const STATUSES = [
+        'Open',
+        'Under Investigation',
+        'Solved',
+        'Closed',
+        'Archived',
+    ];
+
     protected $fillable = [
         'incident_code',
         'case_number',

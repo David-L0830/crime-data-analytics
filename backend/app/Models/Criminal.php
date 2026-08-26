@@ -9,6 +9,28 @@ class Criminal extends Model
 {
     use HasFactory;
 
+    /**
+     * The complete set of criminal-record status values.
+     *
+     * Single server-side source of truth, mirroring CRIMINAL_STATUSES in
+     * src/utils/constants.js. Unlike incident statuses these are mostly
+     * facts about a person rather than workflow states, so the closed set
+     * matters: a typo would otherwise be stored verbatim and then be
+     * unreachable through the Status filter.
+     *
+     * 'Archived' is deliberately included — CriminalController::archive()
+     * writes it, and CriminalRecords.jsx uses it to hide archived records
+     * from the default list.
+     */
+    public const STATUSES = [
+        'Active',
+        'Wanted',
+        'Incarcerated',
+        'Released',
+        'Deceased',
+        'Archived',
+    ];
+
     protected $fillable = [
         'criminal_code',
         'full_name',
