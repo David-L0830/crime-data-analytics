@@ -54,7 +54,13 @@ class VictimController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        $victim->load('relatedIncidents.relatedCriminals');
+        // fresh() before load() for the same reason as the other two
+        // controllers: victims.status is NOT NULL DEFAULT 'Active' and is not
+        // settable through StoreVictimRequest at all, so EVERY created victim
+        // relies on the column default and would otherwise report
+        // status: null in its own 201 response. Mirrors archive()'s
+        // fresh()->load(...) pattern, so the response shape is unchanged.
+        $victim = $victim->fresh()->load('relatedIncidents.relatedCriminals');
 
         return (new VictimResource($victim))->response()->setStatusCode(201);
     }

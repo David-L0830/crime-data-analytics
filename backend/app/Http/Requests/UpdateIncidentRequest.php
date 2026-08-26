@@ -36,7 +36,7 @@ class UpdateIncidentRequest extends FormRequest
             'investigatingOfficer' => ['nullable', 'string', 'max:100'],
             'badgeNumber' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', 'string', Rule::in(Incident::STATUSES)],
+            'status' => ['string', Rule::in(Incident::STATUSES)],
             'priority' => ['nullable', 'string', 'max:50'],
             'description' => ['nullable', 'string'],
             'evidence' => ['nullable', 'string', 'max:255'],

@@ -68,7 +68,11 @@ class CriminalController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        $criminal->load('relatedIncidents.victims');
+        // fresh() before load() so the database-applied default for
+        // criminals.status (NOT NULL DEFAULT 'Active') is reflected in the 201
+        // payload rather than coming back as null. Mirrors archive()'s
+        // fresh()->load(...) pattern, so the response shape is unchanged.
+        $criminal = $criminal->fresh()->load('relatedIncidents.victims');
 
         return (new CriminalResource($criminal))->response()->setStatusCode(201);
     }

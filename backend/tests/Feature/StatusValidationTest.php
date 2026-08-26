@@ -176,16 +176,11 @@ class StatusValidationTest extends TestCase
         // one test_can_create_an_incident already relies on. The column default
         // supplies the value.
         //
-        // Note this does NOT assert that an explicit `status: null` is accepted.
-        // The rule keeps `nullable`, so null passes VALIDATION, but
-        // incidents.status / criminals.status are NOT NULL with a default in
-        // both SQLite and production Postgres, so an explicit null reaches the
-        // driver and raises a 500. That mismatch predates this change and is
-        // reported separately rather than silently codified here.
-        // Asserted against the stored row, not the response body: store()
-        // returns the un-refreshed model, so a column-defaulted value comes
-        // back as null in the payload even though the row holds the default.
-        // That is also pre-existing and reported separately.
+        // Explicit `status: null` is a separate case and is covered by
+        // StatusDefaultsAndNullTest: it is now rejected with a 422 rather than
+        // reaching the NOT NULL column and raising a 500.
+        // Asserted against the stored row. That the 201 payload now agrees
+        // with the row is covered by StatusDefaultsAndNullTest.
         $case = 'CN-2025-4242';
         $this->postJson('/api/incidents', $this->incidentPayload(['caseNumber' => $case]))
             ->assertCreated();

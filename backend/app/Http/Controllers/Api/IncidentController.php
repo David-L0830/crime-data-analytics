@@ -100,7 +100,14 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return (new IncidentResource($incident))->response()->setStatusCode(201);
+        // fresh() so values the DATABASE supplied are reflected in the 201
+        // payload. incidents.status is NOT NULL DEFAULT 'Open', so when the
+        // caller omits status the column default is applied by Postgres and
+        // the in-memory model still has it as null — the response would
+        // otherwise report status: null for a row that actually says 'Open',
+        // and DataContext.addRecord() pushes that response straight into the
+        // UI. Same pattern already used by archive() below.
+        return (new IncidentResource($incident->fresh()))->response()->setStatusCode(201);
     }
 
     // PUT /api/incidents/{incident}
