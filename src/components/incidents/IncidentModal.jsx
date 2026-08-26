@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
-import { formatDate, formatTime, exportCSV, today } from '../../utils/helpers';
+import { formatDate, formatTime, today } from '../../utils/helpers';
+import { exportWorkbook } from '../../utils/exportWorkbook';
 import { useToast } from '../../hooks/useToast';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
@@ -17,6 +18,63 @@ export function IncidentViewModal({
   const { showToast } = useToast();
   if (!incident) return null;
   const r = incident;
+
+  // Single-record export, matching the Field / Value sheet that Criminal
+  // Profile and Victim Profile produce - one shared exportWorkbook helper
+  // formats every export in the system rather than this one record going out
+  // through a different path.
+  //
+  // This replaces a CSV of the raw API object, which carried the internal
+  // database id, reportedBy and synced_at as reporting columns and laid a
+  // single record out as one very wide row.
+  const handleExportRecord = async () => {
+    const rows = [
+      ['Case Number', r.caseNumber],
+      ['Incident ID', r.incidentId],
+      ['Crime Type', r.crimeType],
+      ['Category', r.category],
+      ['Date', formatDate(r.date)],
+      ['Time', formatTime(r.time)],
+      ['Status', r.status],
+      ['Priority', r.priority],
+      ['Sitio', r.sitio],
+      ['Location / Street', r.street],
+      ['Barangay', 'Barangay 178, North Caloocan'],
+      ['Latitude', r.latitude],
+      ['Longitude', r.longitude],
+      ['Victim Name', r.victimName],
+      ['Victim Age', r.victimAge],
+      ['Victim Gender', r.victimGender],
+      ['Suspect Name', r.suspectName],
+      ['Suspect Age', r.suspectAge],
+      ['Reporting Officer', r.reportingOfficer],
+      ['Investigating Officer', r.investigatingOfficer],
+      ['Badge Number', r.badgeNumber],
+      ['Unit', r.unit],
+      ['Description', r.description],
+      ['Evidence', r.evidence],
+    ].map(([field, value]) => ({
+      field,
+      value:
+        value === null || value === undefined || value === ''
+          ? 'Not available'
+          : value,
+    }));
+
+    const ok = await exportWorkbook({
+      filename: `incident_${r.caseNumber}_${today()}.xlsx`,
+      sheetName: 'Incident Record',
+      title: `Incident Record \u2014 ${r.caseNumber}`,
+      subtitle: 'Crime Data Analytics & Reporting System',
+      columns: [
+        { header: 'Field', key: 'field', width: 26 },
+        { header: 'Value', key: 'value', width: 70, wrap: true },
+      ],
+      rows,
+      onEmpty: () => showToast('Could not export incident.', 'error'),
+    });
+    if (ok) showToast('Incident exported to Excel', 'success');
+  };
 
   return (
     <Modal
@@ -51,20 +109,10 @@ export function IncidentViewModal({
               showToast('Use browser print dialog to save as PDF', 'info');
             }}
           >
-            <Icons.Report size={15} strokeWidth={2} /> Export PDF
+            <Icons.Printer size={15} strokeWidth={2} /> Print Record
           </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (
-                exportCSV([r], `incident_${r.caseNumber}_${today()}.csv`, () =>
-                  showToast('Could not export incident.', 'error'),
-                )
-              )
-                showToast('Incident exported as CSV', 'success');
-            }}
-          >
-            <Icons.Download size={15} strokeWidth={2} /> Export CSV
+          <Button variant="secondary" onClick={handleExportRecord}>
+            <Icons.Download size={15} strokeWidth={2} /> Export Excel
           </Button>
         </>
       }

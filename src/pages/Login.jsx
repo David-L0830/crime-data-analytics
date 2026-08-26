@@ -215,6 +215,8 @@ export default function Login() {
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={error ? 'login-error' : undefined}
                   />
                 </div>
               </div>
@@ -231,6 +233,8 @@ export default function Login() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={error ? 'login-error' : undefined}
                   />
                   <button
                     type="button"
@@ -264,11 +268,15 @@ export default function Login() {
               >
                 <span>{submitting ? 'Authenticating...' : 'Sign In'}</span>
               </button>
-              {/* role="alert" so a screen reader announces a failed sign-in;
-                  without it the message appears silently and a non-sighted
-                  user is left with no feedback that the attempt failed. */}
+              {/* role="alert" announces a failed sign-in the moment it
+                  appears; the id is what the two fields above reference
+                  through aria-describedby, so the reason is also reachable
+                  from the field itself rather than only in the one-off
+                  announcement. Without either, the message appears silently
+                  and a non-sighted user is left with no feedback that the
+                  attempt failed. */}
               {error && (
-                <div className="login-error" role="alert">
+                <div className="login-error" role="alert" id="login-error">
                   {error}
                 </div>
               )}

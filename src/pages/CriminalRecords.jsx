@@ -9,7 +9,8 @@ import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
-import { exportCSV, today } from '../utils/helpers';
+import { today } from '../utils/helpers';
+import { exportWorkbook } from '../utils/exportWorkbook';
 import { CRIMINAL_STATUSES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -51,21 +52,64 @@ export default function CriminalRecords() {
     });
   }, [criminals, filters, debouncedSearch]);
 
-  // previousStatus is an internal restore field: it drives the archived-row
-  // "was X" hint in the table below and the Restore confirmation, but it is
-  // not part of the record's reportable data and must not become a CSV
-  // column. exportCSV derives its header from the keys of the first row, so
-  // the field is stripped here rather than inside the helper — that helper is
-  // shared by every other export in the app (incidents, audit logs, analytics)
-  // and is deliberately left untouched.
-  const exportRows = useMemo(
-    () =>
-      filtered.map((row) => {
-        const { previousStatus: _previousStatus, ...rest } = row;
-        return rest;
-      }),
-    [filtered],
-  );
+  // Real .xlsx through the same shared exportWorkbook helper the Dashboard,
+  // Statistical Analysis and Crime Data Collection reports use, so every
+  // export in the system is formatted by one implementation rather than each
+  // module growing its own.
+  //
+  // This replaces a raw CSV of the API objects. That export was driven by the
+  // keys of the first row, so it carried the internal database id, photoUrl
+  // and relatedIncidentId, and — because relatedIncidents and caseHistory are
+  // arrays of objects — two columns of JSON that no spreadsheet can read. The
+  // columns below are an explicit, ordered projection of the same `filtered`
+  // records the list is showing: related cases become a readable comma list,
+  // and previousStatus stays out because it is restore plumbing rather than
+  // reportable data. No record value is altered.
+  const handleExportExcel = async () => {
+    const ok = await exportWorkbook({
+      filename: `criminal_records_${today()}.xlsx`,
+      sheetName: 'Criminal Records',
+      title: 'Criminal Records Report',
+      subtitle: 'Crime Data Analytics & Reporting System',
+      meta: [
+        `Status: ${filters['crim-status'] || 'All'}`,
+        `Gender: ${filters['crim-gender'] || 'All'}`,
+        `Search: ${debouncedSearch || 'None'}`,
+      ],
+      columns: [
+        { header: 'Criminal ID', key: 'criminalId', width: 14 },
+        { header: 'Full Name', key: 'fullName', width: 26 },
+        { header: 'Alias', key: 'alias', width: 18 },
+        { header: 'Gender', key: 'gender', width: 10, align: 'center' },
+        { header: 'Date of Birth', key: 'dateOfBirth', type: 'date', width: 14 },
+        { header: 'Civil Status', key: 'civilStatus', width: 14 },
+        { header: 'Nationality', key: 'nationality', width: 14 },
+        { header: 'Contact Number', key: 'contactNumber', width: 16 },
+        { header: 'Sitio', key: 'sitio', width: 14 },
+        { header: 'Address', key: 'address', width: 32, wrap: true },
+        { header: 'Status', key: 'status', width: 14, align: 'center' },
+        {
+          header: 'Charges',
+          key: 'charges',
+          width: 28,
+          wrap: true,
+          value: (r) => (r.charges || []).join(', '),
+        },
+        {
+          header: 'Related Cases',
+          key: 'relatedCases',
+          width: 28,
+          wrap: true,
+          value: (r) =>
+            (r.relatedIncidents || []).map((i) => i.caseNumber).join(', '),
+        },
+        { header: 'Notes', key: 'notes', width: 40, wrap: true },
+      ],
+      rows: filtered,
+      onEmpty: () => showToast('No data to export', 'error'),
+    });
+    if (ok) showToast('Criminal records exported to Excel', 'success');
+  };
 
   // Mirrors VictimRecords.jsx's handleArchive. PUT /criminals/{id}/archive
   // is badac_admin-only server-side (routes/api.php); this UI-side guard
@@ -133,18 +177,8 @@ export default function CriminalRecords() {
           />
         </div>
         <div className="toolbar-actions">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (
-                exportCSV(exportRows, `criminal_records_${today()}.csv`, () =>
-                  showToast('No data to export', 'error'),
-                )
-              )
-                showToast('Criminal records exported', 'success');
-            }}
-          >
-            <Icons.Download size={15} strokeWidth={2} /> Export CSV
+          <Button variant="secondary" onClick={handleExportExcel}>
+            <Icons.Download size={15} strokeWidth={2} /> Export Excel
           </Button>
         </div>
       </div>

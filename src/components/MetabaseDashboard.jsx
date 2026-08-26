@@ -2,7 +2,13 @@ import { useEffect, useState } from 'react';
 import { metabaseService } from '../services/metabaseService';
 import { Icons } from './icons';
 
-// Renders a signed Metabase dashboard inside an iframe. Fetches a
+// Renders a signed Metabase dashboard inside an iframe.
+//
+// The wrapper carries `metabase-embed` purely so print.css can exclude it —
+// see the rule there. In short: this is a fixed-height (2000-2400px) embedded
+// BI surface, which is 2 to 2.4 A4 pages of unbreakable height that prints
+// blank, and it was the reason Dashboard/Analytics/Trends emitted blank pages
+// ahead of their real content. Fetches a
 // fresh, short-lived embed URL from the Laravel API on mount (and
 // whenever `dashboardKey` changes) — the actual Metabase secret never
 // reaches this component; it only ever receives the finished URL.
@@ -45,7 +51,7 @@ export default function MetabaseDashboard({
   if (loading) {
     return (
       <div
-        className="card"
+        className="metabase-embed card"
         style={{
           height,
           display: 'flex',
@@ -61,7 +67,7 @@ export default function MetabaseDashboard({
   if (error || !url) {
     return (
       <div
-        className="card"
+        className="metabase-embed card"
         style={{
           height,
           display: 'flex',
@@ -82,7 +88,10 @@ export default function MetabaseDashboard({
   }
 
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+    <div
+      className="metabase-embed card"
+      style={{ padding: 0, overflow: 'hidden' }}
+    >
       {title && <h3 style={{ padding: '16px 16px 0' }}>{title}</h3>}
       <iframe
         src={url}

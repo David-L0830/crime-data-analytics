@@ -128,8 +128,46 @@
    .landing-navbar-controls (beside the theme and menu toggles), which is never
    collapsed into the mobile menu, so it stays reachable at every width — that
    is why there is no max-width override hiding it further down this file. */
+/* The landing page's single sign-in action in the navbar. It is also a
+   .btn-secondary, which supplies the resting and hover backgrounds, but that
+   shared button has no focus-visible ring and no touch guard of its own — so
+   the two states below are declared here rather than by widening the global
+   .btn rules, which every screen in the authenticated app also uses.
+
+   The closing .landing-cta-btn carries the same pair for the same reasons;
+   both sign-in entry points on this page now behave identically across
+   pointer, keyboard and touch. */
 .landing-navbar-login {
   display: inline-flex;
+}
+
+.landing-navbar-login:hover,
+.landing-navbar-login:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.landing-navbar-login:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.landing-navbar-login:active {
+  background: var(--bg-primary);
+}
+
+/* Touch devices fire :hover on tap and then latch it until the next tap
+   elsewhere, which would leave the button sitting in its hover colours after
+   the user has already navigated away and come back. Pinning the resting
+   appearance there keeps it from looking permanently pressed. Same guard the
+   bottom CTA uses. */
+@media (hover: none) {
+  .landing-navbar-login:hover {
+    background: var(--bg-card);
+    border-color: var(--border);
+    color: var(--text-primary);
+  }
 }
 
 /* ===== Hero ===== */

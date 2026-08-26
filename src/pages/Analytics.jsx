@@ -10,7 +10,7 @@ import ChartCard from '../components/charts/ChartCard';
 import MetabaseDashboard from '../components/MetabaseDashboard';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
-import PrintReport from '../components/ui/PrintReport';
+import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import {
   buildCrimeTrendInsight,
   buildCategoryInsight,
@@ -23,9 +23,9 @@ import {
   median,
   variance,
   stdDev,
-  exportCSV,
   today,
 } from '../utils/helpers';
+import { exportWorkbook } from '../utils/exportWorkbook';
 import { COLORS, SITIOS, CRIME_TYPES, STATUSES } from '../utils/constants';
 
 const MONTH_ORDER = [
@@ -247,6 +247,18 @@ export default function Analytics() {
     const key = `${r.category}|${r.sitio}`;
     crosstabData[key] = (crosstabData[key] || 0) + 1;
   });
+  // One definition, consumed by the printed report header and the Excel
+  // metadata line, so the document and the workbook always describe the same
+  // filter state. Same pattern as Dashboard.jsx.
+  const filterSummary = [
+    `From: ${filters['ana-dateFrom'] || 'Any'}`,
+    `To: ${filters['ana-dateTo'] || 'Any'}`,
+    `Category: ${filters['ana-category'] || 'All'}`,
+    `Crime Type: ${filters['ana-crimeType'] || 'All'}`,
+    `Sitio: ${filters['ana-sitio'] || 'All'}`,
+    `Status: ${filters['ana-status'] || 'All'}`,
+  ].join(' \u00B7 ');
+
   const crosstabRows = crosstabCategories.map((cat) => {
     const row = { category: cat };
     SITIOS.forEach((s) => {
@@ -261,143 +273,332 @@ export default function Analytics() {
     { key: 'total', label: 'Total' },
   ];
 
+  // Real .xlsx via the shared exportWorkbook helper, replacing an "Export
+  // Excel" button that actually wrote a .csv. The columns below are an
+  // explicit, ordered projection of the same `filtered` records the
+  // on-screen analysis is computed from. No value is altered and nothing is
+  // invented.
+  const handleExportExcel = async () => {
+    const ok = await exportWorkbook({
+      filename: `brgy178_analytics_${today()}.xlsx`,
+      sheetName: 'Statistical Analysis',
+      title: 'Statistical Analysis Report',
+      subtitle: 'Crime Data Analytics & Reporting System',
+      meta: [`Filters: ${filterSummary}`],
+      columns: [
+        { header: 'Case Number', key: 'caseNumber', width: 16 },
+        { header: 'Date', key: 'date', type: 'date', width: 14 },
+        { header: 'Time', key: 'time', width: 10, align: 'center' },
+        { header: 'Crime Type', key: 'crimeType', width: 20 },
+        { header: 'Category', key: 'category', width: 18 },
+        { header: 'Sitio', key: 'sitio', width: 14 },
+        { header: 'Street / Location', key: 'street', width: 28, wrap: true },
+        { header: 'Status', key: 'status', width: 18, align: 'center' },
+        { header: 'Victim', key: 'victimName', width: 22 },
+        { header: 'Victim Age', key: 'victimAge', type: 'number', width: 11 },
+        { header: 'Victim Gender', key: 'victimGender', width: 13, align: 'center' },
+        { header: 'Suspect', key: 'suspectName', width: 22 },
+        { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
+      ],
+      rows: filtered,
+      onEmpty: () => showToast('No data to export', 'error'),
+    });
+    if (ok) showToast('Statistical analysis exported to Excel', 'success');
+  };
+
   return (
-    <section className="module">
-      <PrintReport title="Statistical Analysis Report" />
-      <FilterBar
-        fields={[
-          { id: 'ana-dateFrom', label: 'From', type: 'date' },
-          { id: 'ana-dateTo', label: 'To', type: 'date' },
-          {
-            id: 'ana-category',
-            label: 'Category',
-            type: 'select',
-            options: CATEGORIES,
-          },
-          {
-            id: 'ana-crimeType',
-            label: 'Crime Type',
-            type: 'select',
-            options: CRIME_TYPES,
-          },
-          { id: 'ana-sitio', label: 'Sitio', type: 'select', options: SITIOS },
-          {
-            id: 'ana-status',
-            label: 'Status',
-            type: 'select',
-            options: STATUSES,
-          },
+    <section className="module print-root">
+      <PrintReport
+        title="Statistical Analysis Report"
+        subtitle="Crime Data Analytics &amp; Reporting System"
+        meta={[
+          `${filtered.length} record${filtered.length === 1 ? '' : 's'}`,
+          filterSummary,
         ]}
-        onApply={setFilters}
-      />
-
-      {/* Print-only summary of the filters in effect when Export PDF was
-          used, so the exported document is self-describing — same pattern
-          as Trends.jsx and Dashboard.jsx. Hidden on screen via .print-only,
-          shown only under @media print. */}
-      <div
-        className="print-only"
-        style={{ marginBottom: 14, fontSize: '0.82rem' }}
       >
-        <strong>Filters applied:</strong> From:{' '}
-        {filters['ana-dateFrom'] || 'Any'} · To:{' '}
-        {filters['ana-dateTo'] || 'Any'} · Category:{' '}
-        {filters['ana-category'] || 'All'} · Crime Type:{' '}
-        {filters['ana-crimeType'] || 'All'} · Sitio:{' '}
-        {filters['ana-sitio'] || 'All'} · Status:{' '}
-        {filters['ana-status'] || 'All'}
-      </div>
+        <FilterBar
+          fields={[
+            { id: 'ana-dateFrom', label: 'From', type: 'date' },
+            { id: 'ana-dateTo', label: 'To', type: 'date' },
+            {
+              id: 'ana-category',
+              label: 'Category',
+              type: 'select',
+              options: CATEGORIES,
+            },
+            {
+              id: 'ana-crimeType',
+              label: 'Crime Type',
+              type: 'select',
+              options: CRIME_TYPES,
+            },
+            { id: 'ana-sitio', label: 'Sitio', type: 'select', options: SITIOS },
+            {
+              id: 'ana-status',
+              label: 'Status',
+              type: 'select',
+              options: STATUSES,
+            },
+          ]}
+          onApply={setFilters}
+        />
 
-      <div className="analytics-stats-section">
-        <div className="stats-summary">
-          {stats.map((s) => (
-            <div
-              className="stat-box"
-              key={s.label}
-              title={s.hint}
-              tabIndex={s.hint ? 0 : undefined}
-            >
-              <div className="label">{s.label}</div>
-              <div className="value">{s.value}</div>
-            </div>
-          ))}
+        {/* The filter state is carried by the PrintReport meta line above, so
+            the standalone print-only "Filters applied" paragraph that used to
+            sit here would have printed the same sentence twice. */}
+
+        <div className="analytics-stats-section">
+          <div className="stats-summary">
+            {stats.map((s) => (
+              <div
+                className="stat-box"
+                key={s.label}
+                title={s.hint}
+                tabIndex={s.hint ? 0 : undefined}
+              >
+                <div className="label">{s.label}</div>
+                <div className="value">{s.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <MetabaseDashboard
-        dashboardKey="analytics"
-        filters={baseFilters}
-        height={2000}
-      />
+        <MetabaseDashboard
+          dashboardKey="analytics"
+          filters={baseFilters}
+          height={2000}
+        />
 
-      <ChartSummaryModal
-        open={!!selectedChart}
-        onClose={() => setSelectedChart(null)}
-        activeFiltersLabel={activeFiltersLabel}
-        {...selectedChart}
-        onDrillDown={
-          selectedChart?.drillField
-            ? (label) => {
-                const drillFilters = { ...baseFilters };
-                if (selectedChart.drillField === 'category') {
-                  drillFilters.category = label;
-                } else if (selectedChart.drillField === 'sitio') {
-                  drillFilters.sitio = label;
+        {/* Print-only restatement of the summary statistics. The on-screen
+            .analytics-stats-section is hidden in print (see print.css) because
+            KPI tiles read as a web dashboard; the figures themselves belong in
+            the report, so they are repeated here as a plain table. Same
+            `stats` array the tiles render - nothing is recomputed. */}
+        <section className="print-only print-section print-kpi-summary">
+          <h2 className="print-section-heading">Summary of Key Figures</h2>
+          <table>
+            <tbody>
+              {stats.map((st) => (
+                <tr key={st.label}>
+                  <th scope="row">{st.label}</th>
+                  <td>{st.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        {/* ---- Printed report body: charts -------------------------------
+            On screen this module's visuals are the embedded Metabase dashboard
+            above, which is excluded from print (a fixed 2000px iframe is ~2 A4
+            pages of unbreakable height and prints blank - see the
+            .metabase-embed rule in print.css). Without this block the printed
+            Statistical Analysis report would carry no charts at all.
+
+            These are the same Chart.js charts this page rendered before the
+            Metabase embed replaced them, fed by the values already computed
+            above for the filtered records, each paired with its
+            ChartPrintSummary so the numbers survive a grayscale photocopy.
+            .print-charts is laid out off-screen rather than display:none
+            because a canvas in a display:none subtree has a zero-sized box and
+            Chart.js would render nothing into it - see print.css. */}
+        <section className="print-charts" aria-hidden="true">
+          <h2 className="print-section-heading">Statistical Charts</h2>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Monthly Distribution"
+              type="bar"
+              labels={months}
+              datasets={[
+                {
+                  label: 'Crimes',
+                  data: monthlyPrintValues,
+                  backgroundColor: COLORS.green,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Monthly Distribution"
+              rowLabel="Month"
+              valueLabel="Crimes"
+              labels={months}
+              values={monthlyPrintValues}
+              insight={monthlyTrendResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Yearly Comparison"
+              type="line"
+              labels={years}
+              datasets={[
+                {
+                  label: 'Crimes',
+                  data: yearlyPrintValues,
+                  borderColor: COLORS.orange,
+                  tension: 0.3,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Yearly Comparison"
+              rowLabel="Year"
+              valueLabel="Crimes"
+              labels={years}
+              values={yearlyPrintValues}
+              insight={yearlyTrendResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Category Distribution"
+              type="pie"
+              labels={categoryPrintLabels}
+              datasets={[
+                {
+                  data: categoryPrintValues,
+                  backgroundColor: COLORS.chartPalette,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Category Distribution"
+              rowLabel="Category"
+              valueLabel="Incidents"
+              labels={categoryPrintLabels}
+              values={categoryPrintValues}
+              insight={categoryPrintResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Gender Distribution"
+              type="doughnut"
+              labels={Object.keys(byGender)}
+              datasets={[
+                {
+                  data: Object.values(byGender),
+                  backgroundColor: [COLORS.green, COLORS.orange],
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Gender Distribution"
+              rowLabel="Gender"
+              valueLabel="Incidents"
+              labels={Object.keys(byGender)}
+              values={Object.values(byGender)}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Age Distribution"
+              type="bar"
+              labels={ageBins}
+              datasets={[
+                {
+                  label: 'Victims',
+                  data: ageCounts,
+                  backgroundColor: COLORS.black,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Age Distribution"
+              rowLabel="Age Range"
+              valueLabel="Victims"
+              labels={ageBins}
+              values={ageCounts}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Sitio Breakdown"
+              type="bar"
+              labels={sitioPrintLabels}
+              datasets={[
+                {
+                  label: 'Incidents',
+                  data: sitioPrintValues,
+                  backgroundColor: COLORS.orange,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Sitio Breakdown"
+              rowLabel="Sitio"
+              valueLabel="Incidents"
+              labels={sitioPrintLabels}
+              values={sitioPrintValues}
+              insight={sitioPrintResult.insight}
+            />
+          </div>
+        </section>
+
+        <ChartSummaryModal
+          open={!!selectedChart}
+          onClose={() => setSelectedChart(null)}
+          activeFiltersLabel={activeFiltersLabel}
+          {...selectedChart}
+          onDrillDown={
+            selectedChart?.drillField
+              ? (label) => {
+                  const drillFilters = { ...baseFilters };
+                  if (selectedChart.drillField === 'category') {
+                    drillFilters.category = label;
+                  } else if (selectedChart.drillField === 'sitio') {
+                    drillFilters.sitio = label;
+                  }
+                  setSelectedChart(null);
+                  navigate('/incident-feed', {
+                    state: { filters: drillFilters },
+                  });
                 }
-                setSelectedChart(null);
-                navigate('/incident-feed', {
-                  state: { filters: drillFilters },
-                });
-              }
-            : undefined
-        }
-      />
+              : undefined
+          }
+        />
 
-      <Card title="Statistical Measures">
-        <div className="stat-measures">
-          {measures.map((m) => (
-            <div
-              className="stat-box"
-              key={m.label}
-              title={m.hint}
-              tabIndex={m.hint ? 0 : undefined}
-            >
-              <div className="label">{m.label}</div>
-              <div className="value">{m.value}</div>
-            </div>
-          ))}
-        </div>
-      </Card>
+        <Card title="Statistical Measures">
+          <div className="stat-measures">
+            {measures.map((m) => (
+              <div
+                className="stat-box"
+                key={m.label}
+                title={m.hint}
+                tabIndex={m.hint ? 0 : undefined}
+              >
+                <div className="label">{m.label}</div>
+                <div className="value">{m.value}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
 
-      <Card
-        title="Cross Tabulation (Category × Sitio)"
-        bodyClassName="table-wrap"
-      >
-        <Table columns={crosstabCols} rows={crosstabRows} />
-      </Card>
+        <Card
+          title="Cross Tabulation (Category × Sitio)"
+          bodyClassName="table-wrap"
+        >
+          <Table columns={crosstabCols} rows={crosstabRows} />
+        </Card>
+
+        <PrintDocumentEnd />
+
+      </PrintReport>
 
       <div className="export-bar">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            window.print();
-            showToast('Use browser print dialog to save as PDF', 'info');
-          }}
-        >
-          <Icons.Report size={15} strokeWidth={2} /> Export PDF
+        {/* Named "Print Report" to match Dashboard: it opens the browser
+            print dialog, from which the user can print or save as PDF. */}
+        <Button variant="secondary" onClick={() => window.print()}>
+          <Icons.Printer size={15} strokeWidth={2} /> Print Report
         </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            if (
-              exportCSV(filtered, `brgy178_analytics_${today()}.csv`, () =>
-                showToast('No data to export', 'error'),
-              )
-            )
-              showToast('Analytics exported', 'success');
-          }}
-        >
-          <Icons.Report size={15} strokeWidth={2} /> Export Excel
+        <Button variant="secondary" onClick={handleExportExcel}>
+          <Icons.Download size={15} strokeWidth={2} /> Export Excel
         </Button>
       </div>
     </section>

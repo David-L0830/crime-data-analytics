@@ -19,8 +19,8 @@ export default function Modal({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // Checkpoint 27 — individual-record PDF export (window.print() while a
-  // view modal is open, e.g. Crime Data Collection's VIEW -> Export PDF).
+  // Individual-record printing (window.print() while a view modal is open,
+  // e.g. Crime Data Collection's VIEW -> Print Record).
   // Modals here render as a sibling of the page's own list/table inside
   // `.module`, not in a portal, so without a marker the printed page would
   // include both the modal's single record AND the full table behind it.

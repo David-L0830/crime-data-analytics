@@ -7,7 +7,7 @@ import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
-import PrintReport from '../components/ui/PrintReport';
+import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import ChartCard from '../components/charts/ChartCard';
 import MetabaseDashboard from '../components/MetabaseDashboard';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
@@ -250,6 +250,16 @@ export default function Trends() {
     forecast[forecast.length - 1],
   );
 
+  // One definition, used by the printed report header so the document says
+  // what it is a report OF. Same pattern as Dashboard.jsx / Analytics.jsx.
+  const filterSummary = [
+    `From: ${filters['tr-dateFrom'] || 'Any'}`,
+    `To: ${filters['tr-dateTo'] || 'Any'}`,
+    `Crime Type: ${filters['tr-crimeType'] || 'All'}`,
+    `Sitio: ${filters['tr-sitio'] || 'All'}`,
+    `Status: ${filters['tr-status'] || 'All'}`,
+  ].join(' \u00B7 ');
+
   // ===== Hotspot / location tables (shown only inside the Hotspots panel) =====
   const hotspots = SITIOS.map((s) => ({
     sitio: s,
@@ -282,201 +292,412 @@ export default function Trends() {
   })).sort((a, b) => b.count - a.count);
 
   return (
-    <section className="module">
-      <PrintReport title="Trend and Pattern Detection Report" />
-      <FilterBar
-        fields={[
-          { id: 'tr-dateFrom', label: 'From', type: 'date' },
-          { id: 'tr-dateTo', label: 'To', type: 'date' },
-          {
-            id: 'tr-crimeType',
-            label: 'Crime Type',
-            type: 'select',
-            options: CRIME_TYPES,
-          },
-          { id: 'tr-sitio', label: 'Sitio', type: 'select', options: SITIOS },
-          {
-            id: 'tr-status',
-            label: 'Status',
-            type: 'select',
-            options: STATUSES,
-          },
+    <section className="module print-root">
+      <PrintReport
+        title="Trend and Pattern Detection Report"
+        subtitle="Crime Data Analytics &amp; Reporting System"
+        meta={[
+          `${filtered.length} record${filtered.length === 1 ? '' : 's'}`,
+          filterSummary,
         ]}
-        onApply={setFilters}
-        actions={
-          <Button variant="secondary" onClick={() => setHotspotsOpen(true)}>
-            <Icons.Hotspot size={15} strokeWidth={2} /> Hotspots
-            {unreadHotspotAlertCount > 0 && (
-              <span
-                className="notif-bell-count"
-                style={{ position: 'static', marginLeft: 6 }}
-              >
-                {unreadHotspotAlertCount}
-              </span>
-            )}
-          </Button>
-        }
-      />
-
-      {/* Print-only summary of the filters in effect when Export PDF was
-          used, so the exported document is self-describing (Task 9 — the
-          PDF must reflect the currently selected filters). Hidden on
-          screen via .print-only, shown only under @media print. */}
-      <div
-        className="print-only"
-        style={{ marginBottom: 14, fontSize: '0.82rem' }}
       >
-        <strong>Filters applied:</strong> From:{' '}
-        {filters['tr-dateFrom'] || 'Any'} · To: {filters['tr-dateTo'] || 'Any'}{' '}
-        · Crime Type: {filters['tr-crimeType'] || 'All'} · Sitio:{' '}
-        {filters['tr-sitio'] || 'All'} · Status: {filters['tr-status'] || 'All'}
-      </div>
-
-      <MetabaseDashboard
-        dashboardKey="trends"
-        filters={baseFilters}
-        height={2000}
-      />
-
-      <ChartSummaryModal
-        open={!!selectedChart}
-        onClose={() => setSelectedChart(null)}
-        activeFiltersLabel={activeFiltersLabel}
-        {...selectedChart}
-        onDrillDown={
-          selectedChart?.drillField
-            ? (label) => {
-                const drillFilters = { ...baseFilters };
-                if (selectedChart.drillField === 'month') {
-                  const { dateFrom, dateTo } = monthLabelToRange(label);
-                  drillFilters.dateFrom = dateFrom;
-                  drillFilters.dateTo = dateTo;
-                }
-                setSelectedChart(null);
-                navigate('/incident-feed', {
-                  state: { filters: drillFilters },
-                });
-              }
-            : undefined
-        }
-      />
-
-      <Modal
-        open={hotspotsOpen}
-        onClose={() => setHotspotsOpen(false)}
-        title="Hotspots"
-        size="lg"
-      >
-        <div className="table-grid" style={{ gridTemplateColumns: '1fr' }}>
-          <Card title="Active Alerts" bodyClassName="alerts-panel">
-            {alerts.length === 0 ? (
-              <div className="alert-item success">
-                <span className="alert-icon">
-                  <Icons.CheckCircle2 size={16} strokeWidth={2} />
+        <FilterBar
+          fields={[
+            { id: 'tr-dateFrom', label: 'From', type: 'date' },
+            { id: 'tr-dateTo', label: 'To', type: 'date' },
+            {
+              id: 'tr-crimeType',
+              label: 'Crime Type',
+              type: 'select',
+              options: CRIME_TYPES,
+            },
+            { id: 'tr-sitio', label: 'Sitio', type: 'select', options: SITIOS },
+            {
+              id: 'tr-status',
+              label: 'Status',
+              type: 'select',
+              options: STATUSES,
+            },
+          ]}
+          onApply={setFilters}
+          actions={
+            <Button variant="secondary" onClick={() => setHotspotsOpen(true)}>
+              <Icons.Hotspot size={15} strokeWidth={2} /> Hotspots
+              {unreadHotspotAlertCount > 0 && (
+                <span
+                  className="notif-bell-count"
+                  style={{ position: 'static', marginLeft: 6 }}
+                >
+                  {unreadHotspotAlertCount}
                 </span>
-                No active alerts — crime levels within normal parameters
-              </div>
-            ) : (
-              alerts.slice(0, 8).map((a, i) => {
-                const AlertIcon = a.icon || Icons.AlertTriangle;
-                return (
-                  <div
-                    className={`alert-item ${a.type === 'warning' ? 'warning' : ''}`}
-                    key={i}
-                  >
-                    <span className="alert-icon">
-                      <AlertIcon size={16} strokeWidth={2} />
-                    </span>
-                    {a.msg}
-                  </div>
-                );
-              })
-            )}
-          </Card>
-          <Card
-            title="Crime Hotspots by Sitio"
-            bodyClassName="table-wrap"
-            actions={
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleMarkHotspotsRead}
-                disabled={markingHotspotsRead || unreadHotspotAlertCount === 0}
-              >
-                <Icons.CheckCircle2 size={14} strokeWidth={2} />
-                {markingHotspotsRead ? 'Marking…' : 'Mark All as Read'}
-                {unreadHotspotAlertCount > 0 && (
-                  <span
-                    className="notif-bell-count"
-                    style={{ position: 'static', marginLeft: 6 }}
-                  >
-                    {unreadHotspotAlertCount}
-                  </span>
-                )}
-              </Button>
-            }
-          >
-            <Table
-              columns={[
-                { key: 'sitio', label: 'Sitio / Location' },
-                { key: 'count', label: 'Incidents' },
+              )}
+            </Button>
+          }
+        />
+
+        {/* The filter state is carried by the PrintReport meta line above, so
+            the standalone print-only "Filters applied" paragraph that used to
+            sit here would have printed the same sentence twice. */}
+
+        <MetabaseDashboard
+          dashboardKey="trends"
+          filters={baseFilters}
+          height={2000}
+        />
+
+        {/* ---- Printed report body: charts -------------------------------
+            On screen this module's visuals are the embedded Metabase dashboard
+            above, which is excluded from print (a fixed 2000px iframe is ~2 A4
+            pages of unbreakable height and prints blank - see the
+            .metabase-embed rule in print.css). Without this block the printed
+            Trend and Pattern Detection report would be a header and a footer
+            with nothing between them.
+
+            These are the same Chart.js charts this page rendered before the
+            Metabase embed replaced them, fed by the values already computed
+            above from the filtered records, each paired with its
+            ChartPrintSummary. .print-charts is laid out off-screen rather than
+            display:none because a canvas in a display:none subtree has a
+            zero-sized box and Chart.js would render nothing into it - see
+            print.css. */}
+        <section className="print-charts" aria-hidden="true">
+          <h2 className="print-section-heading">Trend and Pattern Charts</h2>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Daily Trends"
+              type="bar"
+              labels={DAY_NAMES}
+              datasets={[
                 {
-                  key: 'risk',
-                  label: 'Severity',
-                  render: (v) => (
-                    <span
-                      style={{
-                        color:
-                          v === 'High'
-                            ? 'var(--danger)'
-                            : v === 'Medium'
-                              ? 'var(--warning)'
-                              : 'var(--success)',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {v}
-                    </span>
-                  ),
+                  label: 'Incidents',
+                  data: byDay,
+                  backgroundColor: COLORS.green,
                 },
               ]}
-              rows={hotspots}
-              emptyMessage="No hotspot data available."
             />
-          </Card>
-          <Card title="Repeat Locations" bodyClassName="table-wrap">
-            <Table
-              columns={[
-                { key: 'location', label: 'Location' },
-                { key: 'sitio', label: 'Sitio' },
-                { key: 'count', label: 'Incidents' },
+            <ChartPrintSummary
+              title="Daily Trends"
+              rowLabel="Day"
+              valueLabel="Incidents"
+              labels={DAY_NAMES}
+              values={byDay}
+              insight={dailyResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Weekly Trends"
+              type="line"
+              labels={weeks}
+              datasets={[
+                {
+                  label: 'Weekly',
+                  data: weeklyValues,
+                  borderColor: COLORS.green,
+                  tension: 0.3,
+                },
               ]}
-              rows={repeatLocs}
             />
-          </Card>
-          <Card title="High-Risk Sitios" bodyClassName="table-wrap">
-            <Table
-              columns={[
-                { key: 'sitio', label: 'Sitio' },
-                { key: 'count', label: 'Incidents' },
-                { key: 'rate', label: 'Rate/1K' },
-                { key: 'level', label: 'Assessment' },
+            <ChartPrintSummary
+              title="Weekly Trends"
+              rowLabel="Week"
+              valueLabel="Incidents"
+              labels={weeks}
+              values={weeklyValues}
+              insight={weeklyResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Seasonal Trends"
+              type="doughnut"
+              labels={seasonLabels}
+              datasets={[
+                {
+                  data: seasonValues,
+                  backgroundColor: [COLORS.orange, COLORS.green],
+                },
               ]}
-              rows={riskSitios}
             />
-          </Card>
-        </div>
-      </Modal>
+            <ChartPrintSummary
+              title="Seasonal Trends"
+              rowLabel="Season"
+              valueLabel="Incidents"
+              labels={seasonLabels}
+              values={seasonValues}
+              insight={seasonResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Peak Crime Hours"
+              type="bar"
+              labels={hourLabels}
+              datasets={[
+                {
+                  label: 'Incidents',
+                  data: hours,
+                  backgroundColor: COLORS.orange,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Peak Crime Hours"
+              rowLabel="Hour"
+              valueLabel="Incidents"
+              labels={hourLabels}
+              values={hours}
+              insight={hoursResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Forecast (Moving Avg)"
+              type="line"
+              labels={monthKeys}
+              datasets={[
+                {
+                  label: 'Actual',
+                  data: counts,
+                  borderColor: COLORS.green,
+                  tension: 0.3,
+                },
+                {
+                  label: 'Moving Avg (3)',
+                  data: ma,
+                  borderColor: COLORS.orange,
+                  borderDash: [5, 5],
+                  tension: 0.3,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Forecast (Moving Avg)"
+              rowLabel="Period"
+              labels={monthKeys}
+              series={[
+                { key: 'actual', label: 'Actual', values: counts },
+                {
+                  key: 'ma',
+                  label: 'Moving Avg',
+                  values: ma.map((v) => +v.toFixed(1)),
+                },
+              ]}
+              insight={forecastResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Linear Regression"
+              type="line"
+              labels={regLabels}
+              datasets={[
+                {
+                  label: 'Actual',
+                  data: [...counts, null],
+                  borderColor: COLORS.green,
+                  tension: 0.3,
+                },
+                {
+                  label: 'Regression',
+                  data: forecast,
+                  borderColor: COLORS.black,
+                  borderDash: [3, 3],
+                  tension: 0.3,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Linear Regression"
+              rowLabel="Period"
+              labels={regLabels}
+              series={[
+                { key: 'actual', label: 'Actual', values: [...counts, null] },
+                { key: 'regression', label: 'Regression', values: forecast },
+              ]}
+              insight={regressionResult.insight}
+            />
+          </div>
+        </section>
+
+        {/* Print-only hotspot tables. On screen these live inside the Hotspots
+            modal, which is closed by default - so a printed Trends report never
+            contained them, even though hotspot analysis is the point of the
+            module. Repeating them here as print-only sections puts them in the
+            document without changing the on-screen panel, which is untouched
+            and still the only way to read them on screen. */}
+        <section className="print-only print-section">
+          <h2 className="print-section-heading">Crime Hotspots by Sitio</h2>
+          <Table
+            columns={[
+              { key: 'sitio', label: 'Sitio / Location' },
+              { key: 'count', label: 'Incidents' },
+              { key: 'risk', label: 'Severity' },
+            ]}
+            rows={hotspots}
+            emptyMessage="No hotspot data available."
+          />
+        </section>
+
+        <section className="print-only print-section">
+          <h2 className="print-section-heading">High-Risk Sitios</h2>
+          <Table
+            columns={[
+              { key: 'sitio', label: 'Sitio' },
+              { key: 'count', label: 'Incidents' },
+              { key: 'rate', label: 'Rate/1K' },
+              { key: 'level', label: 'Assessment' },
+            ]}
+            rows={riskSitios}
+          />
+        </section>
+
+        <ChartSummaryModal
+          open={!!selectedChart}
+          onClose={() => setSelectedChart(null)}
+          activeFiltersLabel={activeFiltersLabel}
+          {...selectedChart}
+          onDrillDown={
+            selectedChart?.drillField
+              ? (label) => {
+                  const drillFilters = { ...baseFilters };
+                  if (selectedChart.drillField === 'month') {
+                    const { dateFrom, dateTo } = monthLabelToRange(label);
+                    drillFilters.dateFrom = dateFrom;
+                    drillFilters.dateTo = dateTo;
+                  }
+                  setSelectedChart(null);
+                  navigate('/incident-feed', {
+                    state: { filters: drillFilters },
+                  });
+                }
+              : undefined
+          }
+        />
+
+        <Modal
+          open={hotspotsOpen}
+          onClose={() => setHotspotsOpen(false)}
+          title="Hotspots"
+          size="lg"
+        >
+          <div className="table-grid" style={{ gridTemplateColumns: '1fr' }}>
+            <Card title="Active Alerts" bodyClassName="alerts-panel">
+              {alerts.length === 0 ? (
+                <div className="alert-item success">
+                  <span className="alert-icon">
+                    <Icons.CheckCircle2 size={16} strokeWidth={2} />
+                  </span>
+                  No active alerts — crime levels within normal parameters
+                </div>
+              ) : (
+                alerts.slice(0, 8).map((a, i) => {
+                  const AlertIcon = a.icon || Icons.AlertTriangle;
+                  return (
+                    <div
+                      className={`alert-item ${a.type === 'warning' ? 'warning' : ''}`}
+                      key={i}
+                    >
+                      <span className="alert-icon">
+                        <AlertIcon size={16} strokeWidth={2} />
+                      </span>
+                      {a.msg}
+                    </div>
+                  );
+                })
+              )}
+            </Card>
+            <Card
+              title="Crime Hotspots by Sitio"
+              bodyClassName="table-wrap"
+              actions={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleMarkHotspotsRead}
+                  disabled={markingHotspotsRead || unreadHotspotAlertCount === 0}
+                >
+                  <Icons.CheckCircle2 size={14} strokeWidth={2} />
+                  {markingHotspotsRead ? 'Marking…' : 'Mark All as Read'}
+                  {unreadHotspotAlertCount > 0 && (
+                    <span
+                      className="notif-bell-count"
+                      style={{ position: 'static', marginLeft: 6 }}
+                    >
+                      {unreadHotspotAlertCount}
+                    </span>
+                  )}
+                </Button>
+              }
+            >
+              <Table
+                columns={[
+                  { key: 'sitio', label: 'Sitio / Location' },
+                  { key: 'count', label: 'Incidents' },
+                  {
+                    key: 'risk',
+                    label: 'Severity',
+                    render: (v) => (
+                      <span
+                        style={{
+                          color:
+                            v === 'High'
+                              ? 'var(--danger)'
+                              : v === 'Medium'
+                                ? 'var(--warning)'
+                                : 'var(--success)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {v}
+                      </span>
+                    ),
+                  },
+                ]}
+                rows={hotspots}
+                emptyMessage="No hotspot data available."
+              />
+            </Card>
+            <Card title="Repeat Locations" bodyClassName="table-wrap">
+              <Table
+                columns={[
+                  { key: 'location', label: 'Location' },
+                  { key: 'sitio', label: 'Sitio' },
+                  { key: 'count', label: 'Incidents' },
+                ]}
+                rows={repeatLocs}
+              />
+            </Card>
+            <Card title="High-Risk Sitios" bodyClassName="table-wrap">
+              <Table
+                columns={[
+                  { key: 'sitio', label: 'Sitio' },
+                  { key: 'count', label: 'Incidents' },
+                  { key: 'rate', label: 'Rate/1K' },
+                  { key: 'level', label: 'Assessment' },
+                ]}
+                rows={riskSitios}
+              />
+            </Card>
+          </div>
+        </Modal>
+
+        <PrintDocumentEnd />
+
+      </PrintReport>
 
       <div className="export-bar">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            window.print();
-            showToast('Use browser print dialog to save as PDF', 'info');
-          }}
-        >
-          <Icons.Report size={15} strokeWidth={2} /> Export PDF
+        {/* Named "Print Report" to match Dashboard and Statistical Analysis:
+            it opens the browser print dialog, from which the user can print
+            or save as PDF. */}
+        <Button variant="secondary" onClick={() => window.print()}>
+          <Icons.Printer size={15} strokeWidth={2} /> Print Report
         </Button>
       </div>
     </section>

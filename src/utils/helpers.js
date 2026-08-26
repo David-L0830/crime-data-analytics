@@ -68,67 +68,6 @@ export function downloadFile(content, filename, mime) {
   setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
-// Checkpoint 27 — Excel-safe CSV export, shared by every export button in
-// the app (Dashboard, Analytics, IncidentFeed, CriminalRecords,
-// VictimRecords, Residents, AuditLogs — a fix here fixes all of them).
-// Fixes over the previous version:
-//  - UTF-8 BOM prefix so Excel on Windows (the common case for PH
-//    government users) correctly detects UTF-8 instead of guessing a
-//    legacy codepage and mangling names/locations with diacritics or ñ.
-//  - Non-primitive field values (arrays/objects, if any ever appear) are
-//    JSON-stringified instead of falling through to `String()`'s
-//    "[object Object]" — which would also silently inject unescaped
-//    commas into a supposedly-quoted CSV field for array values.
-//  - Line breaks inside a field (e.g. a multi-line `description`) are
-//    normalized to a space. Every field is already quoted, so an embedded
-//    '\n' isn't a strict CSV-correctness problem, but Excel's row-height/
-//    rendering handles a literal newline inside a quoted cell
-//    inconsistently across versions; flattening it keeps one logical
-//    record on one visual row everywhere.
-//  - CRLF row endings (the CSV spec's own line terminator), which is what
-//    Excel expects rather than a bare '\n'.
-function csvCell(value) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-export function exportCSV(records, filename, onEmpty) {
-  if (!records || !records.length) {
-    if (onEmpty) onEmpty();
-    return false;
-  }
-  // Checkpoint 27 — error handling. exportCSV is synchronous (in-memory
-  // Blob, no network round trip), so there's no "stuck loading" state for
-  // it to leave the UI in, but row-construction on malformed record data
-  // could still throw. Falling back to the same callback every existing
-  // call site already wires up for "No data to export" ensures a genuine
-  // failure surfaces as a toast instead of a silent no-op, and the boolean
-  // return lets every call site skip its own "exported successfully" toast
-  // when that happens (see the call sites: `if (exportCSV(...)) showToast(...)`).
-  try {
-    const keys = Object.keys(records[0]);
-    const header = keys.join(',');
-    const rows = records.map((r) =>
-      keys
-        .map(
-          (k) =>
-            `"${csvCell(r[k]).replace(/\r?\n/g, ' ').replace(/"/g, '""')}"`,
-        )
-        .join(','),
-    );
-    downloadFile(
-      `\ufeff${[header, ...rows].join('\r\n')}`,
-      filename,
-      'text/csv;charset=utf-8',
-    );
-    return true;
-  } catch {
-    if (onEmpty) onEmpty();
-    return false;
-  }
-}
-
 // ===== Statistics =====
 export function mean(arr) {
   if (!arr.length) return 0;

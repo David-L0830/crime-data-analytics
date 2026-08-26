@@ -5,7 +5,8 @@ import FilterBar from '../components/ui/FilterBar';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
-import { exportCSV, today } from '../utils/helpers';
+import { today } from '../utils/helpers';
+import { exportWorkbook } from '../utils/exportWorkbook';
 import { Icons } from '../components/icons';
 
 // Checkpoint 19, Task 2 (frontend) + Checkpoint 20 (backend): the filter
@@ -66,7 +67,7 @@ import { useLocation } from 'react-router-dom';
 // ...(add to existing import block)
 
 export default function AuditLogs() {
-  const { auditLogs } = useData();
+  const { auditLogs, secondaryLoading } = useData();
   const { showToast } = useToast();
   const location = useLocation();
   const [filters, setFilters] = useState(() => {
@@ -118,23 +119,51 @@ export default function AuditLogs() {
     [auditLogs, filters],
   );
 
+  // Real .xlsx through the shared exportWorkbook helper. The previous CSV
+  // dumped the raw log objects, including the internal database id, and wrote
+  // the timestamp as a raw ISO string that Excel treats as text - so the one
+  // column an audit log is most often sorted by could not be sorted. It is
+  // written as a real date-time here, and the id, which identifies nothing
+  // outside this database, is left out.
+  const handleExportLogs = async () => {
+    const ok = await exportWorkbook({
+      filename: `audit_logs_${today()}.xlsx`,
+      sheetName: 'Audit Logs',
+      title: 'Audit Log Report',
+      subtitle: 'Crime Data Analytics & Reporting System',
+      meta: [
+        `Action: ${filters['audit-action'] || 'All'}`,
+        `Target Type: ${filters['audit-target'] || 'All'}`,
+        `From: ${filters['audit-dateFrom'] || 'Any'}`,
+        `To: ${filters['audit-dateTo'] || 'Any'}`,
+      ],
+      columns: [
+        {
+          header: 'Date / Time',
+          key: 'timestamp',
+          type: 'date',
+          width: 22,
+          numFmt: 'dd mmm yyyy hh:mm',
+        },
+        { header: 'Action', key: 'action', width: 18, align: 'center' },
+        { header: 'Performed By', key: 'performedBy', width: 24 },
+        { header: 'Role', key: 'role', width: 18 },
+        { header: 'Target Type', key: 'targetType', width: 18 },
+        { header: 'Details', key: 'details', width: 60, wrap: true },
+      ],
+      rows: filtered,
+      onEmpty: () => showToast('No data to export', 'error'),
+    });
+    if (ok) showToast('Audit logs exported to Excel', 'success');
+  };
+
   return (
     <section className="module">
       <div className="module-toolbar">
         <h2 className="module-toolbar-title">
           <Icons.Report size={18} strokeWidth={2} /> Audit Logs
         </h2>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            if (
-              exportCSV(filtered, `audit_logs_${today()}.csv`, () =>
-                showToast('No data to export', 'error'),
-              )
-            )
-              showToast('Audit logs exported', 'success');
-          }}
-        >
+        <Button variant="secondary" onClick={handleExportLogs}>
           <Icons.Download size={15} strokeWidth={2} /> Export Logs
         </Button>
       </div>
@@ -186,6 +215,11 @@ export default function AuditLogs() {
             { key: 'details', label: 'Details' },
           ]}
           rows={filtered}
+          emptyMessage={
+            secondaryLoading
+              ? 'Loading audit logs…'
+              : 'No audit log entries match the current filters.'
+          }
         />
       </Card>
     </section>

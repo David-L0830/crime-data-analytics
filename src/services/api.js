@@ -21,9 +21,41 @@ import { supabase } from '../lib/supabaseClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
+// supabase.auth.getSession() is not a cheap in-memory read: supabase-js
+// serialises it behind a navigator lock and may perform a token refresh
+// inside that lock. Every request in this module awaits it, so a screen that
+// loads several resources at once (DataContext fires five in one tick on
+// sign-in and two more alongside them) paid that cost once per request,
+// strictly one after another, before a single byte left the browser.
+//
+// Concurrent callers now share ONE in-flight lookup instead of queueing their
+// own. This is a deduplication, not a cache: the promise is cleared the moment
+// it settles, so the next request after that still asks Supabase for the
+// current session and still gets a refreshed token when one is due. No token
+// is stored, nothing is validated client-side, and the server keeps verifying
+// every Bearer token exactly as before.
+let inFlightSession = null;
+
 async function currentAccessToken() {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || null;
+  if (!inFlightSession) {
+    inFlightSession = supabase.auth.getSession().finally(() => {
+      inFlightSession = null;
+    });
+  }
+  // Captured before awaiting: the .finally() above nulls the module-level
+  // variable as soon as the lookup settles, so re-reading it after the await
+  // would be a race.
+  const pending = inFlightSession;
+  try {
+    const { data } = await pending;
+    return data.session?.access_token || null;
+  } catch {
+    // Treat an unreadable session as "no token": the request goes out
+    // unauthenticated and the server answers 401, which the existing
+    // ApiError handling already turns into a sign-out. Swallowing it here
+    // only avoids replacing that with an opaque throw from storage access.
+    return null;
+  }
 }
 
 // `type` classifies *why* the request failed so callers (DataContext,

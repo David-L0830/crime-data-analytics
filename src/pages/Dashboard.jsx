@@ -11,12 +11,12 @@ import Table from '../components/ui/Table';
 import ChartCard from '../components/charts/ChartCard';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import Button from '../components/ui/Button';
-import PrintReport from '../components/ui/PrintReport';
+import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
+import { exportWorkbook } from '../utils/exportWorkbook';
 import {
   filterRecords,
   countBy,
   formatDate,
-  exportCSV,
   today,
   monthLabelToRange,
   SOLVED_STATUSES,
@@ -352,199 +352,411 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.synced_at) - new Date(a.synced_at))
     .slice(0, 5);
 
+  // One definition, consumed by both the printed report header and the Excel
+  // metadata line, so the document and the workbook always describe the same
+  // filter state.
+  const filterSummary = [
+    `From: ${filters['dash-dateFrom'] || 'Any'}`,
+    `To: ${filters['dash-dateTo'] || 'Any'}`,
+    `Crime Type: ${filters['dash-crimeType'] || 'All'}`,
+    `Category: ${filters['dash-category'] || 'All'}`,
+    `Sitio: ${filters['dash-sitio'] || 'All'}`,
+    `Status: ${filters['dash-status'] || 'All'}`,
+  ].join(' · ');
+
+  // Real .xlsx via the shared exportWorkbook helper. The columns below are an
+  // explicit, ordered projection of the same filtered records the page is
+  // showing: no value is altered, nothing is invented, and the internal
+  // id/synced_at plumbing is simply not a reporting field.
+  const handleExportExcel = async () => {
+    const ok = await exportWorkbook({
+      filename: `brgy178_dashboard_${today()}.xlsx`,
+      sheetName: 'Crime Records',
+      title: 'Crime Reporting Dashboard Report',
+      subtitle: 'Crime Data Analytics & Reporting System',
+      meta: [`Filters: ${filterSummary}`],
+      columns: [
+        { header: 'Case Number', key: 'caseNumber', width: 16 },
+        { header: 'Date', key: 'date', type: 'date', width: 14 },
+        { header: 'Time', key: 'time', width: 10, align: 'center' },
+        { header: 'Crime Type', key: 'crimeType', width: 20 },
+        { header: 'Category', key: 'category', width: 16 },
+        { header: 'Sitio', key: 'sitio', width: 14 },
+        { header: 'Street / Location', key: 'street', width: 28, wrap: true },
+        { header: 'Status', key: 'status', width: 18, align: 'center' },
+        { header: 'Priority', key: 'priority', width: 12, align: 'center' },
+        { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
+        { header: 'Investigating Officer', key: 'investigatingOfficer', width: 22 },
+        { header: 'Victim', key: 'victimName', width: 22 },
+        { header: 'Suspect', key: 'suspectName', width: 22 },
+        { header: 'Description', key: 'description', width: 40, wrap: true },
+      ],
+      rows: filtered,
+      onEmpty: () => showToast('No data to export', 'error'),
+    });
+    if (ok) showToast('Dashboard data exported to Excel', 'success');
+  };
+
   return (
-    <section className="module">
-      <PrintReport title="Crime Reporting Dashboard Report" />
-      <div className="dashboard-welcome">
-        <h2>
-          Welcome back, <span>{currentUser?.fullName}</span>
-        </h2>
-        <p>
-          Barangay 178 Crime Data Analytics &amp; Reporting System — North
-          Caloocan
-        </p>
-      </div>
-
-      <FilterBar
-        fields={[
-          { id: 'dash-dateFrom', label: 'From', type: 'date' },
-          { id: 'dash-dateTo', label: 'To', type: 'date' },
-          {
-            id: 'dash-crimeType',
-            label: 'Crime Type',
-            type: 'select',
-            options: CRIME_TYPES,
-          },
-          {
-            id: 'dash-category',
-            label: 'Category',
-            type: 'select',
-            options: CATEGORIES,
-          },
-          { id: 'dash-sitio', label: 'Sitio', type: 'select', options: SITIOS },
-          {
-            id: 'dash-status',
-            label: 'Status',
-            type: 'select',
-            options: STATUSES,
-          },
+    <section className="module print-root">
+      <PrintReport
+        title="Crime Reporting Dashboard Report"
+        subtitle="Crime Data Analytics &amp; Reporting System"
+        meta={[
+          `${filtered.length} record${filtered.length === 1 ? '' : 's'}`,
+          filterSummary,
         ]}
-        onApply={setFilters}
-      />
-
-      {/* Print-only summary of the filters in effect when Export PDF was
-          used, so the exported document is self-describing — same pattern
-          as Trends.jsx. Hidden on screen via .print-only, shown only
-          under @media print. */}
-      <div
-        className="print-only"
-        style={{ marginBottom: 14, fontSize: '0.82rem' }}
       >
-        <strong>Filters applied:</strong> From:{' '}
-        {filters['dash-dateFrom'] || 'Any'} · To:{' '}
-        {filters['dash-dateTo'] || 'Any'} · Crime Type:{' '}
-        {filters['dash-crimeType'] || 'All'} · Category:{' '}
-        {filters['dash-category'] || 'All'} · Sitio:{' '}
-        {filters['dash-sitio'] || 'All'} · Status:{' '}
-        {filters['dash-status'] || 'All'}
-      </div>
-
-      <div className="dashboard-kpi-section">
-        <div className="kpi-grid kpi-grid-primary">
-          {primaryKpis.map((k) => (
-            <KpiCard key={k.label} {...k} />
-          ))}
+        <div className="dashboard-welcome">
+          <h2>
+            Welcome back, <span>{currentUser?.fullName}</span>
+          </h2>
+          <p>
+            Barangay 178 Crime Data Analytics &amp; Reporting System — North
+            Caloocan
+          </p>
         </div>
 
-        <div className="kpi-secondary-label">Additional Statistics</div>
-        <div className="kpi-grid kpi-grid-secondary">
-          {secondaryKpis.map((k) => (
-            <KpiCard key={k.label} {...k} />
-          ))}
-        </div>
-      </div>
+        <FilterBar
+          fields={[
+            { id: 'dash-dateFrom', label: 'From', type: 'date' },
+            { id: 'dash-dateTo', label: 'To', type: 'date' },
+            {
+              id: 'dash-crimeType',
+              label: 'Crime Type',
+              type: 'select',
+              options: CRIME_TYPES,
+            },
+            {
+              id: 'dash-category',
+              label: 'Category',
+              type: 'select',
+              options: CATEGORIES,
+            },
+            { id: 'dash-sitio', label: 'Sitio', type: 'select', options: SITIOS },
+            {
+              id: 'dash-status',
+              label: 'Status',
+              type: 'select',
+              options: STATUSES,
+            },
+          ]}
+          onApply={setFilters}
+        />
 
-      <MetabaseDashboard
-        dashboardKey="crime"
-        filters={baseFilters}
-        title="Crime Dashboard"
-        height={2400}
-      />
+        {/* Print-only key-figures table. The on-screen KPI cards are hidden in
+            print (.dashboard-kpi-section is display:none there) because card
+            chrome — shadows, rounded tiles, coloured deltas — reads as a web
+            dashboard rather than a report. The figures themselves belong in an
+            official report, so they are restated here as a plain two-column
+            table. Same `allKpis` values the cards use; nothing is recomputed. */}
+        <section className="print-only print-section print-kpi-summary">
+          <h2 className="print-section-heading">Summary of Key Figures</h2>
+          <table>
+            <tbody>
+              {allKpis.map((k) => (
+                <tr key={k.label}>
+                  <th scope="row">{k.label}</th>
+                  <td>{k.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
 
-      <ChartSummaryModal
-        open={!!selectedChart}
-        onClose={() => setSelectedChart(null)}
-        activeFiltersLabel={activeFiltersLabel}
-        {...selectedChart}
-        onDrillDown={
-          selectedChart?.drillField
-            ? (label) => {
-                const drillFilters = { ...baseFilters };
-                if (selectedChart.drillField === 'month') {
-                  const { dateFrom, dateTo } = monthLabelToRange(label);
-                  drillFilters.dateFrom = dateFrom;
-                  drillFilters.dateTo = dateTo;
-                } else if (selectedChart.drillField === 'category') {
-                  drillFilters.category = label;
-                } else if (selectedChart.drillField === 'sitio') {
-                  drillFilters.sitio = label;
-                } else if (selectedChart.drillField === 'crimeType') {
-                  drillFilters.crimeType = label;
-                } else if (selectedChart.drillField === 'status') {
-                  drillFilters.status = label;
-                }
-                setSelectedChart(null);
-                navigate('/incident-feed', {
-                  state: { filters: drillFilters },
-                });
-              }
-            : undefined
-        }
-      />
+        <div className="dashboard-kpi-section">
+          <div className="kpi-grid kpi-grid-primary">
+            {primaryKpis.map((k) => (
+              <KpiCard key={k.label} {...k} />
+            ))}
+          </div>
 
-      <div className="table-grid dashboard-lower-grid">
-        <div className="card">
-          <h3>Recent Incidents</h3>
-          <div className="table-wrap">
-            <Table
-              columns={[
-                { key: 'caseNumber', label: 'Case #' },
-                { key: 'crimeType', label: 'Type' },
-                { key: 'date', label: 'Date', render: formatDate },
-                { key: 'sitio', label: 'Sitio' },
-                { key: 'status', label: 'Status' },
-              ]}
-              rows={recent}
-            />
+          <div className="kpi-secondary-label">Additional Statistics</div>
+          <div className="kpi-grid kpi-grid-secondary">
+            {secondaryKpis.map((k) => (
+              <KpiCard key={k.label} {...k} />
+            ))}
           </div>
         </div>
-        <div className="card">
-          <h3>Hotspot Locations</h3>
-          <div className="table-wrap">
-            <Table
-              columns={[
-                { key: 'location', label: 'Location' },
-                { key: 'sitio', label: 'Sitio' },
-                { key: 'count', label: 'Incidents' },
-              ]}
-              rows={hotspots}
-            />
-          </div>
-        </div>
-        <div className="card">
-          <h3>Repeat Offenders</h3>
-          <div className="table-wrap">
-            <Table
-              columns={[
-                { key: 'name', label: 'Suspect' },
-                { key: 'count', label: 'Incidents' },
-              ]}
-              rows={repeat}
-            />
-          </div>
-        </div>
-        <div className="card">
-          <h3>Recently Synchronized</h3>
-          <div className="table-wrap">
-            <Table
-              columns={[
-                { key: 'caseNumber', label: 'Case #' },
-                { key: 'crimeType', label: 'Type' },
-                { key: 'date', label: 'Date', render: formatDate },
+
+        <MetabaseDashboard
+          dashboardKey="crime"
+          filters={baseFilters}
+          title="Crime Dashboard"
+          height={2400}
+        />
+
+        {/* ---- Printed report body: charts -------------------------------
+            On screen the Dashboard's visuals are the embedded Metabase
+            dashboard above. That embed is excluded from print (see the
+            .metabase-embed rule in print.css: a fixed 2400px iframe is roughly
+            2.4 A4 pages of unbreakable height, it prints blank, and it was the
+            cause of the blank leading pages), so the printed report would
+            otherwise contain no charts at all.
+
+            These are the same Chart.js charts the Dashboard used before the
+            Metabase embed replaced them, driven by exactly the values the KPI
+            cards and tables on this page are already computed from — no
+            separate query, no recomputation, nothing that can disagree with the
+            rest of the document. Each chart is paired with its
+            ChartPrintSummary, which restates the same numbers as selectable
+            text plus the generated analysis line, so the report is readable
+            even in a grayscale photocopy where chart colours are lost.
+
+            .print-charts is laid out off-screen rather than display:none: a
+            canvas inside a display:none subtree has a zero-sized box, so
+            Chart.js would render nothing and the printed page would show empty
+            frames. See the rule in print.css. aria-hidden keeps this duplicate
+            of on-screen information out of the accessibility tree, and no
+            onOpenSummary is passed so the cards are not focusable either. */}
+        <section className="print-charts" aria-hidden="true">
+          <h2 className="print-section-heading">Statistical Charts</h2>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Crime Trend (Monthly)"
+              type="line"
+              labels={months}
+              datasets={[
                 {
-                  key: 'synced_at',
-                  label: 'Synced',
-                  render: (v) =>
-                    v ? new Date(v).toLocaleString('en-PH') : '—',
+                  label: 'Incidents',
+                  data: crimeTrendValues,
+                  borderColor: COLORS.green,
+                  backgroundColor: COLORS.greenLight,
+                  fill: true,
+                  tension: 0.3,
                 },
               ]}
-              rows={synced}
+            />
+            <ChartPrintSummary
+              title="Crime Trend (Monthly)"
+              rowLabel="Month"
+              valueLabel="Incidents"
+              labels={months}
+              values={crimeTrendValues}
+              insight={crimeTrendResult.insight}
             />
           </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Crimes by Category"
+              type="doughnut"
+              labels={categoryLabels}
+              datasets={[
+                { data: categoryValues, backgroundColor: COLORS.chartPalette },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Crimes by Category"
+              rowLabel="Category"
+              valueLabel="Incidents"
+              labels={categoryLabels}
+              values={categoryValues}
+              insight={categoryResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Crimes by Sitio"
+              type="bar"
+              labels={sitioLabels}
+              datasets={[
+                {
+                  label: 'Incidents',
+                  data: sitioValues,
+                  backgroundColor: COLORS.green,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Crimes by Sitio"
+              rowLabel="Sitio"
+              valueLabel="Incidents"
+              labels={sitioLabels}
+              values={sitioValues}
+              insight={sitioResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Top Crime Types"
+              type="bar"
+              labels={crimeTypeLabels}
+              datasets={[
+                {
+                  label: 'Count',
+                  data: crimeTypeValues,
+                  backgroundColor: COLORS.orange,
+                },
+              ]}
+              options={{ indexAxis: 'y' }}
+            />
+            <ChartPrintSummary
+              title="Top Crime Types"
+              rowLabel="Crime Type"
+              valueLabel="Count"
+              labels={crimeTypeLabels}
+              values={crimeTypeValues}
+              insight={crimeTypeResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Resolution Rate Trend"
+              type="line"
+              labels={months}
+              datasets={[
+                {
+                  label: 'Resolution %',
+                  data: resolutionByMonth,
+                  borderColor: COLORS.green,
+                  tension: 0.3,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Resolution Rate Trend"
+              rowLabel="Month"
+              valueLabel="Resolution %"
+              labels={months}
+              values={resolutionByMonth}
+              insight={resolutionResult.insight}
+            />
+          </div>
+
+          <div className="chart-print-unit">
+            <ChartCard
+              title="Incident Status Distribution"
+              type="bar"
+              labels={statusLabels}
+              datasets={[
+                {
+                  label: 'Count',
+                  data: statusValues,
+                  backgroundColor: COLORS.statusPalette,
+                },
+              ]}
+            />
+            <ChartPrintSummary
+              title="Incident Status Distribution"
+              rowLabel="Status"
+              valueLabel="Count"
+              labels={statusLabels}
+              values={statusValues}
+              insight={statusResult.insight}
+            />
+          </div>
+        </section>
+
+        <ChartSummaryModal
+          open={!!selectedChart}
+          onClose={() => setSelectedChart(null)}
+          activeFiltersLabel={activeFiltersLabel}
+          {...selectedChart}
+          onDrillDown={
+            selectedChart?.drillField
+              ? (label) => {
+                  const drillFilters = { ...baseFilters };
+                  if (selectedChart.drillField === 'month') {
+                    const { dateFrom, dateTo } = monthLabelToRange(label);
+                    drillFilters.dateFrom = dateFrom;
+                    drillFilters.dateTo = dateTo;
+                  } else if (selectedChart.drillField === 'category') {
+                    drillFilters.category = label;
+                  } else if (selectedChart.drillField === 'sitio') {
+                    drillFilters.sitio = label;
+                  } else if (selectedChart.drillField === 'crimeType') {
+                    drillFilters.crimeType = label;
+                  } else if (selectedChart.drillField === 'status') {
+                    drillFilters.status = label;
+                  }
+                  setSelectedChart(null);
+                  navigate('/incident-feed', {
+                    state: { filters: drillFilters },
+                  });
+                }
+              : undefined
+          }
+        />
+
+        {/* Print-only heading for the four report tables below, so the printed
+            document has a labelled section rather than four unexplained tables
+            after the charts. Hidden on screen, where the card titles already
+            provide the context. */}
+        <h2 className="print-section-heading print-only">Detailed Records</h2>
+
+        <div className="table-grid dashboard-lower-grid">
+          <div className="card">
+            <h3>Recent Incidents</h3>
+            <div className="table-wrap">
+              <Table
+                columns={[
+                  { key: 'caseNumber', label: 'Case #' },
+                  { key: 'crimeType', label: 'Type' },
+                  { key: 'date', label: 'Date', render: formatDate },
+                  { key: 'sitio', label: 'Sitio' },
+                  { key: 'status', label: 'Status' },
+                ]}
+                rows={recent}
+              />
+            </div>
+          </div>
+          <div className="card">
+            <h3>Hotspot Locations</h3>
+            <div className="table-wrap">
+              <Table
+                columns={[
+                  { key: 'location', label: 'Location' },
+                  { key: 'sitio', label: 'Sitio' },
+                  { key: 'count', label: 'Incidents' },
+                ]}
+                rows={hotspots}
+              />
+            </div>
+          </div>
+          <div className="card">
+            <h3>Repeat Offenders</h3>
+            <div className="table-wrap">
+              <Table
+                columns={[
+                  { key: 'name', label: 'Suspect' },
+                  { key: 'count', label: 'Incidents' },
+                ]}
+                rows={repeat}
+              />
+            </div>
+          </div>
+          <div className="card">
+            <h3>Recently Synchronized</h3>
+            <div className="table-wrap">
+              <Table
+                columns={[
+                  { key: 'caseNumber', label: 'Case #' },
+                  { key: 'crimeType', label: 'Type' },
+                  { key: 'date', label: 'Date', render: formatDate },
+                  {
+                    key: 'synced_at',
+                    label: 'Synced',
+                    render: (v) =>
+                      v ? new Date(v).toLocaleString('en-PH') : '—',
+                  },
+                ]}
+                rows={synced}
+              />
+            </div>
+          </div>
         </div>
-      </div>
+
+        <PrintDocumentEnd />
+
+      </PrintReport>
 
       <div className="export-bar">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            window.print();
-            showToast('Use browser print dialog to save as PDF', 'info');
-          }}
-        >
-          <Icons.Report size={15} strokeWidth={2} /> Export PDF
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            if (
-              exportCSV(filtered, `brgy178_dashboard_${today()}.csv`, () =>
-                showToast('No data to export', 'error'),
-              )
-            )
-              showToast('Dashboard data exported', 'success');
-          }}
-        >
+        <Button variant="secondary" onClick={handleExportExcel}>
           <Icons.Download size={15} strokeWidth={2} /> Export Excel
         </Button>
         <Button variant="secondary" onClick={() => window.print()}>

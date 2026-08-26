@@ -12,6 +12,7 @@ export default function Header({ onMenuToggle }) {
   const { theme, toggleTheme } = useTheme();
   const {
     notifications,
+    secondaryLoading,
     markNotificationRead,
     markAllNotificationsRead,
     unreadNotificationCount,
@@ -88,7 +89,11 @@ export default function Header({ onMenuToggle }) {
       n.title === 'Case Resolved' ||
       n.title === 'Overdue Case'
     ) {
-      const caseMatch = n.message.match(/\bCN-\d{4}-\d+\b/);
+      // Matches the case-number shape this system issues ("CN-2025-0032")
+      // without pinning the CN prefix: the prefix is data, not a rule, and a
+      // notification naming a differently-prefixed case must still route to
+      // that case rather than silently dropping to an unfiltered feed.
+      const caseMatch = n.message.match(/\b[A-Z]{2,5}-\d{4}-\d+\b/);
       navigate(
         '/incident-feed',
         caseMatch ? { state: { search: caseMatch[0] } } : undefined,
@@ -148,8 +153,15 @@ export default function Header({ onMenuToggle }) {
               </button>
             </div>
             <div className="notif-dropdown-list">
+              {/* "No notifications" is a statement of fact about the inbox, so
+                  it must not be shown while the request that would populate it
+                  is still in flight (see DataContext's secondary load wave). */}
               {notifications.length === 0 && (
-                <div className="notif-dropdown-item">No notifications</div>
+                <div className="notif-dropdown-item">
+                  {secondaryLoading
+                    ? 'Loading notifications…'
+                    : 'No notifications'}
+                </div>
               )}
               {notifications.map((n) => {
                 const NotifIcon =

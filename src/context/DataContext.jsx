@@ -67,6 +67,14 @@ export function DataProvider({ children }) {
   const [syncLogs, setSyncLogs] = useState([]);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
+  // Loading state for the SECONDARY wave (audit logs, notifications, sync
+  // logs). Deliberately separate from `loading`: those three datasets are not
+  // needed to render the page a sign-in lands on, so they must not hold the
+  // whole application behind a blank "Loading dashboard data..." screen. They
+  // do still need a loading state of their own, or the screens that read them
+  // would render a confident "No records found" for a request that simply
+  // hasn't come back yet.
+  const [secondaryLoading, setSecondaryLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -79,59 +87,76 @@ export function DataProvider({ children }) {
       setSyncLogs([]);
       setSettings(DEFAULT_SETTINGS);
       setLoading(false);
+      setSecondaryLoading(false);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setSecondaryLoading(true);
     setError(null);
 
-    // Checkpoint 18 — this used to be a single Promise.all(...). Some roles
+    // Split into two waves so first paint is gated by the data the landing
+    // page actually needs, not by the slowest of seven unrelated requests.
+    //
+    // PRIMARY   - incidents, criminals, victims, settings. Every route a
+    //             sign-in can land on (Dashboard, Crime Data Collection,
+    //             Records, Analytics, Trends, Mapping) reads these, and
+    //             `settings` also supplies the category vocabulary and
+    //             thresholds those pages filter and compute with, so
+    //             rendering before it arrives would show figures computed
+    //             against the wrong configuration.
+    //             Sync logs are here too, not because a page is built on
+    //             them, but because the Dashboard's "Today Imported" /
+    //             "Month Imported" KPI cards are: deferring them would print
+    //             a confident 0 on first paint and then change it.
+    // SECONDARY - audit logs and notifications. Read only by the Audit Logs
+    //             page and the topbar bell, both of which now show their own
+    //             loading state instead of holding the whole application
+    //             back, and neither of which is on the page a sign-in lands
+    //             on.
+    //
+    // Both waves start in the same tick, so nothing is fetched later than it
+    // used to be - only the gate moved.
+    //
+    // Checkpoint 18 - these used to be a single Promise.all(...). Some roles
     // (badac_readonly) are intentionally denied a subset of these endpoints
-    // (GET /settings, GET /sync-logs — see routes/api.php) as part of their
+    // (GET /settings, GET /sync-logs - see routes/api.php) as part of their
     // normal, correct permissions, not as a failure. Promise.all rejects the
     // instant ANY one call rejects, so that one expected 403 was wiping out
     // every OTHER dataset the role legitimately has access to and showing a
-    // blanket "Forbidden — insufficient role" banner over an otherwise-empty
-    // dashboard. Promise.allSettled lets each resource succeed or fail on
-    // its own: a role-restricted resource quietly falls back to its empty/
-    // default value (exactly as if that role never had data there), while
-    // every resource the role IS allowed to read still loads normally. A
-    // genuine problem (backend down, network error) still surfaces via
-    // `error` below — it's only 403 Forbidden that's treated as "this
-    // role doesn't get this dataset" rather than "the whole page is broken".
-    Promise.allSettled([
-      incidentService.list(),
-      criminalService.list(),
-      victimService.list(),
-      auditLogService.list(),
-      notificationService.list(),
-      syncLogService.list(),
-      settingsService.get(),
-    ]).then((results) => {
-      if (cancelled) return;
-      const [inc, crim, vict, logs, notifs, sync, settingsRaw] = results;
-      const value = (r) => (r.status === 'fulfilled' ? r.value : undefined);
+    // blanket "Forbidden - insufficient role" banner over an otherwise-empty
+    // dashboard. Promise.allSettled lets each resource succeed or fail on its
+    // own: a role-restricted resource quietly falls back to its empty/default
+    // value (exactly as if that role never had data there), while every
+    // resource the role IS allowed to read still loads normally. A genuine
+    // problem (backend down, network error) still surfaces via `error` below
+    // - it's only 403 Forbidden that's treated as "this role doesn't get this
+    // dataset" rather than "the whole page is broken".
+    //
+    // Returns true when the session turned out to be dead, so the caller can
+    // stop waiting on anything else.
+    // Both waves can independently observe the same dead session. Only the
+    // first one acts on it: signOutDueToSessionIssue() posts a logout and
+    // clears the user, and running it twice would fire a second, pointless
+    // request and re-set the same message.
+    let signOutIssued = false;
 
-      setRecords(value(inc) || []);
-      setCriminals(value(crim) || []);
-      setVictims(value(vict) || []);
-      setAuditLogs(value(logs) || []);
-      setNotifications(value(notifs) || []);
-      setSyncLogs(value(sync) || []);
-      setSettings(normalizeSettings(value(settingsRaw)));
+    const applyResults = (results, assign) => {
+      results.forEach((r, i) => {
+        assign[i](r.status === 'fulfilled' ? r.value : undefined);
+      });
 
-      // A 401 here (unauthenticated) means the session that got
-      // currentUser set is no longer good enough for protected data —
-      // expired, or otherwise invalidated. This is not "the server is
-      // unreachable" and it is not something an error banner alone can
-      // recover from: the person needs to be sent back through a real
-      // login, not left staring at a dashboard that will 401 on every
-      // request. See MainLayout.jsx / api.js for how each case is now
-      // distinguished. (mfa_required is checked too for backward
-      // compatibility with any cached/older API response shape, but the
-      // backend no longer issues it — two-factor authentication has been
-      // removed from this app; see AuthContext.jsx.)
+      // A 401 here (unauthenticated) means the session that got currentUser
+      // set is no longer good enough for protected data - expired, or
+      // otherwise invalidated. This is not "the server is unreachable" and it
+      // is not something an error banner alone can recover from: the person
+      // needs to be sent back through a real login, not left staring at a
+      // dashboard that will 401 on every request. See MainLayout.jsx /
+      // api.js for how each case is now distinguished. (mfa_required is
+      // checked too for backward compatibility with any cached/older API
+      // response shape, but the backend no longer issues it - two-factor
+      // authentication has been removed from this app; see AuthContext.jsx.)
       const authFailure = results.find(
         (r) =>
           r.status === 'rejected' &&
@@ -140,21 +165,22 @@ export function DataProvider({ children }) {
             r.reason.type === 'unauthenticated'),
       );
       if (authFailure) {
-        const message =
-          authFailure.reason.type === 'mfa_required'
-            ? 'Second-factor verification required. Please complete MFA sign-in to continue.'
-            : 'Your session has expired. Please sign in again.';
-        auth.signOutDueToSessionIssue(message);
-        setLoading(false);
-        return;
+        if (!signOutIssued) {
+          signOutIssued = true;
+          const message =
+            authFailure.reason.type === 'mfa_required'
+              ? 'Second-factor verification required. Please complete MFA sign-in to continue.'
+              : 'Your session has expired. Please sign in again.';
+          auth.signOutDueToSessionIssue(message);
+        }
+        return true;
       }
 
-      // Only surface an error banner for a rejection that ISN'T an
-      // expected "this role can't see this resource" 403 (role-restricted
-      // resources are expected to fail this way for some roles — see
-      // Checkpoint 18 note above) and isn't one of the auth failures
-      // already handled above. What's left here is a genuine problem:
-      // the backend unreachable, a 500, or similar.
+      // Only surface an error banner for a rejection that ISN'T an expected
+      // "this role can't see this resource" 403 (role-restricted resources
+      // are expected to fail this way for some roles - see the note above)
+      // and isn't one of the auth failures already handled. What's left here
+      // is a genuine problem: the backend unreachable, a 500, or similar.
       const genuineFailure = results.find(
         (r) =>
           r.status === 'rejected' &&
@@ -173,9 +199,38 @@ export function DataProvider({ children }) {
               },
         );
       }
+      return false;
+    };
 
+    Promise.allSettled([
+      incidentService.list(),
+      criminalService.list(),
+      victimService.list(),
+      settingsService.get(),
+      syncLogService.list(),
+    ]).then((results) => {
+      if (cancelled) return;
+      const sessionDead = applyResults(results, [
+        (v) => setRecords(v || []),
+        (v) => setCriminals(v || []),
+        (v) => setVictims(v || []),
+        (v) => setSettings(normalizeSettings(v)),
+        (v) => setSyncLogs(v || []),
+      ]);
       setLoading(false);
+      if (sessionDead) setSecondaryLoading(false);
     });
+
+    Promise.allSettled([auditLogService.list(), notificationService.list()]).then(
+      (results) => {
+        if (cancelled) return;
+        applyResults(results, [
+          (v) => setAuditLogs(v || []),
+          (v) => setNotifications(v || []),
+        ]);
+        setSecondaryLoading(false);
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -187,6 +242,22 @@ export function DataProvider({ children }) {
     auditLogService
       .list()
       .then(setAuditLogs)
+      .catch(() => {});
+  }, []);
+
+  // The server now writes a real notification when an incident is created or
+  // genuinely transitions into a resolved status (see
+  // IncidentController::announceResolutionIfNewlyResolved). The topbar bell
+  // reads from this state, which is otherwise loaded once on mount, so
+  // without re-pulling the list after such a write the notification would not
+  // appear until the next full page load. Failures are swallowed on purpose:
+  // the incident write itself already succeeded and has its own error
+  // handling at the call site - a stale bell must never be reported to the
+  // user as a failed save.
+  const refreshNotifications = useCallback(() => {
+    notificationService
+      .list()
+      .then(setNotifications)
       .catch(() => {});
   }, []);
 
@@ -229,10 +300,14 @@ export function DataProvider({ children }) {
   const updateRecord = useCallback(
     async (id, data) => {
       const updated = await incidentService.update(id, data);
+      // Replace in place, keyed by id. The response is the same row that was
+      // just written, so the collection length is unchanged (no duplicate
+      // record) and no other incident is touched.
       setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
       refreshAuditLogs();
+      refreshNotifications();
     },
-    [refreshAuditLogs],
+    [refreshAuditLogs, refreshNotifications],
   );
 
   const addRecord = useCallback(
@@ -240,9 +315,10 @@ export function DataProvider({ children }) {
       const created = await incidentService.create(data);
       setRecords((prev) => [created, ...prev]);
       refreshAuditLogs();
+      refreshNotifications();
       return created;
     },
-    [refreshAuditLogs],
+    [refreshAuditLogs, refreshNotifications],
   );
 
   // Checkpoint 20 — replaces deleteRecord(). Archive is persistent: the
@@ -427,6 +503,7 @@ export function DataProvider({ children }) {
     syncLogs,
     settings,
     loading,
+    secondaryLoading,
     error,
     SITIOS,
     CRIME_TYPES,

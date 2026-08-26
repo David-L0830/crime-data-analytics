@@ -1,0 +1,1460 @@
+/* =========================================================================
+   PRINT STYLESHEET — shared A4 government-document foundation
+   =========================================================================
+   Extracted verbatim from global.css (it lived at lines 2985-3438) so the
+   print rules are reviewable on their own instead of buried 3,000 lines into
+   the screen stylesheet. Imported by main.jsx immediately after global.css,
+   so cascade order is unchanged and every selector keeps the specificity it
+   had before the move.
+
+   Everything in here is @media print or @page. Nothing affects the screen UI
+   except the two .print-only / .print-hidden display switches at the top,
+   which were already in global.css and are moved unaltered.
+   ========================================================================= */
+
+/* ===== Print ===== */
+.print-only {
+  display: none;
+}
+
+/* PrintReport renders a real <table> so its <thead> can repeat the official
+   letterhead on every printed page (see the note in PrintReport.jsx — this was
+   measured, not assumed). On screen that table must be invisible as a table:
+   every part of it is forced to plain block layout, so the page content inside
+   the body cell lays out exactly as it did when it was a bare sibling. The
+   letterhead and footer rows are .print-only and stay display:none here.
+
+   The reset has to cancel the app's DATA-TABLE styling too, not just the
+   layout. Every page's content now lives inside this table's single body
+   cell, so the generic rules in global.css that were written for report
+   tables started matching the whole page:
+
+     tbody tr:hover td { background: var(--accent-light); }
+         -> moving the pointer anywhere over the page washed the entire
+            content area in pale green. Cards kept their own white background,
+            so the tint showed only in the gaps — across the KPI section,
+            behind "Additional Statistics", and around the charts.
+     table { font-size: 0.84rem; }
+         -> shrank any text that inherits its size rather than setting rem.
+
+   Both are neutralised below. Only this frame is affected; real report tables
+   inside the page keep their hover highlight and sizing, because these
+   selectors are anchored to .print-frame's own tbody/tr/td. */
+.print-frame,
+.print-frame > tbody,
+.print-frame > tbody > tr,
+.print-frame > tbody > tr > td {
+  display: block;
+  width: auto;
+  padding: 0;
+  margin: 0;
+  border: none;
+  vertical-align: baseline;
+  text-align: inherit;
+  font-size: inherit;
+}
+
+.print-frame > tbody > tr,
+.print-frame > tbody > tr:hover > td,
+.print-frame > tbody > tr > td {
+  background: transparent;
+  transition: none;
+}
+
+/* A4 portrait with the margins applied by the BROWSER, so they are re-applied
+   to every page of a multi-page report: 15mm top and bottom, 20mm left and
+   right, which is the physical output the specification calls for and no
+   content reaches the paper edge on any page.
+
+   WHY NOT `margin: 0` PLUS AN INNER PADDED CONTAINER, which is the other way
+   this is commonly written: a container's padding-top applies only where the
+   box begins and its padding-bottom only where the box ends. In a three-page
+   report that is page 1 and page 3 - page 2 has no top or bottom margin at
+   all and prints into the physical paper edge, where most printers'
+   unprintable hardware margin then clips it. Only a per-page container could
+   avoid that, and per-page containers require JavaScript pagination, which
+   would be a second layout system competing with the browser's own.
+
+   The one thing genuinely lost by using @page margins is that the margin
+   cannot vary between the first and subsequent pages. Nothing in this design
+   needs it to: the repeating letterhead is carried by the table-header-group
+   below, which reserves its own space on every page. */
+@page {
+  size: A4 portrait;
+  margin: 15mm 20mm;
+}
+
+@media print {
+  .key-findings-print {
+    margin: 0 0 18px;
+    break-inside: avoid;
+  }
+
+  .key-findings-print h2 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .key-findings-print .alerts-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .key-findings-print .alert-item {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .sidebar,
+  .topbar,
+  .filters-bar,
+  .export-bar,
+  .module-toolbar,
+  .menu-toggle,
+  .theme-toggle,
+  .sidebar-collapse-btn,
+  .modal-header,
+  .modal-footer,
+  .modal-close,
+  .dashboard-welcome,
+  .print-hidden {
+    display: none !important;
+  }
+  .main-content {
+    margin-left: 0;
+  }
+  .sidebar,
+  .topbar,
+  .filters-bar,
+  .export-bar,
+  .module-toolbar,
+  .menu-toggle,
+  .theme-toggle,
+  .sidebar-collapse-btn,
+  .modal-header,
+  .modal-footer,
+  .modal-close,
+  .dashboard-welcome,
+  .dashboard-kpi-section {
+    display: none !important;
+  }
+  .modal {
+    position: static;
+    background: #fff;
+    padding: 0;
+    backdrop-filter: none;
+    overflow: visible;
+  }
+  .modal-content {
+    max-width: 100%;
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+    border: none;
+    padding: 0;
+  }
+  /* Printing with a view modal open prints THAT record, not the list behind
+     it. The page's own content now sits inside .print-frame rather than being
+     a direct child of .module, so the frame is what has to be hidden — the
+     modal is deliberately still rendered as a sibling of it. */
+  .module:has(> .modal) > *:not(.modal),
+  body.modal-open .module > *:not(.modal) {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .card {
+    border: 1px solid #ccc;
+    break-inside: avoid;
+    box-shadow: none;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+  }
+  .kpi-card {
+    border: 1px solid #ddd;
+  }
+
+  /* Print-only tightening for the four lower report tables (Recent
+     Incidents, Hotspot Locations, Repeat Offenders, Recently
+     Synchronized) — same idea as the chart data-summary tables: these
+     use the shared Table component's screen-oriented padding by
+     default, which is far denser than needed on a printed page. */
+  .dashboard-lower-grid th,
+  .dashboard-lower-grid td {
+    padding: 3px 8px;
+  }
+
+  /* A chart plus its data summary is roughly 110mm tall, and a summary with
+     many rows (Peak Crime Hours has 24) is taller still. Marking the whole
+     pairing break-inside: avoid meant two of them almost never fitted on one
+     page, so nearly every chart page printed about half full — the large
+     blank areas under the key-figures table and under Seasonal Trends.
+
+     What actually has to stay together is the chart with its own heading, and
+     a data row with itself. Both are handled below and by the generic
+     `tr { break-inside: avoid }` rule, so the pairing itself may now break and
+     the pages fill naturally. */
+  .chart-print-unit {
+    margin-bottom: 6mm;
+  }
+
+  /* Print-only chart data tables + analysis (ChartPrintSummary) */
+  .chart-print-summary {
+    margin: 2mm 0 4mm;
+  }
+  .chart-print-summary-heading {
+    break-after: avoid;
+    page-break-after: avoid;
+    font-size: 12pt;
+    font-weight: 700;
+    color: #22291f;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #dcebdd;
+    padding-bottom: 4px;
+  }
+  .chart-print-summary table {
+    font-size: 9pt;
+  }
+  .chart-print-summary table th,
+  .chart-print-summary table td {
+    padding: 3px 8px;
+  }
+  .chart-print-summary-analysis {
+    font-size: 9.5pt;
+    color: #22291f;
+    margin-top: 8px;
+    line-height: 1.4;
+  }
+
+  /* Analytics-only: hides the KPI-style .stats-summary row from print,
+     same pattern as Dashboard's .dashboard-kpi-section. Kept as its own
+     standalone rule (not added to the shared hide-list used by
+     Dashboard) so this change never touches anything Dashboard-related. */
+  .analytics-stats-section {
+    display: none !important;
+  }
+
+  /* Statistical Measures print redesign — scoped to .stat-measures so
+     .stats-summary and .sync-status-grid (which also use .stat-box)
+     are completely unaffected, on screen and in print. */
+  /* Twelve measures down a single full-width column left most of the line
+     empty and pushed the cross tabulation onto its own page. Two columns
+     read as a document and halve the height. */
+  .stat-measures {
+    /* display: block is required, not incidental: .stat-measures is a CSS
+       grid on screen, and column-count has no effect on a grid container. */
+    display: block !important;
+    column-count: 2;
+    column-gap: 10mm;
+  }
+
+  .stat-measures .stat-box {
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    margin-bottom: 1.2mm;
+    break-inside: avoid;
+  }
+
+  .stat-measures .stat-box .label {
+    text-transform: none;
+    font-weight: 600;
+    font-size: 9pt;
+    letter-spacing: normal;
+    color: #22291f;
+  }
+
+  .stat-measures .stat-box .label::after {
+    content: ":";
+  }
+
+  .stat-measures .stat-box .value {
+    font-size: 9pt;
+    font-weight: 400;
+    font-family: inherit;
+    letter-spacing: normal;
+    margin-top: 0;
+    color: #22291f;
+  }
+
+  /* Print report header — display: table-header-group. This is the one
+     CSS mechanism Chrome's print engine actually guarantees will repeat
+     content on every physical page (it's how a real <thead> repeats).
+     position: fixed is NOT guaranteed to repeat during print and was
+     the cause of the previous missing-header / overlap problems.
+     Turning .module (and, for the modal print flow, .modal-content)
+     into `display: table` (see Changes 3–4) makes everything else
+     inside it one auto-generated table body cell — no markup changes
+     needed. Because this is real table layout, the browser reserves
+     exactly the space the header needs on every page by itself, so the
+     @page top margin stays at the normal 15mm. The logo/text pairing
+     switches from flex to inline-block, since a table-header-group box
+     can't also be a flex container. */
+  .print-only {
+    display: block;
+  }
+  /* ---- Official document header -------------------------------------
+     display: table-header-group makes the browser REPEAT this block at the
+     top of every printed page and reserve its height on each one. That is
+     why .print-root below is display: table — the pairing is what gives a
+     multi-page report a running letterhead without a fixed-position element
+     overlapping the flowing content.
+     A table-header-group box cannot also be a flex container, so the logo
+     and the text column are laid out with inline-block + vertical-align. */
+  /* The group, and the explicit row and cell inside it. The row/cell are what
+     Chromium's repeat logic acts on — with only an anonymous row generated
+     around a block, the letterhead printed on page 1 and nowhere else. See
+     the note in PrintReport.jsx. */
+  .print-doc-header {
+    display: table-header-group;
+  }
+
+  .print-doc-header-row {
+    display: table-row;
+  }
+
+  .print-doc-header-cell {
+    display: table-cell;
+  }
+
+  /* Three columns: seal, government identification, seal. table-layout: fixed
+     with equal side columns is what keeps the identification optically
+     centred on the page rather than centred in the space left over. */
+  .print-doc-header-inner {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+    border-bottom: 1pt solid #000;
+    padding-bottom: 2mm;
+    margin-bottom: 3.5mm;
+    break-inside: avoid;
+  }
+
+  .print-doc-header-side {
+    display: table-cell;
+    width: 30mm;
+    vertical-align: middle;
+    text-align: center;
+  }
+
+  /* 26mm wide, height auto, object-fit: contain — each seal keeps its own
+     aspect ratio and is never cropped or stretched. */
+  .print-doc-logo {
+    width: 26mm;
+    height: auto;
+    max-height: 26mm;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+  }
+
+  .print-doc-ident {
+    display: table-cell;
+    vertical-align: middle;
+    text-align: center;
+    padding: 0 4mm;
+    font-family: "Times New Roman", Times, serif;
+    line-height: 1.3;
+    color: #000;
+  }
+
+  .print-doc-ident-line {
+    font-size: 10.5pt;
+  }
+
+  .print-doc-ident-brgy {
+    font-size: 14pt;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #000;
+  }
+
+  .print-doc-ident-office {
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  /* ---- Document body typography ------------------------------------
+     Print-safe serif at 11pt, the convention for Philippine government
+     correspondence, and readable when photocopied in grayscale. Sizes are in
+     pt and lengths in mm so the output is independent of screen pixel
+     density. */
+  /* Two lines is the minimum worth carrying to a new page - a single
+     stranded line of a paragraph reads as a printing error on an official
+     document. */
+  p,
+  li {
+    orphans: 2;
+    widows: 2;
+  }
+
+  .print-root,
+  .print-frame {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: #000;
+  }
+
+  /* Key-figures table — replaces the hidden KPI cards in the printed report. */
+  .print-kpi-summary table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .print-kpi-summary th,
+  .print-kpi-summary td {
+    padding: 1.2mm 2mm;
+    font-size: 10pt;
+  }
+
+  .print-kpi-summary th {
+    text-align: left;
+    font-weight: 600;
+    width: 70%;
+  }
+
+  .print-kpi-summary td {
+    text-align: right;
+    font-weight: 700;
+  }
+
+  .print-section {
+    margin: 0 0 5mm;
+    break-inside: avoid;
+  }
+
+  .print-section-heading {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 0.5pt solid #666;
+    padding-bottom: 1mm;
+    margin: 0 0 2.5mm;
+    break-after: avoid;
+  }
+
+  /* ---- Embedded Metabase dashboards ---------------------------------
+     THE cause of the blank leading pages on Dashboard, Analytics and Trends.
+
+     MetabaseDashboard renders an iframe with a fixed pixel height:
+       Dashboard  height={2400}  = 635mm = 2.38 A4 pages of printable height
+       Analytics  height={2000}  = 529mm = 1.98 A4 pages
+       Trends     height={2000}  = 529mm = 1.98 A4 pages
+     (A4 printable height here is 297mm - 30mm of @page margin = 267mm.)
+
+     That box is unbreakable — fixed height inside a .card with
+     overflow:hidden — and it prints blank. Inside the display:table print
+     root everything that is not the header/footer group is wrapped in a
+     single anonymous table cell, so one un-fragmentable box that tall pushes
+     the WHOLE cell down: page 1 keeps only the repeating header and footer
+     and the body starts later. That is exactly the reported symptom, and it
+     is why Criminal Profile and Victim Profile print correctly — neither
+     embeds Metabase. They were the control case.
+
+     This hides an empty rectangle, not report content. The report's actual
+     content — the Chart.js charts, the ChartPrintSummary data tables, the
+     Summary of Key Figures and the record tables — is untouched and still
+     prints; it covers the same underlying data as the embed. Screen
+     behaviour is completely unchanged: .metabase-embed has no screen rules,
+     and this block is inside @media print. */
+  .metabase-embed {
+    display: none !important;
+  }
+
+  /* ---- Charts --------------------------------------------------------
+     Chart.js rasterises the canvas at the size it had on screen. Printing
+     re-lays-out the page but never re-rasterises, so without an explicit
+     print size the bitmap is stretched, clipped, or spills past the margin.
+     The wrapper is given a height in mm and the canvas is forced to fill it,
+     while ChartCard re-renders the chart at these dimensions on beforeprint
+     (see ChartCard.jsx) so the raster matches the printed box.
+     !important is required: the height is an inline style on the wrapper. */
+  .chart-card {
+    break-inside: avoid;
+  }
+
+  .chart-card > div:has(> canvas),
+  .chart-print-canvas {
+    height: 62mm !important;
+    max-height: 62mm !important;
+    width: 100% !important;
+    overflow: hidden;
+  }
+
+  .chart-card canvas {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 62mm !important;
+    display: block;
+  }
+
+  /* ---- Document title block (flows once, at the top of page 1) ---- */
+  .print-doc-title-block {
+    text-align: center;
+    margin: 1mm 0 6mm;
+    break-after: avoid;
+  }
+
+  .print-doc-title {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 15pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #000;
+    margin: 0;
+  }
+
+  .print-doc-subtitle {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 10.5pt;
+    color: #333;
+    margin-top: 1.5mm;
+  }
+
+  .print-doc-meta {
+    margin-top: 2.5mm;
+    font-size: 9pt;
+    color: #333;
+    border-top: 0.5pt solid #999;
+    padding-top: 1.5mm;
+  }
+
+  /* Separator between metadata items on the title block: a middle dot,
+     written as a CSS escape so the stylesheet stays pure ASCII and cannot be
+     corrupted by an encoding round-trip. The literal character that used to
+     be here had already been mangled into a stray control byte, which is
+     what the printed meta line was rendering. */
+  .print-doc-meta span + span::before {
+    content: " \00B7  ";
+    color: #777;
+  }
+
+  /* Footer, repeating on every page via table-footer-group to match the
+     header. It is NOT position: fixed — a fixed footer sits outside the page
+     box and Chromium does not reserve space for it, so flowing content prints
+     underneath it.
+
+     NO PAGE NUMBER. This is settled by evidence, not preference, and should
+     not be re-attempted without new evidence:
+
+       counter(pages) — never resolved; Chromium implements it only inside
+                        @page margin boxes, which Chromium does not support.
+                        This produced the original "Page 0 of 0".
+       counter(page)  — an earlier note here asserted this one worked. Printed
+                        output disproved it: every page carried "Page 0".
+                        Chromium does not resolve the page counter in ordinary
+                        flow content either.
+
+     A JavaScript figure would be a guess, because the printable page height
+     depends on the paper size, margin preset, scale and headers/footers
+     toggle chosen in the print dialog, none of which the document can read.
+     A wrong number on an official record is worse than none, so the footer
+     carries the document identity and generation timestamp, completeness is
+     asserted by "— NOTHING FOLLOWS —", and accurate N/M numbering remains
+     available from the browser's own print headers/footers setting. */
+  .print-doc-footer {
+    display: table-footer-group;
+  }
+
+  .print-doc-footer-row {
+    display: table-row;
+  }
+
+  .print-doc-footer-cell {
+    display: table-cell;
+  }
+
+  .print-doc-footer-inner {
+    border-top: 0.5pt solid #666;
+    padding-top: 1.5mm;
+    margin-top: 4mm;
+    font-size: 8.5pt;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  .print-doc-footer-left {
+    float: left;
+  }
+
+  .print-doc-footer-right {
+    float: right;
+  }
+
+  .print-doc-footer-inner::after {
+    content: "";
+    display: block;
+    clear: both;
+  }
+
+  /* The "NO PHOTO" placeholder is a screen-only decorative box with no
+     actual data — omit it from the printed report entirely. A real
+     photo (an <img> inside .profile-photo) still prints, just smaller,
+     so it stays close to the name/ID text instead of eating page space. */
+  .profile-photo:has(.profile-photo-placeholder) {
+    display: none;
+  }
+  /* Sized in mm like every other printed dimension, so the photo occupies
+     the same physical space regardless of the browser's print scale. */
+  .profile-photo {
+    width: 22mm;
+    height: 22mm;
+  }
+
+  .profile-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Criminal Profile / Victim Profile print redesign — scoped to
+     .criminal-profile only (the shared wrapper class on both pages),
+     so no other print report is affected. */
+  .criminal-profile .card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    margin-bottom: 16px;
+  }
+
+  .criminal-profile .card-header {
+    margin-bottom: 8px;
+  }
+
+  .criminal-profile .card h3 {
+    font-size: 12pt;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #22291f;
+    border-bottom: 1px solid #22291f;
+    padding-bottom: 4px;
+    margin-bottom: 10px;
+    break-after: avoid;
+  }
+
+  .criminal-profile .profile-header {
+    border-bottom: 1px solid #dcebdd;
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+
+  .criminal-profile .detail-grid {
+    font-size: 9.5pt;
+    gap: 8px 24px;
+  }
+
+  .criminal-profile .detail-grid strong {
+    font-size: 7.5pt;
+  }
+
+  .criminal-profile .case-victim-group {
+    border: none;
+    border-radius: 0;
+    border-bottom: 1px solid #dcebdd;
+    padding: 0 0 8px;
+    margin-bottom: 8px;
+    break-inside: avoid;
+  }
+
+  .criminal-profile .case-victim-group:last-child {
+    border-bottom: none;
+  }
+
+  .criminal-profile .case-history-item {
+    font-size: 9pt;
+  }
+
+  .criminal-profile table {
+    font-size: 9pt;
+  }
+
+  .criminal-profile th,
+  .criminal-profile td {
+    padding: 5px 8px;
+  }
+
+  /* Removes the Actions column entirely (header + cells) instead of
+     leaving a blank column once the button inside it is hidden. */
+  .criminal-profile .actions-col {
+    display: none !important;
+  }
+
+  /* Print pagination fix — Chrome does not fragment CSS Grid rows well
+     during print: if one card in a grid row can't fit the remaining
+     space on a page, the browser reserves the row's full height anyway
+     and pushes the whole row to the next page, leaving a blank gap.
+     Switching these containers to block layout for print only lets each
+     card flow and break independently, closing those gaps. */
+  .kpi-grid,
+  .chart-grid,
+  .table-grid,
+  .stats-summary,
+  .profile-grid,
+  .detail-grid {
+    display: block !important;
+  }
+  .kpi-grid > *,
+  .chart-grid > *,
+  .table-grid > *,
+  .stats-summary > *,
+  .profile-grid > *,
+  .detail-grid > * {
+    break-inside: avoid;
+    margin-bottom: 10px;
+  }
+
+  /* Incident Record print redesign — scoped to .detail-body .detail-grid
+     (IncidentViewModal only), so Criminal/Victim Profile and any other
+     .detail-grid usage keep their existing print behavior untouched.
+     The rule above collapses .detail-grid to a single block-layout
+     column for print (needed elsewhere to fix un-fragmentable grid
+     rows), which is what was pushing this report to a 2nd page: it
+     doubled the row count and, combined with the label-above-value
+     styling, doubled it again. These fields are plain text with no
+     fragmentation risk, so it's safe to restore the 2-column grid and
+     put each label inline with its value instead. */
+  .detail-body .detail-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 24px;
+    font-size: 10pt;
+    line-height: 1.3;
+  }
+
+  .detail-body .detail-grid > * {
+    margin-bottom: 0 !important;
+    break-inside: avoid;
+  }
+
+  .detail-body .detail-grid strong {
+    display: inline;
+    margin-bottom: 0;
+    margin-right: 6px;
+    font-size: 8.5pt;
+  }
+
+  .detail-body .detail-grid .full {
+    padding-top: 8px !important;
+    margin-top: 6px;
+  }
+
+  /* ---- Fragmentation blockers ----------------------------------------
+     THE reason the official letterhead printed on page 1 only, the footer on
+     the last page only, and several documents opened with a half-empty or
+     entirely empty first page.
+
+     The application shell is built out of flex containers and scroll
+     containers, which is right for a screen and wrong for paper:
+
+       .app           display: flex   + min-height: 100vh
+       .main-content  display: flex   + min-height: 100vh
+       .table-wrap    overflow-x: auto
+
+     A page break can only be taken inside a box the fragmentation algorithm
+     is allowed to split. Chromium fragments flex containers poorly, and it
+     cannot fragment a scroll container at all — an element with a non-visible
+     overflow is a monolithic box by definition, so every card table was
+     unbreakable and had to be moved whole to the next page. That is what left
+     the blank space, and a document root that cannot be fragmented properly
+     is also why the table header/footer groups were never repeated.
+
+     min-height: 100vh compounds it: on paper it reserves a viewport's worth
+     of empty height after the content ends.
+
+     None of this affects the screen — the whole block is inside @media print. */
+  body,
+  .app,
+  .main-content,
+  .content-area,
+  .module,
+  .modal,
+  .modal-content {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* .module is restored to display: table immediately below, since it is the
+     print root that carries the repeating header and footer groups. The rule
+     above lists it only so its overflow and height are neutralised too. */
+  /* .print-frame is the document root now, not .module — the repeating
+     letterhead lives in a real <thead> of a real <table>, which is the only
+     construction Chromium was measured to repeat on every page including the
+     last. .module and .modal-content are therefore ordinary blocks again. */
+  .print-frame {
+    display: table !important;
+    width: 100% !important;
+    /* Deliberately NOT collapse: Chromium fragments and repeats header/footer
+       groups of a collapsing-border table less predictably, and this frame
+       draws no borders of its own. Nested report tables re-assert collapse
+       below, so the visual result is unchanged. */
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    table-layout: auto !important;
+  }
+
+  .print-frame > thead {
+    display: table-header-group !important;
+  }
+
+  .print-frame > tfoot {
+    display: table-footer-group !important;
+  }
+
+  .print-frame > tbody {
+    display: table-row-group !important;
+  }
+
+  .print-frame > thead > tr,
+  .print-frame > tfoot > tr,
+  .print-frame > tbody > tr {
+    display: table-row !important;
+    break-inside: auto;
+  }
+
+  .print-frame > thead > tr > td,
+  .print-frame > tfoot > tr > td,
+  .print-frame > tbody > tr > td {
+    display: table-cell !important;
+    padding: 0 !important;
+    border: none !important;
+    vertical-align: top;
+  }
+
+  /* border-collapse inherits, so every report table inside the frame
+     re-asserts the collapsed borders the styling is drawn with. */
+  .print-frame table {
+    border-collapse: collapse;
+  }
+
+  .table-wrap,
+  .card,
+  .print-charts,
+  .chart-card {
+    overflow: visible !important;
+  }
+
+  /* ---- Compositing and animation --------------------------------------
+     A box with a transform, filter or containment is monolithic to the
+     fragmentation algorithm: Chromium will not split it across pages, and it
+     will not repeat a table header inside it.
+
+     .module carries `animation: fadeIn 0.35s ease` on screen, and the fadeIn
+     keyframes animate `transform: translateY(...)`. The print root is exactly
+     the element that must fragment, so any transform on it defeats both the
+     page breaking and the repeating letterhead. The animation has no meaning
+     on paper in any case. The rest of the chain is neutralised for the same
+     reason rather than because each one is known to be set today. */
+  .app,
+  .main-content,
+  .content-area,
+  .module,
+  .print-root,
+  .card,
+  .print-charts {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    contain: none !important;
+    will-change: auto !important;
+  }
+
+  /* ---- Physical page geometry -----------------------------------------
+     .content-area has `padding: 28px` for the screen. Left and right padding
+     applies to every page fragment, so the printed text block was inset a
+     further ~7.4mm inside the 20mm @page margin — an effective 27.4mm side
+     margin, narrower than the specification and inconsistent with the
+     letterhead, which is measured from the page box. Its top padding applied
+     to the first fragment only, so page 1 also started lower than every
+     following page.
+
+     The physical margins are the @page margins and nothing else, which is
+     what keeps every page identical. The sidebar offset goes with it. */
+  .content-area {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .main-content {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+/* =========================================================================
+   PRINT-ONLY REPORT BODY — charts, signatures, and the record/profile and
+   incident-list documents.
+   =========================================================================
+   Everything below either lives inside @media print or is the screen-side
+   half of a print-only construct. Nothing here changes a visible screen
+   surface: .print-charts is the only rule that applies on screen, and it
+   moves an element that is never meant to be seen out of the viewport.
+   ========================================================================= */
+
+/* ---- Print-only chart block ------------------------------------------
+   Dashboard, Statistical Analysis and Trend & Pattern Detection show their
+   visuals on screen through the embedded Metabase dashboards, which are
+   excluded from print (see the .metabase-embed rule above: a fixed
+   2000-2400px iframe is two-plus A4 pages of unbreakable height that prints
+   blank, and it was the cause of the blank leading pages). Excluding it
+   without replacing it would leave those printed reports with no charts at
+   all, so each page renders its Chart.js charts here instead, from the same
+   filtered records the on-screen page is showing.
+
+   Why this is positioned off-screen rather than `display: none`:
+   a <canvas> in a display:none subtree has a zero-sized layout box, so
+   Chart.js renders nothing into it and the printed page would show empty
+   frames. Chart.js also does not re-rasterise on its own when the print
+   stylesheet changes the box (ChartCard's beforeprint handler is what forces
+   that). The block therefore needs REAL dimensions at all times, which means
+   it has to be laid out — just not where anyone can see it.
+
+   position: fixed (not absolute) so the block contributes nothing to
+   document height or scroll extent; the negative offset takes it outside
+   the viewport; and the width is the A4 printable width, so the charts are
+   rasterised at the proportions they will actually be printed at. */
+.print-charts {
+  position: fixed;
+  left: -20000px;
+  top: 0;
+  width: 170mm;
+  z-index: -1;
+  pointer-events: none;
+}
+
+@media print {
+  /* Back into the document flow, at the point in the page where it was
+     declared. */
+  .print-charts {
+    position: static;
+    left: auto;
+    top: auto;
+    width: auto;
+    z-index: auto;
+    pointer-events: auto;
+  }
+
+  /* Report typography for the chart block — no card chrome. The shared
+     .card print rule gives every card a box and padding, which reads as a
+     web dashboard rather than an official report. */
+  .print-charts .card,
+  .print-charts .chart-card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+    margin: 0 0 4mm;
+  }
+
+  .print-charts .chart-card > h3 {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #000;
+    border-bottom: 0.5pt solid #666;
+    padding-bottom: 1mm;
+    margin: 0 0 2mm;
+    break-after: avoid;
+  }
+
+  /* The screen-only affordance on an interactive ChartCard. */
+  .print-charts .chart-card-hint {
+    display: none !important;
+  }
+
+  /* The chart itself, with its heading, is the indivisible part. The data
+     summary that follows may flow onto the next page rather than dragging a
+     half-page of white space with it. */
+  .print-charts .chart-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* ---- One chart per page ---------------------------------------------
+     Each chart gets a page of its own. The break is declared on the SECOND
+     and subsequent units (adjacent-sibling selector), never on the first and
+     never as a break-after, which is what keeps two things true at once:
+
+       - the "Statistical Charts" section heading is not stranded at the foot
+         of a page with its first chart starting on the next one, because the
+         first unit does not break away from it;
+       - no blank trailing page is produced, because nothing declares a break
+         after the final chart.
+
+     A chart's own data summary may still flow below it or onto the following
+     page — what must never happen is a second CHART sharing the page. */
+  .print-charts .chart-print-unit {
+    margin-bottom: 6mm;
+    /* Now that each chart owns a page, keeping its data summary on that same
+       page costs nothing — the tallest unit (Peak Crime Hours, 24 rows) is
+       about 175mm against 267mm of printable height. Without this the first
+       summary was orphaned onto a page of its own with no chart on it. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-charts .chart-print-unit + .chart-print-unit {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  /* ---- Signature block (PrintSignatures) -----------------------------
+     Signatories are the part of an official document that must never be
+     orphaned or clipped, so the whole block avoids an internal break and
+     each signatory column avoids one of its own. */
+  .print-signatures {
+    margin-top: 10mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-signatures-grid {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  /* Equal gutters on both sides of the split, so the two signature rules come
+     out the same length. Padding only on the right made the left column
+     narrower than the right, which showed as two mismatched lines. */
+  .print-signatory {
+    display: table-cell;
+    width: 50%;
+    padding: 0 5mm;
+    vertical-align: bottom;
+    break-inside: avoid;
+  }
+
+  .print-signatory:first-child {
+    padding-left: 0;
+  }
+
+  .print-signatory:last-child {
+    padding-right: 0;
+  }
+
+  .print-signatory-role {
+    font-size: 9.5pt;
+    color: #333;
+    margin-bottom: 14mm; /* whitespace for the actual signature */
+  }
+
+  .print-signatory-name {
+    border-top: 0.5pt solid #000;
+    padding-top: 1.2mm;
+    font-size: 11pt;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .print-signatory-title {
+    font-size: 9.5pt;
+    text-align: center;
+    color: #333;
+  }
+
+  /* ---- Criminal / Victim profile: two-column information -------------
+     The shared "collapse every grid to block layout" rule further up exists
+     because Chrome fragments CSS Grid rows badly during print (a row that
+     cannot fit the remaining space reserves its full height and jumps to the
+     next page, leaving a gap). That is a real problem for grids of CARDS.
+     A .detail-grid of label/value text has no such fragmentation risk — each
+     cell is one short line — so it is restored to two columns here, which is
+     what an official profile sheet uses and what fits the record onto far
+     fewer pages. Same reasoning, and same exception, as the
+     .detail-body .detail-grid rule for the Incident Record above. */
+  .criminal-profile .detail-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 2mm 8mm;
+    font-size: 10pt;
+    line-height: 1.35;
+  }
+
+  .criminal-profile .detail-grid > * {
+    margin-bottom: 0 !important;
+    break-inside: avoid;
+  }
+
+  .criminal-profile .detail-grid > .full {
+    grid-column: 1 / -1;
+  }
+
+  .criminal-profile .detail-grid strong {
+    font-size: 9pt;
+    font-weight: 700;
+    margin-right: 1.5mm;
+  }
+
+  /* The profile pages stack their cards; give them back real document
+     spacing now that the cards themselves are borderless. */
+  .criminal-profile .profile-grid > * {
+    margin-bottom: 5mm;
+  }
+
+  /* ---- Crime Data Collection (incident list) report ------------------
+     A wide operational table on A4 portrait: tighten the cell padding and
+     drop to 8.5pt so all nine columns fit inside the 170mm printable width
+     without the browser having to compress or clip them. */
+  .incident-report-table {
+    margin-top: 2mm;
+  }
+
+  .incident-report-table table {
+    font-size: 9pt;
+    width: 100%;
+    table-layout: auto;
+  }
+
+  /* Case number, date, time, sitio and status are short, fixed-shape values.
+     Left to wrap they each broke across two or three lines and tripled the
+     row height, which is what made the printed record list look cramped and
+     ragged.
+
+     Status is deliberately NOT in this list: "Under Investigation" is about
+     30mm at this size, and holding it on one line would push the nine columns
+     past the 170mm printable width. It wraps to two words instead. */
+  .incident-report-table td:nth-child(1),
+  .incident-report-table td:nth-child(4),
+  .incident-report-table td:nth-child(5),
+  .incident-report-table td:nth-child(6),
+  .incident-report-table th:nth-child(1),
+  .incident-report-table th:nth-child(4),
+  .incident-report-table th:nth-child(5),
+  .incident-report-table th:nth-child(6) {
+    white-space: nowrap;
+  }
+
+  .incident-report-table th,
+  .incident-report-table td {
+    /* Horizontal padding stays tight because nine columns have to fit the
+       170mm printable width; the vertical padding is what makes the table
+       readable, and it is where the extra room is spent. */
+    padding: 1.8mm 1.5mm;
+    vertical-align: top;
+  }
+
+  .incident-report-table th {
+    font-weight: 700;
+    border-bottom: 0.5pt solid #000;
+  }
+
+  /* Rows break between each other, never through the middle of one. */
+  .incident-report-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* ---- Print-only filter summary line --------------------------------
+     Every module renders one so the printed document says what it is a
+     report OF. Styled once here instead of six inline style objects. */
+  .print-filter-summary {
+    font-size: 9pt;
+    color: #333;
+    margin: 0 0 4mm;
+    padding-bottom: 1.5mm;
+    border-bottom: 0.5pt solid #ccc;
+    break-after: avoid;
+  }
+
+  /* ---- Cards become document sections --------------------------------
+     A .card prints as a bordered, padded tile - which is web-dashboard
+     chrome, not report layout. Criminal Profile, Victim Profile and the
+     print-only chart block already opted out of it individually; this makes
+     the same treatment the default for every printed card, so the Dashboard
+     report tables, the Statistical Measures panel and the Cross Tabulation
+     read as sections of one official document instead of a screenshot of
+     tiles. The card's own <h3> becomes the section heading, ruled the same
+     way .print-section-heading is.
+
+     Declared after the earlier .card rule, so it supersedes it at equal
+     specificity without needing !important. */
+  .card {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: none;
+    padding: 0;
+    margin: 0 0 5mm;
+    break-inside: avoid;
+  }
+
+  /* ...except a card that holds a table. break-inside: avoid is right for a
+     short block of text or a chart, but the Crime Data Collection report is a
+     single card wrapping 121 rows: declaring it unbreakable meant the browser
+     could not start it in the space left on page 1, so it moved the whole
+     thing to page 2 and printed a page carrying nothing but the letterhead
+     and the title. The table fragments perfectly well on its own — rows
+     already avoid splitting individually, and the <thead> repeats — so the
+     card around it must not be monolithic. */
+  .card:has(table) {
+    break-inside: auto;
+  }
+
+  .card > h3,
+  .card .card-header h3 {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #000;
+    border-bottom: 0.5pt solid #666;
+    padding-bottom: 1mm;
+    margin: 0 0 2mm;
+    /* A heading must never be the last thing on a page. */
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* ---- Report table lines ---------------------------------------------
+     ROOT CAUSE of the missing and incomplete lines in the printed output:
+     the base screen rule is
+
+         th, td { border-bottom: 1px solid var(--border-light); }
+
+     --border-light is a very pale grey, chosen to read on a backlit screen.
+     On paper it is effectively invisible. Only a handful of print rules
+     overrode it — .card and .print-section descendants — so every table that
+     matched neither printed with no visible lines at all: the
+     ChartPrintSummary data tables (they sit in .chart-print-summary, not in a
+     card), the Criminal and Victim profile tables, and the incident detail
+     grid. Nothing anywhere had an outer border or column separators, and the
+     rows that DID have a rule used #bbb, which is barely darker.
+
+     One rule now governs every table inside the print frame, so the six
+     modules cannot drift apart again:
+
+       outer border   0.75pt #000   the table's own boundary
+       header rule    0.75pt #000   separates headings from data
+       cell grid      0.5pt  #555   horizontal AND vertical separators
+
+     border-collapse: collapse is asserted on these tables (see .print-frame
+     table above), so adjacent cell edges merge into a single line and nothing
+     doubles up or thickens at the boundaries. Because the grid is drawn on
+     the cells rather than only on row bottoms, a table that continues onto
+     the next page keeps complete lines on both fragments, including the top
+     edge of the continuation and the bottom edge of the final row. */
+  .print-frame table,
+  .modal-content table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 0.75pt solid #000;
+  }
+
+  .print-frame th,
+  .print-frame td,
+  .modal-content th,
+  .modal-content td {
+    border: 0.5pt solid #555;
+  }
+
+  .print-frame thead th,
+  .modal-content thead th {
+    text-align: left;
+    font-weight: 700;
+    background: none;
+    border-bottom: 0.75pt solid #000;
+  }
+
+  /* .card / .print-section keep their own selectors for the alignment and
+     weight of headings; the lines themselves come from the block above. */
+  .card th,
+  .print-section th {
+    text-align: left;
+    font-weight: 700;
+    background: none;
+  }
+
+  .card tr,
+  .print-section tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* A table split across pages must not lose the header row. Chromium
+     repeats a real <thead> — the same mechanism the official letterhead now
+     relies on — so the continuation page shows the column headings again
+     rather than a wall of unlabelled figures. */
+  .print-frame thead,
+  .modal-content thead {
+    display: table-header-group;
+  }
+
+  /* ---- Modal-based printables ----------------------------------------
+     The Incident Record (IncidentViewModal) and the chart summary modal are
+     printed with the modal open, so .modal-content is their print root. It
+     already becomes display: table above, so the PrintReport header/footer
+     groups repeat correctly; this gives it the same document typography as
+     .print-root, so every printable in the system reads as one system
+     rather than two. */
+  .modal-content {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: #000;
+  }
+
+  /* ---- Action buttons in tables --------------------------------------
+     An Actions column holds View / Edit / Archive buttons. On paper it is a
+     blank column with no meaning, so the whole column is removed - header
+     included - rather than leaving an empty one behind. This generalises the
+     rule that previously existed only for .criminal-profile; it applies to
+     every printed table in the system, which is what "one official
+     document system" requires. */
+  .actions-col {
+    display: none !important;
+  }
+
+  /* An empty ChartCard reserves the chart's full on-screen height so the
+     card does not jump when data arrives. On paper that is ~69mm of blank
+     space saying nothing; collapse it to the sentence itself. The inline
+     height on the element is why this needs !important. */
+  .chart-empty-box {
+    height: auto !important;
+    display: block !important;
+  }
+
+  .chart-empty-box .empty-icon {
+    display: none;
+  }
+
+  .chart-empty-box .empty-state {
+    padding: 0 !important;
+    font-size: 10pt;
+  }
+
+  /* ---- End of document ------------------------------------------------
+     See PrintDocumentEnd in PrintReport.jsx for why this exists in place of
+     a "Page X of Y" total. It must never be orphaned onto a page of its own,
+     which would read as if content were missing. */
+  .print-doc-end {
+    margin: 6mm 0 0;
+    text-align: center;
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #000;
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+
+  /* ---- Long text ------------------------------------------------------
+     Printed cells have no horizontal scrollbar to fall back on, so anything
+     that cannot fit has to wrap or it overflows the printable width and is
+     clipped at the paper edge. Descriptions, addresses, distinguishing marks
+     and case-history details are all free text of unpredictable length.
+     overflow-wrap: anywhere breaks inside an over-long unbroken run (a URL,
+     an evidence filename) only when there is no ordinary wrap opportunity,
+     so normal prose still breaks at spaces. */
+  /* break-word, NOT anywhere. The two differ in a way that matters here:
+     `anywhere` lets the browser count mid-word break points when it works out
+     a column's minimum width, so a table with many columns squeezes them all
+     down to a few characters and then hyphen-lessly splits the contents —
+     "Under / Investi / gation", "Cyber / crime". `break-word` keeps the
+     natural minimum width (the longest word) and only splits a word when it
+     genuinely cannot fit, which is the intended safety net for a long
+     unbroken string such as an evidence filename. */
+  td,
+  .criminal-profile .detail-grid > *,
+  .detail-body .detail-grid > *,
+  .chart-print-summary-analysis,
+  .case-history-detail {
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  /* Column headings are short, known words. overflow-wrap: anywhere applied
+     to them too, and narrow columns then split them mid-word — the printed
+     Crime Data Collection table showed "CATEGO / RY" and "SITI / O", and the
+     cross tabulation showed "SITI / O 1". Headings wrap between words only. */
+  th {
+    overflow-wrap: normal;
+    word-break: keep-all;
+    hyphens: none;
+  }
+
+  /* Notes & Remarks keeps its authored line breaks (white-space: pre-wrap on
+     screen) and must keep them on paper too, while still wrapping long
+     lines. */
+  .criminal-profile p {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    orphans: 2;
+    widows: 2;
+  }
+
+  /* ---- Heading face ----------------------------------------------------
+     Card headings and table column headings inherit var(--font-heading), the
+     application's sans-serif. Printed against a Times body that reads as two
+     documents spliced together — the letterhead, title and body are serif,
+     then every section heading switches to a web sans. One face throughout,
+     which is what an official document uses. */
+  .card h3,
+  .card .card-header h3,
+  .print-section-heading,
+  .chart-print-summary-heading,
+  .print-charts .chart-card > h3,
+  th,
+  .detail-grid strong,
+  .kpi-secondary-label {
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  /* ---- Document ink ---------------------------------------------------
+     Status values, case numbers, dates, statistical measures and cross-tab
+     figures were all inheriting their screen colours, so the printed reports
+     came out speckled with orange, red, green and blue text. On an official
+     document that reads as decoration, and none of it survives a grayscale
+     photocopy — the colour is carrying meaning the paper cannot reproduce.
+     Everything in the document body prints as black ink; the barangay green
+     survives only as the thin rules and accents defined elsewhere. */
+  .print-frame,
+  .print-frame *,
+  .print-root,
+  .print-root *,
+  .modal-content,
+  .modal-content * {
+    color: #000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* ---- Grayscale safety ----------------------------------------------
+     Badges and status pills are colour-coded on screen. Printed (and
+     photocopied) they must stay legible without relying on hue. */
+  .badge {
+    background: none !important;
+    color: #000 !important;
+    border: 0.5pt solid #666 !important;
+    padding: 0.3mm 1.2mm;
+    font-weight: 600;
+  }
+}

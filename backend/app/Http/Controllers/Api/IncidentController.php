@@ -6,12 +6,24 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreIncidentRequest;
 use App\Http\Requests\UpdateIncidentRequest;
 use App\Http\Resources\IncidentResource;
+use App\Models\AppNotification;
 use App\Models\AuditLog;
 use App\Models\Incident;
 use Illuminate\Http\Request;
 
 class IncidentController extends Controller
 {
+    /**
+     * The statuses that mean "this case is no longer outstanding".
+     *
+     * Mirrors SOLVED_STATUSES in src/utils/helpers.js, which is what the
+     * Dashboard's Solved KPI and Crime Data Collection's "solved" status
+     * group count against. Kept here (rather than only on the frontend) so
+     * the server can decide for itself when a status change is a genuine
+     * resolution and is worth announcing.
+     */
+    public const RESOLVED_STATUSES = ['Solved', 'Closed'];
+
     // GET /api/incidents
     public function index(Request $request)
     {
@@ -100,6 +112,19 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
+        // Same reasoning as announceResolutionIfNewlyResolved() below: the
+        // "New Incident" notification is now written from the row that was
+        // actually created, instead of being a fixed seeded sentence that
+        // referred to nothing in particular.
+        $created = $incident->fresh();
+
+        AppNotification::create([
+            'title' => 'New Incident',
+            'message' => "Case {$created->case_number} ({$created->crime_type}) was logged in {$created->sitio}.",
+            'type' => 'info',
+            'read' => false,
+        ]);
+
         // fresh() so values the DATABASE supplied are reflected in the 201
         // payload. incidents.status is NOT NULL DEFAULT 'Open', so when the
         // caller omits status the column default is applied by Postgres and
@@ -107,7 +132,7 @@ class IncidentController extends Controller
         // otherwise report status: null for a row that actually says 'Open',
         // and DataContext.addRecord() pushes that response straight into the
         // UI. Same pattern already used by archive() below.
-        return (new IncidentResource($incident->fresh()))->response()->setStatusCode(201);
+        return (new IncidentResource($created))->response()->setStatusCode(201);
     }
 
     // PUT /api/incidents/{incident}
@@ -121,7 +146,16 @@ class IncidentController extends Controller
             return response()->json(['message' => 'Encoders may only update incidents they personally encoded.'], 403);
         }
 
+        // Read BEFORE the write — this is what makes "Case Resolved" a real
+        // transition rather than a re-announcement. Saving an already-Solved
+        // incident (e.g. correcting a typo in its description) must not emit a
+        // second notification, and nothing about an unrelated incident may
+        // change as a side effect of this request.
+        $statusBefore = $incident->status;
+
         $incident->update($this->mapToColumns($request->validated()));
+
+        $incident->refresh();
 
         AuditLog::create([
             'user_id' => $request->user()?->id,
@@ -132,7 +166,49 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
+        $this->announceResolutionIfNewlyResolved($incident, $statusBefore);
+
         return new IncidentResource($incident);
+    }
+
+    /**
+     * Emits the "Case Resolved" notification the topbar bell shows, but only
+     * on a genuine transition into a resolved status.
+     *
+     * Why this exists: before this, no code path in the application ever
+     * created a Case Resolved notification. The only one that existed was a
+     * fixed row written by NotificationSeeder whose message hard-coded the
+     * case number CN-2025-0032 — an incident whose real status is assigned at
+     * random by IncidentSeeder. So the bell asserted a case had been Solved
+     * while the database said otherwise, and clicking through to Crime Data
+     * Collection showed that contradiction directly. Meanwhile, actually
+     * marking a case Solved produced no notification at all.
+     *
+     * The message is built from the row that was just written, so the
+     * notification can never disagree with the database.
+     */
+    private function announceResolutionIfNewlyResolved(Incident $incident, ?string $statusBefore): void
+    {
+        $statusAfter = $incident->status;
+
+        if ($statusAfter === $statusBefore) {
+            return;
+        }
+        if (! in_array($statusAfter, self::RESOLVED_STATUSES, true)) {
+            return;
+        }
+        // Already resolved before this edit (Solved -> Closed): the case was
+        // not newly resolved, so there is nothing new to announce.
+        if (in_array($statusBefore, self::RESOLVED_STATUSES, true)) {
+            return;
+        }
+
+        AppNotification::create([
+            'title' => 'Case Resolved',
+            'message' => "Case {$incident->case_number} ({$incident->crime_type}) was marked as {$statusAfter}.",
+            'type' => 'success',
+            'read' => false,
+        ]);
     }
 
     // PUT /api/incidents/{incident}/archive — Checkpoint 20 (Tasks 2-4).
