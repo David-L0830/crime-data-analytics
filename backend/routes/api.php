@@ -154,10 +154,19 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(func
     Route::post('/criminals', [CriminalController::class, 'store']);
     Route::put('/criminals/{criminal}', [CriminalController::class, 'update']);
     Route::put('/criminals/{criminal}/archive', [CriminalController::class, 'archive']);
+    // PUT /criminals/{criminal}/restore, PUT /victims/{victim}/restore — the
+    // inverses of the two archive routes above, deliberately registered in
+    // this same role:badac_admin group rather than a group of their own, so
+    // "whoever may archive may restore" holds by construction and cannot
+    // drift. Encoder and badac_readonly are excluded here exactly as they are
+    // for archive. The frontend reuses the existing 'archive_record'
+    // permission for the same reason — no restore-specific permission exists.
+    Route::put('/criminals/{criminal}/restore', [CriminalController::class, 'restore']);
 
     Route::post('/victims', [VictimController::class, 'store']);
     Route::put('/victims/{victim}', [VictimController::class, 'update']);
     Route::put('/victims/{victim}/archive', [VictimController::class, 'archive']);
+    Route::put('/victims/{victim}/restore', [VictimController::class, 'restore']);
 });
 
 // PUT /notifications/read-all, PUT /notifications/{notification}/read —

@@ -93,8 +93,22 @@ class VictimController extends Controller
     // unlike incidents) is unchanged.
     public function archive(Request $request, Victim $victim)
     {
+        // Same guard and same reason as CriminalController::archive(): a
+        // second archive would capture 'Archived' as previous_status and
+        // destroy the real one.
+        if ($victim->status === 'Archived') {
+            return response()->json(['message' => 'This victim record is already archived.'], 422);
+        }
+
         $name = $victim->full_name;
-        $victim->update(['status' => 'Archived']);
+
+        // Victims only ever hold 'Active' today, but the value is captured the
+        // same way as for criminals rather than assumed, so the restore path
+        // stays correct if the victim vocabulary is ever widened.
+        $victim->update([
+            'previous_status' => $victim->status,
+            'status' => 'Archived',
+        ]);
 
         AuditLog::create([
             'user_id' => $request->user()?->id,
@@ -102,6 +116,38 @@ class VictimController extends Controller
             'module' => 'criminal-records',
             'target_type' => 'victim',
             'description' => "Archived victim record {$name}",
+            'ip_address' => $request->ip(),
+        ]);
+
+        return new VictimResource($victim->fresh()->load('relatedIncidents.relatedCriminals'));
+    }
+
+    // PUT /api/victims/{victim}/restore — mirrors
+    // CriminalController::restore() exactly: same role:badac_admin group, same
+    // deterministic previous_status source, same refusal to consult the audit
+    // trail, same safe fallback when previous_status is null or unrecognised.
+    public function restore(Request $request, Victim $victim)
+    {
+        if ($victim->status !== 'Archived') {
+            return response()->json(['message' => 'Only archived victim records can be restored.'], 422);
+        }
+
+        $previous = $victim->previous_status;
+        $restored = in_array($previous, Victim::RESTORABLE_STATUSES, true)
+            ? $previous
+            : Victim::DEFAULT_STATUS;
+
+        $victim->update([
+            'status' => $restored,
+            'previous_status' => null,
+        ]);
+
+        AuditLog::create([
+            'user_id' => $request->user()?->id,
+            'action' => 'RESTORE',
+            'module' => 'criminal-records',
+            'target_type' => 'victim',
+            'description' => "Restored victim record {$victim->full_name} to {$restored}",
             'ip_address' => $request->ip(),
         ]);
 

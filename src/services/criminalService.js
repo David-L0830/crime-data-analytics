@@ -27,4 +27,10 @@ export const criminalService = {
   // No caller yet; DataContext/CriminalRecords wiring is a separate step.
   archive: (id, token) =>
     api.put(`/criminals/${id}/archive`, {}, token ? { token } : undefined),
+  // PUT /criminals/{id}/restore — inverse of archive(). Same request shape,
+  // same optional-token convention, same badac_admin-only route group
+  // server-side. Returns the record with its pre-archive status put back
+  // (CriminalController::restore()).
+  restore: (id, token) =>
+    api.put(`/criminals/${id}/restore`, {}, token ? { token } : undefined),
 };

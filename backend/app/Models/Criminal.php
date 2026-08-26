@@ -31,6 +31,28 @@ class Criminal extends Model
         'Archived',
     ];
 
+    /**
+     * Statuses a record may be restored TO.
+     *
+     * 'Archived' is excluded on purpose: it is the state being left, so
+     * restoring "to" it would leave the record archived and unrestorable.
+     * CriminalController::restore() validates previous_status against this
+     * set and falls back to the column default when it does not match.
+     */
+    public const RESTORABLE_STATUSES = [
+        'Active',
+        'Wanted',
+        'Incarcerated',
+        'Released',
+        'Deceased',
+    ];
+
+    /**
+     * Status a record falls back to when previous_status is null or is no
+     * longer a recognised value — matches the criminals.status column default.
+     */
+    public const DEFAULT_STATUS = 'Active';
+
     protected $fillable = [
         'criminal_code',
         'full_name',
@@ -51,6 +73,11 @@ class Criminal extends Model
         'eye_color',
         'distinguishing_marks',
         'status',
+        // Server-controlled only. Deliberately absent from
+        // CriminalController::mapToColumns() and from Store/UpdateCriminalRequest,
+        // so a client cannot supply it and forge a restore target; the archive
+        // endpoint is the only writer.
+        'previous_status',
         'charges',
         'notes',
         'related_incident_id',

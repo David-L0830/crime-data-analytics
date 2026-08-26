@@ -240,6 +240,56 @@ class BadacReadonlyTest extends TestCase
         $this->putJson("/api/victims/{$victim->id}/archive")->assertForbidden();
     }
 
+    // Restore is the inverse of archive and lives in the same
+    // role:badac_admin group in routes/api.php, so the same two roles must be
+    // refused. Asserted here rather than assumed from the route file: a route
+    // accidentally moved out of that group would still pass a reading of the
+    // code but would fail these.
+    public function test_badac_readonly_cannot_restore_criminal_record(): void
+    {
+        $this->actingBadacReadonly();
+        $criminal = Criminal::factory()->create(['status' => 'Archived']);
+
+        $this->putJson("/api/criminals/{$criminal->id}/restore")->assertForbidden();
+        $this->assertSame('Archived', $criminal->fresh()->status);
+    }
+
+    public function test_badac_readonly_cannot_restore_victim(): void
+    {
+        $this->actingBadacReadonly();
+        $victim = Victim::factory()->create(['status' => 'Archived']);
+
+        $this->putJson("/api/victims/{$victim->id}/restore")->assertForbidden();
+        $this->assertSame('Archived', $victim->fresh()->status);
+    }
+
+    public function test_encoder_cannot_restore_criminal_record(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $this->actingAsSupabase($encoder);
+        $criminal = Criminal::factory()->create(['status' => 'Archived']);
+
+        $this->putJson("/api/criminals/{$criminal->id}/restore")->assertForbidden();
+    }
+
+    public function test_encoder_cannot_restore_victim(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $this->actingAsSupabase($encoder);
+        $victim = Victim::factory()->create(['status' => 'Archived']);
+
+        $this->putJson("/api/victims/{$victim->id}/restore")->assertForbidden();
+    }
+
+    public function test_unauthenticated_user_cannot_restore_a_record(): void
+    {
+        $criminal = Criminal::factory()->create(['status' => 'Archived']);
+        $victim = Victim::factory()->create(['status' => 'Archived']);
+
+        $this->putJson("/api/criminals/{$criminal->id}/restore")->assertUnauthorized();
+        $this->putJson("/api/victims/{$victim->id}/restore")->assertUnauthorized();
+    }
+
     public function test_badac_readonly_cannot_update_user_management_records(): void
     {
         $this->actingBadacReadonly();

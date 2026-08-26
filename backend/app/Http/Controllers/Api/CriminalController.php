@@ -111,8 +111,27 @@ class CriminalController extends Controller
     // same as victims.
     public function archive(Request $request, Criminal $criminal)
     {
+        // Archiving an already-archived record must NOT proceed: the update
+        // below would capture 'Archived' as previous_status and permanently
+        // destroy the real one, which is precisely what this feature exists
+        // to prevent. The list UI hides the Archive button for archived rows,
+        // but the endpoint is directly callable, so the guard lives here.
+        // 422 + a plain `message` follows the convention already used by
+        // UserController for refused-but-well-formed requests.
+        if ($criminal->status === 'Archived') {
+            return response()->json(['message' => 'This criminal record is already archived.'], 422);
+        }
+
         $name = $criminal->full_name;
-        $criminal->update(['status' => 'Archived']);
+
+        // Capture the meaningful pre-archive status (Wanted, Incarcerated,
+        // Released, Deceased, ...) before overwriting it, so restore() can put
+        // it back exactly rather than guessing. Written in the same update()
+        // as the status change so the two can never disagree.
+        $criminal->update([
+            'previous_status' => $criminal->status,
+            'status' => 'Archived',
+        ]);
 
         AuditLog::create([
             'user_id' => $request->user()?->id,
@@ -124,6 +143,55 @@ class CriminalController extends Controller
         ]);
 
         $criminal->load('relatedIncidents.victims');
+
+        return new CriminalResource($criminal->fresh()->load('relatedIncidents.victims'));
+    }
+
+    // PUT /api/criminals/{criminal}/restore — the exact inverse of archive().
+    // Registered in the same role:badac_admin group in routes/api.php, so it
+    // carries identical authorization; there is no per-record ownership
+    // dimension for criminals, same as archive().
+    //
+    // The restored value comes ONLY from the row's own previous_status column.
+    // The audit trail is deliberately never consulted: audit_logs has no
+    // target_id and records no status, and full_name is not unique, so any
+    // attempt to recover the value from there would be inference rather than
+    // restoration.
+    public function restore(Request $request, Criminal $criminal)
+    {
+        if ($criminal->status !== 'Archived') {
+            return response()->json(['message' => 'Only archived criminal records can be restored.'], 422);
+        }
+
+        // previous_status can legitimately be null — a record archived before
+        // this column existed, or one archived through the
+        // PUT /criminals/{id} status back door that StatusValidationTest
+        // documents, which never passes through archive(). It can also hold a
+        // value later retired from Criminal::STATUSES. Both fall back to the
+        // column default rather than writing null (which would violate the
+        // NOT NULL column) or an unrecognised status (which would then be
+        // unreachable through the Status filter).
+        //
+        // RESTORABLE_STATUSES excludes 'Archived' on purpose: restoring "to"
+        // Archived would leave the record archived and permanently stuck.
+        $previous = $criminal->previous_status;
+        $restored = in_array($previous, Criminal::RESTORABLE_STATUSES, true)
+            ? $previous
+            : Criminal::DEFAULT_STATUS;
+
+        $criminal->update([
+            'status' => $restored,
+            'previous_status' => null,
+        ]);
+
+        AuditLog::create([
+            'user_id' => $request->user()?->id,
+            'action' => 'RESTORE',
+            'module' => 'criminal-records',
+            'target_type' => 'criminal',
+            'description' => "Restored criminal record {$criminal->full_name} to {$restored}",
+            'ip_address' => $request->ip(),
+        ]);
 
         return new CriminalResource($criminal->fresh()->load('relatedIncidents.victims'));
     }

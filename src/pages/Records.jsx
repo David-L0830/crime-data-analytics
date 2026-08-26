@@ -15,13 +15,25 @@ export default function Records() {
   const navigate = useNavigate();
   const { criminals, victims } = useData();
 
+  // Count only non-archived records, matching what the destination list pages
+  // actually show: both CriminalRecords.jsx and VictimRecords.jsx hide
+  // status === 'Archived' from their default view. These cards are navigation
+  // affordances — the number sets the expectation for what the click reveals —
+  // so counting archived rows here would make the card disagree with the list
+  // as soon as anything is archived. Archived records remain fully reachable
+  // by choosing "Archived" in each list's Status filter.
+  const activeCriminals = criminals.filter(
+    (c) => c.status !== 'Archived',
+  ).length;
+  const activeVictims = victims.filter((v) => v.status !== 'Archived').length;
+
   const options = [
     {
       key: 'criminal',
       title: 'Criminal Record',
       description:
         'Search and manage criminal profiles, charges, and case history.',
-      count: criminals.length,
+      count: activeCriminals,
       Icon: CriminalIcon,
       to: '/criminal-records/criminal',
     },
@@ -29,7 +41,7 @@ export default function Records() {
       key: 'victim',
       title: 'Victim Record',
       description: 'Search and manage victim profiles linked to incidents.',
-      count: victims.length,
+      count: activeVictims,
       Icon: Icons.Users,
       to: '/criminal-records/victim',
     },

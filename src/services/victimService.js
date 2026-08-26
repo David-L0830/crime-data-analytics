@@ -19,4 +19,7 @@ export const victimService = {
   // whenever that UI is built.
   archive: (id, token) =>
     api.put(`/victims/${id}/archive`, {}, token ? { token } : undefined),
+  // PUT /victims/{id}/restore — mirrors criminalService.restore().
+  restore: (id, token) =>
+    api.put(`/victims/${id}/restore`, {}, token ? { token } : undefined),
 };

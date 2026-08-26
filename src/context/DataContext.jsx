@@ -273,10 +273,32 @@ export function DataProvider({ children }) {
     [refreshAuditLogs],
   );
 
+  // Inverse of archiveVictim, same shape: the server decides the restored
+  // status from the row's own previous_status, and the response replaces the
+  // record in state so the list re-renders with it. No local status guessing.
+  const restoreVictim = useCallback(
+    async (id) => {
+      const updated = await victimService.restore(id);
+      setVictims((prev) => prev.map((v) => (v.id === id ? updated : v)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
+
   // ===== Criminals =====
   const archiveCriminal = useCallback(
     async (id) => {
       const updated = await criminalService.archive(id);
+      setCriminals((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
+
+  // Inverse of archiveCriminal — see restoreVictim above.
+  const restoreCriminal = useCallback(
+    async (id) => {
+      const updated = await criminalService.restore(id);
       setCriminals((prev) => prev.map((c) => (c.id === id ? updated : c)));
       refreshAuditLogs();
     },
@@ -415,7 +437,9 @@ export function DataProvider({ children }) {
     archiveRecord,
     addRecord,
     archiveVictim,
+    restoreVictim,
     archiveCriminal,
+    restoreCriminal,
     markNotificationRead,
     markAllNotificationsRead,
     unreadNotificationCount,

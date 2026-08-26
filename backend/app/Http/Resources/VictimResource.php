@@ -38,6 +38,9 @@ class VictimResource extends JsonResource
             'contactNumber' => $this->contact_number,
             'address' => $this->address,
             'status' => $this->status,
+            // See CriminalResource — same purpose, consumed by
+            // VictimRecords.jsx's Restore confirmation.
+            'previousStatus' => $this->previous_status,
             'relatedCases' => $relatedCases,
         ];
     }

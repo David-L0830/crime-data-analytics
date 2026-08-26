@@ -77,6 +77,11 @@ class CriminalResource extends JsonResource
             'eyeColor' => $this->eye_color,
             'distinguishingMarks' => $this->distinguishing_marks,
             'status' => $this->status,
+            // The status this record will return to if restored — null unless
+            // it is currently archived. Exposed so CriminalRecords.jsx can
+            // name the target in its Restore confirmation ("restore to
+            // Wanted") instead of asking the user to confirm blind.
+            'previousStatus' => $this->previous_status,
             'charges' => $this->charges ?? [],
             'notes' => $this->notes,
             'relatedIncidentId' => $this->related_incident_id ? (string) $this->related_incident_id : null,

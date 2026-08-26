@@ -19,7 +19,7 @@ import { Icons } from '../components/icons';
 // collection and routes into the existing VictimProfile page
 // (/criminal-records/victims/:id), so no business logic is duplicated.
 export default function VictimRecords() {
-  const { victims, archiveVictim } = useData();
+  const { victims, archiveVictim, restoreVictim } = useData();
   const { can } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -27,6 +27,7 @@ export default function VictimRecords() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search);
   const [archivingId, setArchivingId] = useState(null);
+  const [restoringId, setRestoringId] = useState(null);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
@@ -50,6 +51,22 @@ export default function VictimRecords() {
       return true;
     });
   }, [victims, filters, debouncedSearch]);
+
+  // previousStatus is an internal restore field: it drives the archived-row
+  // "was X" hint in the table below and the Restore confirmation, but it is
+  // not part of the record's reportable data and must not become a CSV
+  // column. exportCSV derives its header from the keys of the first row, so
+  // the field is stripped here rather than inside the helper — that helper is
+  // shared by every other export in the app (incidents, audit logs, analytics)
+  // and is deliberately left untouched.
+  const exportRows = useMemo(
+    () =>
+      filtered.map((row) => {
+        const { previousStatus: _previousStatus, ...rest } = row;
+        return rest;
+      }),
+    [filtered],
+  );
 
   // Checkpoint 20, Tasks 8/9 — Victim records had no delete/archive UI at
   // all before this checkpoint. Reuses archive_record, same reasoning as
@@ -76,6 +93,31 @@ export default function VictimRecords() {
     }
   };
 
+  // Mirrors CriminalRecords.jsx's handleRestore, including the reuse of the
+  // existing 'archive_record' permission rather than a restore-specific one:
+  // PUT /victims/{id}/restore sits in the same badac_admin-only route group
+  // as the archive endpoint.
+  const handleRestore = async (victim) => {
+    if (restoringId) return;
+    const target = victim.previousStatus || 'Active';
+    if (
+      !window.confirm(
+        `Restore the victim record for ${victim.fullName}? Its status will be set back to ${target} and it will reappear in the active list.`,
+      )
+    ) {
+      return;
+    }
+    setRestoringId(victim.id);
+    try {
+      await restoreVictim(victim.id);
+      showToast(`Victim record restored to ${target}`, 'success');
+    } catch (err) {
+      showToast(err.message || 'Could not restore victim record', 'error');
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
   return (
     <section className="module">
       <div className="module-toolbar">
@@ -92,7 +134,7 @@ export default function VictimRecords() {
             variant="secondary"
             onClick={() => {
               if (
-                exportCSV(filtered, `victim_records_${today()}.csv`, () =>
+                exportCSV(exportRows, `victim_records_${today()}.csv`, () =>
                   showToast('No data to export', 'error'),
                 )
               )
@@ -133,7 +175,24 @@ export default function VictimRecords() {
             {
               key: 'status',
               label: 'Status',
-              render: (v) => <Badge status={v || 'Active'} />,
+              // Same treatment as CriminalRecords.jsx — an archived row also
+              // shows what it will be restored to.
+              render: (v, row) => (
+                <>
+                  <Badge status={v || 'Active'} />
+                  {v === 'Archived' && row.previousStatus ? (
+                    <span
+                      style={{
+                        color: 'var(--text-muted)',
+                        fontSize: '0.8rem',
+                        marginLeft: 6,
+                      }}
+                    >
+                      was {row.previousStatus}
+                    </span>
+                  ) : null}
+                </>
+              ),
             },
             {
               key: 'relatedCases',
@@ -160,6 +219,16 @@ export default function VictimRecords() {
                   disabled={archivingId === row.id}
                 >
                   {archivingId === row.id ? 'Archiving…' : 'Archive'}
+                </Button>
+              )}
+              {can('archive_record') && row.status === 'Archived' && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleRestore(row)}
+                  disabled={restoringId === row.id}
+                >
+                  {restoringId === row.id ? 'Restoring…' : 'Restore'}
                 </Button>
               )}
             </>

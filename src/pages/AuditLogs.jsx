@@ -23,6 +23,12 @@ import { Icons } from '../components/icons';
 // rows already in the database keep rendering with their color; nothing
 // server-side writes fewer CREATE rows and no existing row's action value
 // changes — this only narrows the dropdown.
+// RESTORE joins ARCHIVE as a filter choice: Criminal and Victim records can
+// now be restored from the archive (CriminalController::restore() /
+// VictimController::restore() each write an AuditLog row with action
+// 'RESTORE'), and undoing an archive is exactly the kind of event an
+// administrator reviews the trail for. Purely additive — no existing action
+// value changes and no historical row is affected.
 const ACTIONS = [
   'LOGIN',
   'LOGOUT',
@@ -30,6 +36,7 @@ const ACTIONS = [
   'REPORT_EXPORTED',
   'UPDATE',
   'ARCHIVE',
+  'RESTORE',
   'SYNC_COMPLETED',
 ];
 const TARGET_TYPES = ['auth', 'report', 'user', 'resident', 'incident'];
@@ -45,6 +52,10 @@ const ACTION_COLORS = {
   CREATE: 'var(--success)',
   UPDATE: 'var(--info)',
   ARCHIVE: 'var(--warning)',
+  // Restoring returns a record to service, so it reads as a success/positive
+  // action — same token CREATE uses, and deliberately distinct from ARCHIVE's
+  // warning tone so the two sides of the pair are easy to tell apart.
+  RESTORE: 'var(--success)',
   // DELETE kept so any historical DELETE audit entries still render with a
   // color instead of falling back to plain text — it's just no longer a
   // filter option (removed from ACTIONS above) or something new code emits.
