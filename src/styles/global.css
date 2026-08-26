@@ -619,6 +619,16 @@ h6 {
   color: var(--login-text-heading);
 }
 
+/* The toggle sits inside the field, so a keyboard user tabbing from the
+   password input lands here with no indication of it — the input's own focus
+   ring belongs to the input, not to this button. */
+.password-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--login-text-heading);
+}
+
 .form-options {
   display: flex;
   align-items: center;
@@ -678,9 +688,27 @@ h6 {
   box-shadow: 0 8px 24px rgba(var(--accent-rgb), 0.4);
 }
 
+/* :focus-visible only — a mouse click on the primary button should not leave a
+   ring behind, but tabbing to it must be obvious. The offset ring reads
+   clearly against the button's own green fill. */
+.login-form .btn-login:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .login-form .btn-login:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+  transform: none;
+}
+
+/* The submit button's hover lift is decoration, not information. */
+@media (prefers-reduced-motion: reduce) {
+  .login-form .btn-login,
+  .login-form .btn-login:hover:not(:disabled) {
+    transition: none;
+    transform: none;
+  }
 }
 
 /* Phase 4 — Feature #3: "Continue with Google" */
@@ -4009,11 +4037,42 @@ select {
   outline-offset: 4px;
 }
 
+/* The seal rotates slowly about its own centre.
+   Why this is safe for layout: `transform` is applied after layout, so the
+   132x132 box the seal occupies never changes and nothing around it moves.
+   The image is a circle cropped by border-radius: 50%, and the rotation
+   origin is the default 50% 50% (restated below for clarity), so the visible
+   disc is identical at every angle — it spins in place rather than wobbling
+   or drifting. The box-shadow rotates with the element, which is invisible
+   for a radially symmetric shadow.
+   30s linear keeps it barely perceptible: roughly 12 degrees per second, slow
+   enough to read as institutional rather than decorative. */
 .badac-left-seal {
   width: 132px;
   height: 132px;
   border-radius: 50%;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  transform-origin: 50% 50%;
+  animation: badac-seal-rotate 30s linear infinite;
+  will-change: transform;
+}
+
+@keyframes badac-seal-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Continuous motion is exactly what this setting exists to suppress. The seal
+   stays at its resting angle, unrotated and identically positioned. */
+@media (prefers-reduced-motion: reduce) {
+  .badac-left-seal {
+    animation: none;
+    transform: none;
+  }
 }
 
 .badac-left-title {

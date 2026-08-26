@@ -15,7 +15,11 @@ const NAV_LINKS = [
 // Public-facing navbar for the landing page only — intentionally separate
 // from the authenticated Header/Sidebar (components/layout) since it must
 // never expose internal module links (Incident Feed, Records, Audit Logs,
-// etc). Only Login / Access System go anywhere near authentication.
+// etc). Only the single Login action goes anywhere near authentication —
+// the duplicate in-menu Login and the "Access System" CTA were removed so
+// the landing page presents exactly one sign-in entry point. This Link sits
+// in .landing-navbar-controls, which is NOT collapsed into the mobile menu,
+// so it stays reachable at every viewport width.
 export default function LandingNavbar() {
   const { theme, toggleTheme } = useTheme();
   const [open, setOpen] = useState(false);
@@ -56,22 +60,6 @@ export default function LandingNavbar() {
               {link.label}
             </a>
           ))}
-          <div className="landing-nav-links-actions">
-            <Link
-              to="/login"
-              className="landing-nav-login"
-              onClick={handleNavClick}
-            >
-              Login
-            </Link>
-            <Link
-              to="/login"
-              className="btn btn-primary btn-sm"
-              onClick={handleNavClick}
-            >
-              Access System <Icons.ArrowRight size={15} strokeWidth={2.25} />
-            </Link>
-          </div>
         </nav>
 
         <div className="landing-navbar-controls">
@@ -91,10 +79,7 @@ export default function LandingNavbar() {
               <Icons.Moon size={18} strokeWidth={2} />
             )}
           </button>
-          <Link
-            to="/login"
-            className="btn btn-secondary btn-sm landing-navbar-login-desktop"
-          >
+          <Link to="/login" className="btn btn-secondary btn-sm landing-navbar-login">
             Login
           </Link>
           <button

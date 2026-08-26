@@ -15,11 +15,11 @@ import HelpDeskModal from '../components/support/HelpDeskModal';
 // has (see AUTH_MIGRATION_STATUS.md). There is no more username/password
 // form against this Laravel backend, no Laravel-side Google OAuth
 // redirect, and no Laravel-TOTP challenge screen — only Supabase
-// email/password, Supabase Google OAuth, and (when the account has a
-// verified factor) the Supabase MFA step-up screen below.
+// email/password. Google OAuth remains implemented in AuthContext but is
+// temporarily not offered on this screen (see the note in the form below),
+// and the MFA step-up screen has been removed from this flow entirely.
 export default function Login() {
-  const { loginWithEmail, loginWithGoogle, authInitError, currentUser } =
-    useAuth();
+  const { loginWithEmail, authInitError, currentUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -30,7 +30,6 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
 
   const [legalModal, setLegalModal] = useState(null); // 'privacy' | 'terms' | 'help' | null
 
@@ -70,19 +69,6 @@ export default function Login() {
     } else {
       setError(result.error);
     }
-  };
-
-  const handleGoogleLogin = async () => {
-    if (googleLoading) return;
-    setGoogleLoading(true);
-    setError('');
-    const result = await loginWithGoogle();
-    if (!result.success) {
-      setGoogleLoading(false);
-      setError(result.error);
-    }
-    // On success the browser is already navigating to Google; leave the
-    // loading state on so the button stays disabled until that happens.
   };
 
   return (
@@ -209,8 +195,8 @@ export default function Login() {
             </div>
 
             {/* Two-factor authentication has been removed from the login
-                flow — only the standard email/password and Google sign-in
-                paths render here now. */}
+                flow, and the Google option is temporarily hidden, so
+                email/password is the only path that renders here. */}
             <form
               className="login-form"
               autoComplete="off"
@@ -250,6 +236,10 @@ export default function Login() {
                     type="button"
                     className="password-toggle"
                     title={showPassword ? 'Hide password' : 'Show password'}
+                    aria-label={
+                      showPassword ? 'Hide password' : 'Show password'
+                    }
+                    aria-pressed={showPassword}
                     onClick={() => setShowPassword((s) => !s)}
                   >
                     {showPassword ? (
@@ -269,57 +259,34 @@ export default function Login() {
                 type="submit"
                 className="btn-login"
                 disabled={submitting}
+                aria-busy={submitting}
                 style={{ marginTop: 8 }}
               >
                 <span>{submitting ? 'Authenticating...' : 'Sign In'}</span>
               </button>
-              {error && <div className="login-error">{error}</div>}
+              {/* role="alert" so a screen reader announces a failed sign-in;
+                  without it the message appears silently and a non-sighted
+                  user is left with no feedback that the attempt failed. */}
+              {error && (
+                <div className="login-error" role="alert">
+                  {error}
+                </div>
+              )}
             </form>
 
-            <div className="login-divider" role="separator">
-              <span>or</span>
-            </div>
-
-            <button
-              type="button"
-              className="btn-google"
-              disabled={googleLoading}
-              onClick={handleGoogleLogin}
-              aria-label="Continue with Google"
-            >
-              {googleLoading ? (
-                <span className="btn-google-spinner" aria-hidden="true" />
-              ) : (
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 18 18"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill="#4285F4"
-                    d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.85 2.09-1.81 2.73v2.27h2.92c1.71-1.57 2.69-3.88 2.69-6.64z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.27c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.71H.96v2.34C2.44 15.98 5.48 18 9 18z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M3.97 10.7A5.4 5.4 0 0 1 3.68 9c0-.59.1-1.17.29-1.7V4.96H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.04l3.01-2.34z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"
-                  />
-                </svg>
-              )}
-              <span>
-                {googleLoading
-                  ? 'Redirecting to Google...'
-                  : 'Continue with Google'}
-              </span>
-            </button>
+            {/* "Continue with Google" is TEMPORARILY hidden from this page,
+                pending a decision on two-factor authentication. Only the UI was
+                removed — the whole Google path is intact and unreferenced, not
+                deleted: AuthContext still exposes loginWithGoogle(), still runs
+                the onAuthStateChange listener that finishes an OAuth return,
+                and still sets authInitError when a Google account has no linked
+                BADAC user (that error is still surfaced by the effect above).
+                supabaseClient.js keeps detectSessionInUrl. Restoring this is a
+                UI-only change: re-add the divider and button markup below, and
+                take loginWithGoogle back off useAuth() together with the
+                googleLoading state and handleGoogleLogin handler. The
+                .login-divider / .btn-google / .btn-google-spinner rules are
+                deliberately left in global.css for the same reason. */}
 
             <div className="badac-security-notice">
               <span className="badac-security-icon">

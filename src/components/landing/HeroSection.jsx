@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { Icons } from '../icons';
 import DashboardPreview from './DashboardPreview';
 
@@ -29,13 +28,12 @@ export default function HeroSection() {
             safer, data-driven decisions.
           </p>
 
+          {/* The "Access System" CTA that used to sit here was removed: the
+              landing page now offers a single sign-in entry point (the Login
+              action in the navbar) plus the closing call-to-action, instead of
+              repeating it in four places. "Explore Features" stays — it is
+              in-page navigation, not authentication. */}
           <div className="landing-hero-cta">
-            <Link
-              to="/login"
-              className="btn btn-primary landing-hero-cta-primary"
-            >
-              Access System <Icons.ArrowRight size={17} strokeWidth={2.25} />
-            </Link>
             <a href="#features" className="btn btn-secondary">
               Explore Features
             </a>

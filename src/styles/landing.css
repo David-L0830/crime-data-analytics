@@ -95,16 +95,6 @@
   color: var(--accent);
 }
 
-.landing-nav-links-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.landing-nav-links-actions .btn-primary {
-  color: #fff;
-}
-
 .landing-navbar-controls {
   display: flex;
   align-items: center;
@@ -134,7 +124,11 @@
   display: none;
 }
 
-.landing-navbar-login-desktop {
+/* The single remaining landing sign-in action. It lives in
+   .landing-navbar-controls (beside the theme and menu toggles), which is never
+   collapsed into the mobile menu, so it stays reachable at every width — that
+   is why there is no max-width override hiding it further down this file. */
+.landing-navbar-login {
   display: inline-flex;
 }
 
@@ -761,16 +755,49 @@
   margin: 0 0 26px;
 }
 
-.landing-cta-btn {
+/* Sits on the green .landing-cta band, so it inverts: white plate, dark green
+   label. `color` must be restated on every interactive state — this element is
+   also .btn-primary, whose `color: #fff` has identical specificity, and which
+   would otherwise win by source order and render white-on-white. That was the
+   original hover bug: the old :hover re-declared `background` but not `color`,
+   leaving the label to fall back to .btn-primary's white.
+   #14431f is the fixed light-theme --accent-dark; it is hard-coded rather than
+   tokenised because the plate is always #fff here, in both themes, and the
+   dark-theme token (#3f9a5b) does not carry enough contrast against it. */
+.landing-cta-btn,
+.landing-cta-btn:link,
+.landing-cta-btn:visited {
   background: #fff;
-  color: var(--accent-dark);
+  color: #14431f;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   padding: 12px 24px;
 }
 
-.landing-cta-btn:hover {
-  background: #fff;
+.landing-cta-btn:hover,
+.landing-cta-btn:focus-visible,
+.landing-cta-btn:active {
+  background: #f1f7f2;
+  color: #0f3417;
   transform: translateY(-1px);
+}
+
+.landing-cta-btn:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+.landing-cta-btn:active {
+  transform: translateY(0);
+}
+
+/* Touch devices fire :hover on tap and then latch it until the next tap
+   elsewhere. Pinning the resting colours there keeps the label readable. */
+@media (hover: none) {
+  .landing-cta-btn:hover {
+    background: #fff;
+    color: #14431f;
+    transform: none;
+  }
 }
 
 /* ===== Footer ===== */
@@ -955,24 +982,10 @@
     border-bottom: 1px solid var(--border-light);
   }
 
-  .landing-nav-links-actions {
-    width: 100%;
-    padding-top: 12px;
-    justify-content: space-between;
-  }
-
-  .landing-nav-login {
-    display: inline-flex;
-    align-items: center;
-    color: var(--text-secondary);
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.86rem;
-  }
-
-  .landing-navbar-login-desktop {
-    display: none;
-  }
+  /* .landing-navbar-login is deliberately NOT hidden here. The old
+     desktop-only Login was hidden at this width because the mobile menu
+     carried its own Login + "Access System" pair; both were removed, so this
+     one must remain visible or mobile users would have no way to sign in. */
 
   .landing-menu-toggle {
     display: inline-flex;
