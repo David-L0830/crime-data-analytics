@@ -649,8 +649,12 @@ Two deliberate design decisions are documented in the Dockerfile itself:
    `route:cache` (non-fatal). The guard is a safety rule, not an
    optimisation — `docker-compose` bind-mounts the working tree, and a cached
    config contains every resolved secret in plaintext.
-4. `php artisan storage:link` (non-fatal) for avatar uploads.
-5. Start `php-fpm -D`, then `nginx -g 'daemon off;'` in the foreground.
+4. **Only when `APP_ENV=production`**: a **read-only** migration-status check
+   (`migrate:status --pending=1`). It reports whether the database is behind
+   the deployed code. It never applies anything — see
+   [Production database migrations](#production-database-migrations) below.
+5. `php artisan storage:link` (non-fatal) for avatar uploads.
+6. Start `php-fpm -D`, then `nginx -g 'daemon off;'` in the foreground.
 
 ### Render
 
@@ -662,6 +666,71 @@ health check at `/up`.
 
 `AppServiceProvider::boot()` calls `URL::forceScheme('https')` when
 `APP_ENV=production`, so generated URLs stay HTTPS behind Render's proxy.
+
+### Production database migrations
+
+> **Render does not run Laravel migrations.** Nothing in the deployment
+> pipeline does. Deploying application code does **not** update the production
+> database schema.
+
+There is no Render pre-deploy command configured — that feature requires a
+paid instance type and this service runs on the free plan — and there is no
+`render.yaml`, no scheduler and no Composer hook that migrates. Migrations are
+applied **manually, by an authorized operator**.
+
+This matters because the two halves can drift apart silently. A deploy
+containing a new migration will go live and report success while the column it
+depends on does not exist, and the first symptom is a 500 from whichever
+endpoint touches it. That has happened once in this project: the
+`previous_status` migration shipped with the restore feature, the deploy
+reported "live", and both archive endpoints returned HTTP 500
+(`SQLSTATE 42703`) until the migration was applied by hand.
+
+**Procedure when a release contains a new migration**
+
+1. **Review the migration first.** Read the actual `up()` method. A migration
+   can drop columns, drop tables or rewrite rows, and it runs against live
+   crime, criminal and victim records. Additive, nullable columns are safe;
+   anything that removes or rewrites data needs a backup and a deliberate
+   decision before it is run. Never run a migration you have not read.
+2. Deploy the code as usual (push to `main`; Render auto-deploys).
+3. Open a shell on the Render service (**Shell** tab in the dashboard, or
+   `ssh <service-id>@ssh.<region>.render.com`) and apply it:
+
+   ```bash
+   php artisan migrate --force
+   ```
+
+   `--force` is required because the environment is production; it suppresses
+   the interactive confirmation, nothing more.
+4. Verify the result:
+
+   ```bash
+   php artisan migrate:status
+   ```
+
+   Every migration should read `Ran`. Then exercise the affected endpoint.
+
+Run these **only against the intended production environment**, and only as an
+authorized operator. They are a human release step: no automation in this
+repository executes them, and nothing should run them on your behalf.
+
+**The start-up check is read-only**
+
+The entrypoint runs `php artisan migrate:status --pending=1` on every
+production boot. It is purely diagnostic — it never applies, rolls back or
+alters a migration, and it can never stop the container from starting. Three
+outcomes appear in the Render log:
+
+| Log line | Meaning |
+| --- | --- |
+| `migration status: all migrations applied` | Schema matches the deployed code. |
+| `WARNING: PRODUCTION HAS PENDING DATABASE MIGRATIONS` | The database is behind the code. Follow the procedure above **before** relying on anything that needs the new schema. |
+| `WARNING: could not verify migration status` | The check could not reach the database. This is **not** a statement that migrations are applied — verify manually. |
+
+`--pending=1` is deliberate: plain `migrate:status` exits `0` even when
+migrations are pending, so the bare command's exit code cannot be used to
+detect this condition.
 
 ### Local Docker
 

@@ -33,6 +33,56 @@ if [ "${APP_ENV}" = "production" ]; then
     php artisan config:clear
     php artisan config:cache
     php artisan route:cache || echo "[entrypoint] route:cache skipped (non-fatal)"
+
+    # Read-only migration-status check. This DOES NOT apply migrations, and
+    # nothing in this container ever runs `migrate` — see the "Production
+    # database migrations" section of backend/README.md.
+    #
+    # Why it exists: Render does not run Laravel migrations. There is no
+    # pre-deploy command (that requires a paid instance type) and no
+    # render.yaml, so a deploy can go live with the CODE ahead of the SCHEMA
+    # and report success while doing it. That happened once: the criminal and
+    # victim archive endpoints returned HTTP 500 until the migration was
+    # applied by hand. This check makes that state loud in the deploy log
+    # instead of silent.
+    #
+    # `--pending=1` is load-bearing. Plain `migrate:status` returns exit 0
+    # EVEN WHEN MIGRATIONS ARE PENDING — StatusCommand::handle() only returns
+    # a non-zero code when the --pending option itself is truthy — so keying
+    # off the exit code of the bare command would report success in exactly
+    # the case this check exists to catch. With `--pending=1`:
+    #   exit 0        -> nothing pending
+    #   exit non-zero -> pending, OR no migrations table, OR the command
+    #                    could not run at all; the captured output tells
+    #                    those apart below.
+    #
+    # Every branch is non-fatal by construction: the command runs as an `if`
+    # condition, where `set -e` is suspended, and no branch exits. php-fpm and
+    # nginx start regardless of the outcome.
+    echo "[entrypoint] checking migration status (read-only, never applies migrations)"
+    if php artisan migrate:status --pending=1 --no-ansi > /tmp/migrate-status.out 2>&1; then
+        echo "[entrypoint] migration status: all migrations applied"
+    elif grep -qE 'Pending|Migration table not found' /tmp/migrate-status.out; then
+        echo "[entrypoint] =========================================================="
+        echo "[entrypoint] WARNING: PRODUCTION HAS PENDING DATABASE MIGRATIONS"
+        echo "[entrypoint] The deployed code may expect columns or tables that do"
+        echo "[entrypoint] not exist yet. Migrations are NOT applied automatically."
+        echo "[entrypoint] An authorized operator must review them and then run"
+        echo "[entrypoint]     php artisan migrate --force"
+        echo "[entrypoint] against production. See backend/README.md section 11,"
+        echo "[entrypoint] \"Production database migrations\"."
+        cat /tmp/migrate-status.out
+        echo "[entrypoint] =========================================================="
+    else
+        # Deliberately does NOT echo the captured output: a connection failure
+        # names the database host, port and database name, which do not belong
+        # in a deploy log. The operator can re-run the command themselves.
+        echo "[entrypoint] WARNING: could not verify migration status (database"
+        echo "[entrypoint] unreachable or misconfigured). This is NOT a statement"
+        echo "[entrypoint] that migrations are applied. Startup continues; check"
+        echo "[entrypoint] manually with: php artisan migrate:status"
+    fi
+    rm -f /tmp/migrate-status.out
 else
     echo "[entrypoint] APP_ENV=${APP_ENV:-unset} — skipping config cache (local bind-mount safety)"
 fi
