@@ -74,6 +74,50 @@ abstract class TestCase extends BaseTestCase
         );
     }
 
+    /**
+     * Same as actingAsSupabase(), but lets a test control individual claims —
+     * used by LoginAuditTest to mint a deliberately old token, or one whose
+     * `amr` authentication-method timestamp differs from its `iat` (what a
+     * silently refreshed access token looks like).
+     *
+     * Deliberately a separate method rather than a third parameter on
+     * actingAsSupabase(): BadacReadonlyTest overrides that method with its own
+     * signature, and widening the base signature would break the override.
+     *
+     * @param  array<string, mixed>  $claimOverrides  merged over the defaults
+     */
+    protected function actingAsSupabaseWithClaims(
+        User $user,
+        array $claimOverrides,
+        string $aal = 'aal1'
+    ): static {
+        if (! $user->supabase_user_id) {
+            $user->update(['supabase_user_id' => (string) $user->id]);
+            $user->refresh();
+        }
+
+        $now = time();
+
+        $claims = array_merge([
+            'sub' => (string) $user->supabase_user_id,
+            'email' => $user->email,
+            'aud' => config('supabase.audience', 'authenticated'),
+            'iss' => rtrim((string) config('supabase.url'), '/').'/auth/v1',
+            'iat' => $now,
+            'exp' => $now + 3600,
+            'aal' => $aal,
+            'email_verified' => true,
+        ], $claimOverrides);
+
+        $token = JWT::encode(
+            $claims,
+            config('supabase.jwt_secret'),
+            'HS256'
+        );
+
+        return $this->withHeader('Authorization', 'Bearer '.$token);
+    }
+
     // Test-only SQLite compatibility shim.
     // Production (AnalyticsController) intentionally uses PostgreSQL's
     // to_char(date, 'YYYY-MM') for the monthly analytics grouping.

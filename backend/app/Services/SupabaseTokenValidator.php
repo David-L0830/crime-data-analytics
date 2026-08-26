@@ -75,9 +75,48 @@ class SupabaseTokenValidator
             // claim is ever absent, treat that as the least-privileged
             // state (aal1) rather than assuming aal2.
             $request->attributes->set('supabase_aal', $claims['aal'] ?? 'aal1');
+
+            // When did this session's holder actually authenticate? Read by
+            // AuthController::user() to write a LOGIN audit row exactly once
+            // per sign-in. Stashed on the request for the same reason as
+            // `aal` above: it is a per-token fact, never a property of the
+            // account.
+            $request->attributes->set('supabase_auth_time', $this->authTimeFromClaims($claims));
         }
 
         return $user;
+    }
+
+    /**
+     * The moment the token holder actually authenticated, as a Unix timestamp.
+     *
+     * Prefers `amr` (Authentication Methods References), whose entries record
+     * when an authentication METHOD was performed — e.g.
+     * [{"method":"password","timestamp":1735815600}]. That timestamp is set at
+     * sign-in and is not re-stamped when the session's access token is
+     * refreshed.
+     *
+     * `iat` is only a fallback, and deliberately not the primary source:
+     * supabaseClient.js runs with autoRefreshToken enabled, so an active
+     * session mints a brand-new token — and therefore a brand-new `iat` —
+     * roughly every hour. Keying "is this a fresh sign-in?" on `iat` alone
+     * would invent a LOGIN event after every silent refresh, which is worse
+     * for an audit trail than recording nothing at all.
+     */
+    protected function authTimeFromClaims(array $claims): ?int
+    {
+        $amr = $claims['amr'] ?? null;
+
+        if (is_array($amr)) {
+            foreach ($amr as $entry) {
+                $timestamp = is_array($entry) ? ($entry['timestamp'] ?? null) : null;
+                if (is_numeric($timestamp)) {
+                    return (int) $timestamp;
+                }
+            }
+        }
+
+        return is_numeric($claims['iat'] ?? null) ? (int) $claims['iat'] : null;
     }
 
     protected function extractBearerToken(Request $request): ?string
