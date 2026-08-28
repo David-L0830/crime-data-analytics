@@ -179,3 +179,33 @@ Route::middleware('auth:supabase')->group(function () {
 // POST /logout — session-lifecycle action. No `role:` middleware — every
 // role logs out the same way.
 Route::middleware('auth:supabase')->post('/logout', [AuthController::class, 'logout']);
+use App\Http\Controllers\Api\RolePermissionController;
+
+    // POST /users — Account Administration. Administrator-provisioned
+    // account creation, in the same admin-only group as every other
+    // mutation on an account. Creating an account writes to BOTH Supabase
+    // Auth (via the service-role key, server-side only) and this database,
+    // which is exactly why it can only live on the backend: the frontend
+    // must never hold a credential capable of provisioning an identity.
+    // See UserController::store() and StoreUserRequest.
+    Route::post('/users', [UserController::class, 'store']);
+
+    // GET /users/{user}/activity — one account's own audit trail, for the
+    // User Activity view. Reuses audit_logs and AuditLogResource; no second
+    // activity store exists. Admin-only for the same reason GET
+    // /audit-logs is (Checkpoint 38).
+    Route::get('/users/{user}/activity', [UserController::class, 'activity']);
+
+    // POST /users/{user}/password-reset-audit — records that an admin sent
+    // a password-reset email. Named for exactly what it does: it does NOT
+    // send the email and never touches a credential. Supabase sends the
+    // email, requested from the browser via resetPasswordForEmail() — the
+    // same mechanism the public Forgot Password page uses.
+    Route::post('/users/{user}/password-reset-audit', [UserController::class, 'passwordResetAudit']);
+
+    // GET /role-permissions — reads the `role:` middleware off this very
+    // file's routes and reports which roles each module actually admits.
+    // It defines nothing and grants nothing; backend authorization stays
+    // authoritative. Admin-only, since a precise map of who may reach what
+    // is reconnaissance. See RolePermissionController.
+    Route::get('/role-permissions', [RolePermissionController::class, 'index']);

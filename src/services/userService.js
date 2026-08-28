@@ -38,4 +38,24 @@ export const userService = {
       undefined,
       token ? { token } : undefined,
     ),
+
+  // Account Administration — administrator-provisioned account creation.
+  //
+  // The payload carries no password and never could: creating the Supabase
+  // Auth identity needs the service-role key, which lives only in the
+  // backend's environment (see App\Services\SupabaseAdminService). This
+  // sends identity and role; the backend writes both systems or neither.
+  create: (data) => api.post('/users', data),
+
+  // One account's own audit trail (GET /users/{id}/activity). Scoped
+  // server-side by user_id — this is the existing audit_logs data, not a
+  // second activity store, and not the global feed filtered in the browser.
+  activity: (id) => api.get(`/users/${id}/activity`),
+
+  // Records that a password-reset email was sent to this account. It does
+  // NOT send the email: Supabase does, requested directly from the browser
+  // by supabase.auth.resetPasswordForEmail() (the same call the public
+  // Forgot Password page makes). Call this only after that has succeeded,
+  // so the audit trail never claims a reset that did not happen.
+  logPasswordReset: (id) => api.post(`/users/${id}/password-reset-audit`),
 };

@@ -187,3 +187,45 @@ export function filterRecords(records, filters) {
     return true;
   });
 }
+
+// Account Administration — renders an ISO-8601 timestamp from the API (e.g.
+// UserResource.lastLoginAt / createdAt, AuditLogResource.timestamp) as a
+// readable local date and time.
+//
+// Deliberately separate from formatDate() above rather than an extra branch
+// inside it: formatDate takes a plain 'YYYY-MM-DD' string and appends
+// 'T00:00:00' to force local-midnight parsing, which would corrupt a value
+// that already carries a time and an offset. These are two different inputs,
+// so they get two functions.
+//
+// Returns null — not a placeholder string — when there is no value, so each
+// caller can choose the wording the situation actually calls for ("Never" for
+// a sign-in that has not happened, "Not available" for data this system does
+// not hold). Inventing a date here is exactly the thing this module must not
+// do.
+export function formatDateTime(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+// Just the clock portion of an ISO timestamp, for the User Activity timeline
+// where the day is already the group heading.
+export function formatClockTime(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleTimeString('en-PH', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
