@@ -8,7 +8,9 @@ use App\Models\User;
 use Firebase\JWT\JWT;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Tests\TestCase;
 
 // Checkpoint 38 — the 'supabase.mfa' (EnsureSupabaseAal2) middleware has
@@ -173,19 +175,33 @@ class UserManagementTest extends TestCase
     // Account Administration — account creation (POST /api/users)
     // ===================================================================
 
+    /** A Supabase id that belongs to nothing else -- a genuinely new account. */
+    private const NEW_SUPABASE_ID = '11111111-2222-3333-4444-555555555555';
+
     /**
      * Stubs Supabase's Admin API. Two endpoints are involved in a create:
      * POST /auth/v1/admin/users (provisioning) and GET
      * /auth/v1/admin/users/{id} (the MFA-factor lookup UserResource does for
      * every serialized account).
+     *
+     * `$returnedId` exists so a test can make Supabase hand back an id that is
+     * ALREADY linked to another account -- the case that must never lead to a
+     * deletion.
+     *
+     * @param  array<string, mixed>  $errorPayload  body for a non-200 response
      */
-    private function fakeSupabaseAdmin(int $createStatus = 200): void
-    {
+    private function fakeSupabaseAdmin(
+        int $createStatus = 200,
+        ?string $returnedId = null,
+        array $errorPayload = []
+    ): void {
         config(['supabase.service_role_key' => 'test-only-service-role-key']);
 
         Http::fake([
             '*/auth/v1/admin/users' => Http::response(
-                $createStatus === 200 ? ['id' => '11111111-2222-3333-4444-555555555555'] : ['msg' => 'nope'],
+                $createStatus === 200
+                    ? ['id' => $returnedId ?? self::NEW_SUPABASE_ID]
+                    : ($errorPayload !== [] ? $errorPayload : ['msg' => 'nope']),
                 $createStatus
             ),
             '*/auth/v1/admin/users/*' => Http::response(['factors' => []], 200),
@@ -216,7 +232,7 @@ class UserManagementTest extends TestCase
         $this->assertNotNull($created);
         // The Supabase Auth half is what makes the account able to sign in at
         // all; a local row on its own would be a dead account.
-        $this->assertSame('11111111-2222-3333-4444-555555555555', $created->supabase_user_id);
+        $this->assertSame(self::NEW_SUPABASE_ID, $created->supabase_user_id);
         // No credential is ever stored on this side.
         $this->assertNull($created->password);
     }
@@ -305,17 +321,88 @@ class UserManagementTest extends TestCase
         $this->assertNull(User::where('username', 'escalated')->first());
     }
 
-    public function test_a_supabase_account_is_removed_again_when_the_local_row_cannot_be_saved(): void
+    public function test_a_newly_created_supabase_account_is_removed_again_when_the_local_row_cannot_be_saved(): void
     {
         $this->actingAdmin();
+
+        // The id handed back belongs to no other account, so it is genuinely
+        // this operation's to undo. That distinction is the whole point: an
+        // earlier version of this test forced the failure by making Supabase
+        // return an id an INCUMBENT account already held, and then asserted we
+        // deleted it -- specifying the destruction of an unrelated identity as
+        // correct behaviour. See the regression test directly below.
         $this->fakeSupabaseAdmin();
 
-        // Force the local save to fail AFTER Supabase has already provisioned
-        // the account: users.supabase_user_id is unique, and this existing row
-        // already holds the id the faked Admin API hands back.
-        User::factory()->create([
+        // Fail the local save after Supabase has provisioned the account.
+        // Scoped to this test's application instance, so no listener leaks.
+        Event::listen('eloquent.updating: '.User::class, function () {
+            throw new RuntimeException('simulated local failure after Supabase provisioning');
+        });
+
+        $this->postJson('/api/users', [
+            'fullName' => 'Maria Santos',
+            'username' => 'msantos',
+            'email' => 'msantos@example.com',
+            'role' => User::ROLE_ENCODER,
+        ])->assertStatus(422);
+
+        // Neither system keeps the half-made account.
+        $this->assertNull(User::where('username', 'msantos')->first());
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && str_contains($request->url(), '/admin/users/'.self::NEW_SUPABASE_ID));
+    }
+
+    /**
+     * Regression guard for the compensating delete.
+     *
+     * If Supabase ever answered a duplicate creation with 2xx and the EXISTING
+     * user's record instead of an error, the unique constraint on
+     * users.supabase_user_id would fail the local save and the compensation
+     * would delete that existing user's Supabase identity -- destroying a live
+     * account that this operation never created. The guard in
+     * UserController::store() clears the compensation id before throwing so
+     * that can never happen.
+     */
+    public function test_a_supabase_id_that_already_belongs_to_another_account_is_never_deleted(): void
+    {
+        $this->actingAdmin();
+
+        $incumbentId = '99999999-8888-7777-6666-555555555555';
+        $incumbent = User::factory()->create([
             'username' => 'incumbent',
-            'supabase_user_id' => '11111111-2222-3333-4444-555555555555',
+            'supabase_user_id' => $incumbentId,
+        ]);
+
+        // Supabase hands back the incumbent's identity rather than a new one.
+        $this->fakeSupabaseAdmin(200, $incumbentId);
+
+        $this->postJson('/api/users', [
+            'fullName' => 'Maria Santos',
+            'username' => 'msantos',
+            'email' => 'msantos@example.com',
+            'role' => User::ROLE_ENCODER,
+        ])->assertStatus(422);
+
+        // No half-made local account...
+        $this->assertNull(User::where('username', 'msantos')->first());
+
+        // ...and, the point of this test: nothing was deleted, and the
+        // incumbent's identity is exactly as it was.
+        Http::assertNotSent(fn ($request) => $request->method() === 'DELETE');
+        $this->assertSame($incumbentId, $incumbent->fresh()->supabase_user_id);
+        $this->assertDatabaseHas('users', ['id' => $incumbent->id, 'username' => 'incumbent']);
+    }
+
+    public function test_a_duplicate_is_recognised_from_the_supabase_error_code_not_only_the_status(): void
+    {
+        $this->actingAdmin();
+
+        // A status this code does not special-case (400), carrying Supabase's
+        // own duplicate error code. Supabase documents no HTTP status for
+        // email_exists, so the code is the signal that must be honoured.
+        $this->fakeSupabaseAdmin(400, null, [
+            'error_code' => 'email_exists',
+            'msg' => 'A user with this email address has already been registered',
         ]);
 
         $this->postJson('/api/users', [
@@ -323,12 +410,12 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
-        ]);
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'That email address is already registered in Supabase Auth.');
 
-        // Neither system keeps the half-made account.
         $this->assertNull(User::where('username', 'msantos')->first());
-        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
-            && str_contains($request->url(), '/admin/users/11111111-2222-3333-4444-555555555555'));
+        Http::assertNotSent(fn ($request) => $request->method() === 'DELETE');
     }
 
     public function test_the_generated_supabase_password_is_never_returned_to_the_caller(): void

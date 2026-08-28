@@ -117,6 +117,32 @@ class UserController extends Controller
 
                 $supabaseUserId = $supabaseAdmin->createUser($data['email']);
 
+                // The compensating delete below is only ever allowed to touch
+                // an identity THIS operation created. Supabase is expected to
+                // reject a duplicate rather than hand back the existing user,
+                // but that is an assumption about a third party's behaviour,
+                // and the consequence of it being wrong would be deleting a
+                // live account belonging to somebody else.
+                //
+                // So the returned id is checked against the accounts already
+                // linked here. If another account holds it, Supabase did not
+                // create it for us: the compensation id is cleared BEFORE
+                // throwing, which is what disarms the delete in the catch
+                // block. Clearing it is the load-bearing line -- without it,
+                // the unique constraint on users.supabase_user_id would make
+                // the save below fail and the catch would delete the other
+                // account's identity.
+                //
+                // (An id that no local account holds is left alone rather than
+                // deleted: it is either genuinely new, or an orphan for this
+                // same address, and adopting an orphan is recoverable while
+                // deleting one is not.)
+                if (User::where('supabase_user_id', $supabaseUserId)->exists()) {
+                    $supabaseUserId = null;
+
+                    throw new RuntimeException('That email address is already registered in Supabase Auth.');
+                }
+
                 $user->forceFill([
                     'supabase_user_id' => $supabaseUserId,
                     'email_verified_at' => now(),
@@ -133,6 +159,8 @@ class UserController extends Controller
             // The orphan would not be a privilege risk (it has no local
             // account, so SupabaseTokenValidator rejects its tokens and it can
             // never sign in) but it would be an unrecoverable dead end.
+            // Only ever non-null for an identity this operation created and
+            // that no other account is linked to -- see the guard above.
             if ($supabaseUserId !== null) {
                 $supabaseAdmin->deleteUser($supabaseUserId);
             }

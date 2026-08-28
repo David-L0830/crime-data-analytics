@@ -122,13 +122,25 @@ class SupabaseAdminService
             'email_confirm' => true,
         ]);
 
-        if ($response->status() === 422 || $response->status() === 409) {
-            // Supabase reports an already-registered address here. Surfaced
-            // as its own message because it is the one failure an
-            // administrator can actually act on (the address is already in
-            // Supabase Auth, e.g. from an account that was removed locally).
+        // Duplicate detection deliberately does NOT rest on the HTTP status
+        // alone. Supabase publishes `email_exists` and `user_already_exists`
+        // as error CODES, and documents no HTTP status for either -- its error
+        // registry lists a null httpStatusCode for every auth error -- so the
+        // status is the weaker of the two signals. Both are checked, and the
+        // code is preferred, so a duplicate is still recognised if Supabase
+        // reports it as 400 or anything else.
+        $errorCode = $response->json('error_code') ?? $response->json('code');
+
+        $isDuplicate = in_array($errorCode, ['email_exists', 'user_already_exists', 'phone_exists'], true)
+            || in_array($response->status(), [409, 422], true);
+
+        if ($isDuplicate) {
+            // The one failure an administrator can actually act on: the
+            // address is already in Supabase Auth, e.g. from an account that
+            // was removed locally.
             Log::warning('Supabase admin: refused to create user.', [
                 'status' => $response->status(),
+                'error_code' => is_string($errorCode) ? $errorCode : null,
             ]);
 
             throw new RuntimeException('That email address is already registered in Supabase Auth.');
