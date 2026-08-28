@@ -30,6 +30,23 @@ class StoreIncidentRequest extends FormRequest
             'victimGender' => ['nullable', 'string', 'max:20'],
             'suspectName' => ['nullable', 'string', 'max:150'],
             'suspectAge' => ['nullable', 'integer', 'min:0', 'max:120'],
+            'complainantIsVictim' => ['sometimes', 'boolean'],
+            // Required only when the complainant is NOT the victim: that is
+            // precisely the case where the record has to say who reported it,
+            // because the person named as victim did not. When the box is
+            // ticked these are ignored and cleared server-side (see
+            // IncidentController::mapToColumns).
+            'complainantName' => ['nullable', 'required_if:complainantIsVictim,false', 'string', 'max:150'],
+            'complainantRelationship' => ['nullable', 'string', 'max:100'],
+            'complainantContact' => ['nullable', 'string', 'max:50'],
+            'complainantAddress' => ['nullable', 'string', 'max:255'],
+            // Structured evidence. `evidenceItems` absent entirely means
+            // "leave evidence alone"; an empty array means "this case has no
+            // evidence" - the two are not the same and the controller
+            // distinguishes them.
+            'evidenceItems' => ['sometimes', 'array', 'max:50'],
+            'evidenceItems.*.evidenceId' => ['nullable', 'string', 'max:50'],
+            'evidenceItems.*.description' => ['nullable', 'string', 'max:2000'],
             'reportingOfficer' => ['nullable', 'string', 'max:100'],
             'investigatingOfficer' => ['nullable', 'string', 'max:100'],
             'badgeNumber' => ['nullable', 'string', 'max:50'],
@@ -45,6 +62,7 @@ class StoreIncidentRequest extends FormRequest
     {
         return [
             'caseNumber.unique' => 'Case number already exists.',
+            'complainantName.required_if' => 'Complainant full name is required when the complainant is not the victim.',
         ];
     }
 }

@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreVictimRequest;
 use App\Http\Requests\UpdateVictimRequest;
 use App\Http\Resources\VictimResource;
+use App\Models\AppNotification;
 use App\Models\AuditLog;
+use App\Models\User;
 use App\Models\Victim;
 use Illuminate\Http\Request;
 
@@ -52,6 +54,20 @@ class VictimController extends Controller
             'target_type' => 'victim',
             'description' => "Added victim record {$victim->full_name}",
             'ip_address' => $request->ip(),
+        ]);
+
+        // Same treatment as a new criminal record - see CriminalController.
+        AppNotification::create([
+            'title' => 'New Victim Record',
+            'message' => "Victim record {$victim->victim_code} ({$victim->full_name}) was added.",
+            'type' => 'info',
+            'read' => false,
+            // Records are an Administrator / BADAC module; Encoder has no
+            // access to it, so this announcement is not addressed to them.
+            'audience_roles' => AppNotification::audienceFor([
+                User::ROLE_BADAC_ADMIN,
+                User::ROLE_BADAC_READONLY,
+            ]),
         ]);
 
         // fresh() before load() for the same reason as the other two

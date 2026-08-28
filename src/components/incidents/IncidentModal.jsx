@@ -8,6 +8,25 @@ import { useToast } from '../../hooks/useToast';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
 
+// The complainant is whoever filed the report. Usually that is the victim
+// themselves, which is what complainantIsVictim records; when it is not, the
+// separate person's name is what should be shown.
+function complainantSummary(r) {
+  if (r.complainantIsVictim !== false) {
+    return r.victimName ? `${r.victimName} (same as victim)` : 'Same as victim';
+  }
+  return r.complainantName || '';
+}
+
+// Evidence is a list of { evidenceId, description } records. Flattened to one
+// line per item for the single-cell contexts (a spreadsheet row) that cannot
+// hold a list.
+function evidenceSummary(r) {
+  const items = r.evidenceItems || [];
+  if (!items.length) return '';
+  return items.map((e) => `${e.evidenceId}: ${e.description}`).join('\n');
+}
+
 export function IncidentViewModal({
   incident,
   onClose,
@@ -51,8 +70,21 @@ export function IncidentViewModal({
       ['Investigating Officer', r.investigatingOfficer],
       ['Badge Number', r.badgeNumber],
       ['Unit', r.unit],
+      ['Complainant', complainantSummary(r)],
+      [
+        'Complainant Relationship to Victim',
+        r.complainantIsVictim ? 'Same person' : r.complainantRelationship,
+      ],
+      [
+        'Complainant Contact Number',
+        r.complainantIsVictim ? '' : r.complainantContact,
+      ],
+      [
+        'Complainant Address',
+        r.complainantIsVictim ? '' : r.complainantAddress,
+      ],
       ['Description', r.description],
-      ['Evidence', r.evidence],
+      ['Evidence', evidenceSummary(r)],
     ].map(([field, value]) => ({
       field,
       value:
@@ -174,6 +206,34 @@ export function IncidentViewModal({
             style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
           />
           <div>
+            <strong>Complainant:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantName || '—'
+              : 'Same as victim'}
+          </div>
+          <div>
+            <strong>Relationship to Victim:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantRelationship || '—'
+              : '—'}
+          </div>
+          <div>
+            <strong>Complainant Contact:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantContact || '—'
+              : '—'}
+          </div>
+          <div>
+            <strong>Complainant Address:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantAddress || '—'
+              : '—'}
+          </div>
+          <div
+            className="full"
+            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+          />
+          <div>
             <strong>Suspect Name:</strong> {r.suspectName || '—'}
           </div>
           <div>
@@ -204,7 +264,20 @@ export function IncidentViewModal({
             <strong>Description:</strong> {r.description || '—'}
           </div>
           <div className="full">
-            <strong>Evidence:</strong> {r.evidence || '—'}
+            <strong>Evidence:</strong>{' '}
+            {r.evidenceItems && r.evidenceItems.length ? (
+              <ul className="evidence-view-list">
+                {r.evidenceItems.map((e) => (
+                  <li key={e.id || e.evidenceId}>
+                    <strong>{e.evidenceId}</strong> — {e.description}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              /* Falls back to the legacy single-string column for any record
+                 whose evidence has not been migrated into structured items. */
+              r.evidence || '—'
+            )}
           </div>
           <div className="full">
             <strong>Synced At:</strong>{' '}
@@ -237,7 +310,16 @@ const emptyForm = {
   badgeNumber: '',
   unit: '',
   description: '',
-  evidence: '',
+  // Defaults to "the complainant is the victim" because that is the ordinary
+  // case; the separate-complainant fields only appear when it is unticked.
+  complainantIsVictim: true,
+  complainantName: '',
+  complainantRelationship: '',
+  complainantContact: '',
+  complainantAddress: '',
+  // One blank row so the fields are visible rather than hidden behind an "add"
+  // button; a row left entirely blank is discarded on save.
+  evidenceItems: [{ evidenceId: '', description: '' }],
 };
 
 // Shared form body for both create and edit — keeps the two modals visually
@@ -247,11 +329,42 @@ const emptyForm = {
 function IncidentFormFields({
   form,
   set,
+  setValue,
   crimeTypes,
   categories,
   sitios,
   statuses,
 }) {
+  const evidenceItems = form.evidenceItems?.length
+    ? form.evidenceItems
+    : [{ evidenceId: '', description: '' }];
+
+  const setEvidence = (index, key) => (e) => {
+    const value = e.target.value;
+    setValue(
+      'evidenceItems',
+      evidenceItems.map((item, i) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
+    );
+  };
+
+  const addEvidenceRow = () =>
+    setValue('evidenceItems', [
+      ...evidenceItems,
+      { evidenceId: '', description: '' },
+    ]);
+
+  const removeEvidenceRow = (index) =>
+    setValue(
+      'evidenceItems',
+      // Never leave zero rows — an empty list with no visible field would look
+      // like the section had disappeared. The last row is cleared instead.
+      evidenceItems.length > 1
+        ? evidenceItems.filter((_, i) => i !== index)
+        : [{ evidenceId: '', description: '' }],
+    );
+
   return (
     <div className="form-grid">
       <div className="form-group">
@@ -388,6 +501,58 @@ function IncidentFormFields({
         <label>Unit</label>
         <input value={form.unit} onChange={set('unit')} />
       </div>
+      {/* Complainant — who actually filed the report. Kept immediately after
+          the victim fields because the question it answers ("was it this
+          person who reported it?") is about them. */}
+      <div className="form-group full">
+        <label className="form-check">
+          <input
+            type="checkbox"
+            checked={form.complainantIsVictim !== false}
+            onChange={(e) => setValue('complainantIsVictim', e.target.checked)}
+          />
+          <span>Is the complainant the same person as the victim?</span>
+        </label>
+        <p className="form-hint">
+          Untick when someone else filed the report — for example when the
+          victim is hospitalised, a minor, or otherwise unable to report.
+        </p>
+      </div>
+
+      {form.complainantIsVictim === false && (
+        <>
+          <div className="form-group">
+            <label>Complainant Full Name *</label>
+            <input
+              value={form.complainantName}
+              onChange={set('complainantName')}
+            />
+          </div>
+          <div className="form-group">
+            <label>Relationship to Victim</label>
+            <input
+              value={form.complainantRelationship}
+              onChange={set('complainantRelationship')}
+              placeholder="e.g. Mother"
+            />
+          </div>
+          <div className="form-group">
+            <label>Complainant Contact Number</label>
+            <input
+              value={form.complainantContact}
+              onChange={set('complainantContact')}
+            />
+          </div>
+          <div className="form-group">
+            <label>Complainant Address</label>
+            <input
+              value={form.complainantAddress}
+              onChange={set('complainantAddress')}
+            />
+          </div>
+        </>
+      )}
+
       <div className="form-group full">
         <label>Description</label>
         <textarea
@@ -396,9 +561,51 @@ function IncidentFormFields({
           onChange={set('description')}
         />
       </div>
+
+      {/* Evidence — a repeatable Evidence ID + Description, replacing the
+          single free-text box this used to be. Leaving the ID blank is fine:
+          the server numbers the item (EV-001, EV-002, ...) so every piece of
+          evidence has a reference that can be cited. */}
       <div className="form-group full">
         <label>Evidence</label>
-        <input value={form.evidence} onChange={set('evidence')} />
+        <div className="evidence-rows">
+          {evidenceItems.map((item, index) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <div className="evidence-row" key={index}>
+              <input
+                className="evidence-row-id"
+                value={item.evidenceId}
+                onChange={setEvidence(index, 'evidenceId')}
+                placeholder="EV-001"
+                aria-label={`Evidence ID ${index + 1}`}
+              />
+              <input
+                className="evidence-row-desc"
+                value={item.description}
+                onChange={setEvidence(index, 'description')}
+                placeholder="e.g. CCTV footage from the entrance of the residence"
+                aria-label={`Evidence description ${index + 1}`}
+              />
+              <button
+                type="button"
+                className="evidence-row-remove"
+                onClick={() => removeEvidenceRow(index)}
+                aria-label={`Remove evidence item ${index + 1}`}
+                title="Remove this evidence item"
+              >
+                <Icons.Close size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={addEvidenceRow}
+        >
+          <Icons.Plus size={14} strokeWidth={2} /> Add Evidence Item
+        </Button>
       </div>
     </div>
   );
@@ -443,6 +650,10 @@ export function IncidentCreateModal({
     });
   };
 
+  // Companion to `set` above for the fields that are not <input value> ->
+  // string: the "complainant is the victim" checkbox, and the evidence list.
+  const setValue = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
@@ -453,6 +664,12 @@ export function IncidentCreateModal({
       latitude: form.latitude ? parseFloat(form.latitude) : null,
       longitude: form.longitude ? parseFloat(form.longitude) : null,
       status: form.status || 'Open',
+      // Blank rows are dropped here as well as server-side, so a record saved
+      // with the default empty row does not travel with a meaningless item.
+      evidenceItems: (form.evidenceItems || []).filter(
+        (item) =>
+          item.evidenceId.trim() !== '' || item.description.trim() !== '',
+      ),
     };
     const validationErrors = validate(data);
     if (validationErrors.length) {
@@ -482,6 +699,7 @@ export function IncidentCreateModal({
         <IncidentFormFields
           form={form}
           set={set}
+          setValue={setValue}
           crimeTypes={crimeTypes}
           categories={categories}
           sitios={sitios}
@@ -541,7 +759,30 @@ export function IncidentEditModal({
         badgeNumber: incident.badgeNumber || '',
         unit: incident.unit || '',
         description: incident.description || '',
-        evidence: incident.evidence || '',
+        // `!== false` rather than a plain truthiness check: an incident saved
+        // before this feature has no value at all, and the correct reading of
+        // such a record is that it names one victim and no separate
+        // complainant.
+        complainantIsVictim: incident.complainantIsVictim !== false,
+        complainantName: incident.complainantName || '',
+        complainantRelationship: incident.complainantRelationship || '',
+        complainantContact: incident.complainantContact || '',
+        complainantAddress: incident.complainantAddress || '',
+        evidenceItems:
+          incident.evidenceItems && incident.evidenceItems.length
+            ? incident.evidenceItems.map((e) => ({
+                evidenceId: e.evidenceId || '',
+                description: e.description || '',
+              }))
+            : // A record whose evidence is still the legacy free-text string
+              // opens with that text as the first item's description, so
+              // editing preserves it instead of quietly discarding it.
+              [
+                {
+                  evidenceId: incident.evidence ? 'EV-001' : '',
+                  description: incident.evidence || '',
+                },
+              ],
       });
       setErrors([]);
       setSubmitting(false);
@@ -558,6 +799,10 @@ export function IncidentEditModal({
     });
   };
 
+  // Companion to `set` above for the fields that are not <input value> ->
+  // string: the "complainant is the victim" checkbox, and the evidence list.
+  const setValue = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
@@ -569,6 +814,12 @@ export function IncidentEditModal({
       longitude: form.longitude
         ? parseFloat(form.longitude)
         : incident.longitude,
+      // Blank rows are dropped here as well as server-side, so a record saved
+      // with the default empty row does not travel with a meaningless item.
+      evidenceItems: (form.evidenceItems || []).filter(
+        (item) =>
+          item.evidenceId.trim() !== '' || item.description.trim() !== '',
+      ),
     };
     const validationErrors = validate(data, incident?.id);
     if (validationErrors.length) {
@@ -605,6 +856,7 @@ export function IncidentEditModal({
         <IncidentFormFields
           form={form}
           set={set}
+          setValue={setValue}
           crimeTypes={crimeTypes}
           categories={categories}
           sitios={sitios}

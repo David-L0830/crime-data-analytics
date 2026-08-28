@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CrimeTypeController;
 use App\Http\Controllers\Api\CriminalController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\IncidentController;
@@ -78,6 +79,21 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
 // GET /notifications — shared by every role (Encoder still needs to see
 // their own incident notifications in the topbar).
 Route::middleware('auth:supabase')->get('/notifications', [NotificationController::class, 'index']);
+
+// GET /crime-types — readable by EVERY authenticated role, unlike /settings.
+// This is not administrative configuration in the way thresholds are: it is
+// the vocabulary the incident form, the FilterBar and the Crime Mapping legend
+// are built out of, and BADAC (read-only) uses all three. The colour travels
+// with the name because the map legend is meaningless without it.
+Route::middleware('auth:supabase')->get('/crime-types', [CrimeTypeController::class, 'index']);
+
+// POST/PUT /crime-types — Administrator only, and enforced HERE rather than by
+// hiding System Settings in the UI. A non-admin who calls this endpoint
+// directly gets a 403 from the role: middleware before the controller runs.
+Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+    Route::post('/crime-types', [CrimeTypeController::class, 'store']);
+    Route::put('/crime-types/{crimeType}', [CrimeTypeController::class, 'update']);
+});
 
 // Incidents (Crime Data Collection Module) — read side. Not role-restricted
 // (Administrator, Encoder, and Badac all read these); per-record ownership

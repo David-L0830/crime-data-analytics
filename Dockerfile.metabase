@@ -1,0 +1,102 @@
+# Metabase, with the embed stylesheet patched so dark-mode embeds use this
+# application's own card and border colours instead of Metabase's navy.
+#
+# WHY THIS EXISTS
+# ---------------
+# Metabase couples a dashcard's background and its border in a single rule:
+#
+#     .nTmk6 { border: 0 !important; background: transparent !important; }
+#
+# so the supported `"dashcard.background": false` setting removes BOTH, leaving
+# the charts as one flat canvas with no separation. The two properties come
+# from separate tokens —
+#
+#     .pBz7J { background-color: var(--mb-color-bg-dashboard-card); }
+#     .IUJkJ { border: 1px solid var(--mb-color-border-neutral); }
+#
+# — but on this Metabase OSS build there is no supported channel to set them:
+# the SDK theme requires `embedding_sdk`, and `application-colors` is gated on
+# `whitelabel`. Both report false on this instance, and a probe confirmed the
+# whitelabel setting does not persist. Patching the stylesheet is what is left.
+#
+# WHICH TOKENS AND WHY
+# --------------------
+# Four, not two. The first pass overrode only the card tokens and the cards did
+# turn the right colour - but the navy remained, because the surface BEHIND and
+# BETWEEN the cards is painted separately by <body class="mb-wrapper"> from
+# --mb-color-bg-dashboard / --mb-color-background_page-primary
+# (hsla(204,66%,8%,1), hue 204 = navy). That body covers the whole viewport, so
+# it is most of what the eye reads as "the dashboard", and overriding the cards
+# alone left the larger area untouched.
+#
+#   --mb-color-bg-dashboard-card       the chart card fill      (.pBz7J)
+#   --mb-color-border-neutral          the chart card border    (.IUJkJ)
+#   --mb-color-bg-dashboard            the surface behind cards (body.mb-wrapper)
+#   --mb-color-background_page-primary what bg-dashboard resolves from
+#
+# The last two are pinned even though `background=false` is supposed to make
+# that surface transparent: an iframe render and a top-level render of the SAME
+# signed URL disagreed about whether it did, so the colour is set outright
+# rather than left depending on which behaviour applies.
+#
+# WHY THIS IS NARROWLY SCOPED
+# ---------------------------
+# Metabase ships three separate stylesheets. Only app-embed.css is touched:
+#
+#     app-embed.css   the signed embeds this application renders  <- patched
+#     app-main.css    the Metabase admin and dashboard editor UI  <- untouched
+#     app-public.css  public sharing links                        <- untouched
+#
+# The rule is additionally scoped to html[data-metabase-theme="night"]. The
+# embed sets that attribute to the raw theme value from the URL fragment, which
+# was verified against the live rendered DOM:
+#
+#     dark : <html ... data-mantine-color-scheme="dark"  data-metabase-theme="night">
+#     light: <html ... data-mantine-color-scheme="light" data-metabase-theme="transparent">
+#
+# Light mode sends `theme=transparent`, so the selector cannot match it. The
+# `html[...]` selector is specificity (0,1,1), which outranks the runtime
+# injected `:root` (0,1,0) that defines these tokens, so no !important is
+# needed and the override wins regardless of injection order.
+#
+# WHY ALL THREE FILE VARIANTS ARE REWRITTEN
+# -----------------------------------------
+# The JAR carries app-embed.css alongside pre-compressed .gz and .br copies,
+# and Metabase serves whichever the browser's Accept-Encoding asks for — in
+# practice always brotli or gzip. Patching only the plain .css would have no
+# visible effect at all. The Metabase image has neither `zip` nor `brotli`,
+# which is why the patching happens in an Alpine builder stage.
+#
+# MAINTENANCE
+# -----------
+# This image must be rebuilt after every Metabase upgrade. The stylesheet's
+# filename hash is discovered at build time rather than hard-coded, so a
+# version bump should only need the two FROM lines changed. The two CSS custom
+# properties are Metabase internals rather than a public API; if a future
+# version renames them the symptom is the navy returning, not a breakage.
+
+FROM alpine:3.20 AS patcher
+
+RUN apk add --no-cache zip unzip gzip brotli
+
+COPY --from=metabase/metabase:v0.63.14 /app/metabase.jar /work/metabase.jar
+
+WORKDIR /work
+
+RUN set -eux; \
+    CSS=$(unzip -l metabase.jar | awk '{print $4}' \
+          | grep -E '^frontend_client/app/dist/app-embed\.[a-z0-9]+\.css$'); \
+    test -n "$CSS"; \
+    echo "patching: $CSS"; \
+    unzip -o metabase.jar "$CSS"; \
+    printf '\nhtml[data-metabase-theme="night"]{--mb-color-bg-dashboard-card:#1b221a;--mb-color-border-neutral:#2c362c;--mb-color-bg-dashboard:#1b221a;--mb-color-background_page-primary:#1b221a;}\n' >> "$CSS"; \
+    gzip -9 -kf "$CSS"; \
+    brotli -f -q 11 "$CSS"; \
+    zip metabase.jar "$CSS" "$CSS.gz" "$CSS.br"; \
+    echo "--- verifying the rule is present in the plain stylesheet ---"; \
+    tail -c 200 "$CSS"; \
+    grep -c 'data-metabase-theme="night"' "$CSS"
+
+FROM metabase/metabase:v0.63.14
+
+COPY --from=patcher /work/metabase.jar /app/metabase.jar

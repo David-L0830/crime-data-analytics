@@ -14,7 +14,10 @@ class NotificationResource extends JsonResource
             'title' => $this->title,
             'message' => $this->message,
             'type' => $this->type,
-            'read' => (bool) $this->read,
+            // Per-user, not the shared column: `read` answers "has the
+            // signed-in user read this", which is what the bell count and the
+            // unread styling in the dropdown are asserting.
+            'read' => $this->isReadBy($request->user()?->id),
             'timestamp' => $this->created_at->toIso8601String(),
         ];
     }

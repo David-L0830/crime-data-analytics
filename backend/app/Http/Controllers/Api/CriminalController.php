@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCriminalRequest;
 use App\Http\Requests\UpdateCriminalRequest;
 use App\Http\Resources\CriminalResource;
+use App\Models\AppNotification;
 use App\Models\AuditLog;
 use App\Models\Criminal;
 use App\Models\Incident;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class CriminalController extends Controller
@@ -66,6 +68,23 @@ class CriminalController extends Controller
             'target_type' => 'criminal',
             'description' => "Added criminal record {$criminal->full_name}",
             'ip_address' => $request->ip(),
+        ]);
+
+        // Announced through the same topbar bell as incidents. The message is
+        // built from the row that was just written, so it can never disagree
+        // with the database. No personal detail beyond the record's own
+        // identifier and name, which is what the Records module shows anyway.
+        AppNotification::create([
+            'title' => 'New Criminal Record',
+            'message' => "Criminal record {$criminal->criminal_code} ({$criminal->full_name}) was added.",
+            'type' => 'info',
+            'read' => false,
+            // Records are an Administrator / BADAC module; Encoder has no
+            // access to it, so this announcement is not addressed to them.
+            'audience_roles' => AppNotification::audienceFor([
+                User::ROLE_BADAC_ADMIN,
+                User::ROLE_BADAC_READONLY,
+            ]),
         ]);
 
         // fresh() before load() so the database-applied default for

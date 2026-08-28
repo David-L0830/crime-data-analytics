@@ -50,7 +50,7 @@ Generated from the current source code and verified against `php artisan route:l
 
 ## Endpoint Summary Table
 
-Populated from `php artisan route:list`. **38 API routes**, plus two application routes.
+Populated from `php artisan route:list`. **47 API routes**, plus two application routes.
 
 | Method | Endpoint | Authentication | Purpose |
 |---|---|---|---|
@@ -87,11 +87,18 @@ Populated from `php artisan route:list`. **38 API routes**, plus two application
 | PUT | `/api/notifications/{notification}/read` | Authenticated | Mark one as read |
 | GET | `/api/settings` | admin | Read barangay settings |
 | PUT | `/api/settings` | admin | Update barangay settings |
+| GET | `/api/crime-types` | Authenticated | List crime types and their map colours |
+| POST | `/api/crime-types` | admin | Add a crime type (colour assigned automatically) |
+| PUT | `/api/crime-types/{crimeType}` | admin | Rename, recolour or enable/disable a crime type |
 | GET | `/api/users` | admin | List user accounts |
 | GET | `/api/users/{user}` | admin | Single user account |
 | PUT | `/api/users/{user}` | admin | Update account details |
 | PUT | `/api/users/{user}/status` | admin | Activate / deactivate an account |
+| POST | `/api/users` | admin | Create an account (Supabase Auth + local row) |
+| GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
+| POST | `/api/users/{user}/password-reset-audit` | admin | Record that a reset email was sent |
 | POST | `/api/users/{user}/two-factor/disable` | admin | Remove another user's MFA factors |
+| GET | `/api/role-permissions` | admin | Role/module access, read from route middleware |
 | GET | `/api/audit-logs` | admin | Recent audit trail (max 200) |
 | GET | `/api/sync-logs` | admin | Data import history |
 
@@ -719,6 +726,11 @@ A `503` means `METABASE_SITE_URL`, the embedding secret, or the dashboard ID is 
 
 **Purpose** — lists in-app notifications, newest first. Notifications titled *"Backup Reminder"* are excluded.
 
+Two scoping rules apply, both relative to the authenticated caller:
+
+- **Audience.** A notification may name the roles it is for (`app_notifications.audience_roles`). A notification with no audience reaches every role; one addressed to specific roles is omitted for everybody else. Incident announcements have no audience; the *"New Criminal Record"* / *"New Victim Record"* announcements are addressed to **admin** and **badac** only, since Encoder has no Records access.
+- **Read state is per-user.** `read` answers *"has this user read it"*, resolved from the `notification_reads` table, not from a shared column. One account marking a notification read has no effect on another account's unread count. The legacy `app_notifications.read` column is still honoured as a global "read by everyone" flag so notifications dismissed before per-user tracking existed do not reappear.
+
 **Authentication** — Authenticated.
 
 **Response** — `200 OK`
@@ -740,13 +752,13 @@ A `503` means `METABASE_SITE_URL`, the embedding secret, or the dashboard ID is 
 
 ### PUT `/api/notifications/{notification}/read`
 
-**Purpose** — marks one notification as read. Returns the updated notification.
+**Purpose** — marks one notification as read **for the calling user**. Idempotent: calling it twice is not an error. Returns the updated notification.
 
 **Authentication** — Authenticated.
 
 ### PUT `/api/notifications/read-all`
 
-**Purpose** — marks all unread notifications as read. An optional `title` query parameter limits this to notifications with that exact title.
+**Purpose** — marks every notification currently unread **for the calling user** as read. An optional `title` query parameter limits this to notifications with that exact title. Notifications outside the caller's role audience are never touched.
 
 **Authentication** — Authenticated.
 
@@ -782,9 +794,148 @@ All routes in this group require the **admin** role.
 
 **Status codes** — `200`, `401`, `403`, `422`
 
+### GET `/api/crime-types`
+
+**Purpose** — the configurable crime-type vocabulary and the map colour bound to each type. This drives the incident form's Crime Type list, every crime-type filter, and the Crime Mapping legend and marker colours.
+
+**Authentication** — Authenticated (**every** role, unlike the rest of this section — the read is not administrative, it is the vocabulary the app is built from).
+
+**Response** — `200 OK`
+
+```json
+{
+  "data": [
+    { "id": "3", "name": "Assault", "color": "#2563EB", "isActive": true },
+    { "id": "1", "name": "Theft", "color": "#EA580C", "isActive": true }
+  ]
+}
+```
+
+### POST `/api/crime-types`
+
+**Purpose** — add a crime type. **`color` is optional**: when omitted the server assigns one from a curated palette, skipping every colour already in use, and falling back to a colour derived deterministically from the name once the palette is exhausted. The assigned colour is stored on the row and never recomputed, so it stays stable across refreshes, sessions, users and machines. Adding a crime type never alters an existing one's colour.
+
+**Authentication** — **admin**.
+
+| Field | Type | Rules |
+|---|---|---|
+| `name` | string | required, `max:100`, unique |
+| `color` | string | optional, `#RRGGBB` |
+| `isActive` | boolean | optional, defaults `true` |
+
+**Response** — `201 Created`, the crime type. Writes an `audit_logs` row.
+
+**Status codes** — `201`, `401`, `403`, `422`
+
+### PUT `/api/crime-types/{crimeType}`
+
+**Purpose** — rename, recolour, or enable/disable a crime type. Disabling removes it from the pickers for new records; incidents that already use it keep their crime type and its colour on the map.
+
+**Authentication** — **admin**.
+
+**Response** — `200 OK`, the crime type. Writes an `audit_logs` row naming the before/after colour when the colour changed.
+
+**Status codes** — `200`, `401`, `403`, `422`
+
 ### GET `/api/users` · GET `/api/users/{user}`
 
 **Purpose** — list or read user accounts. Returns `UserResource` objects.
+
+`UserResource` includes `createdAt` and `lastLoginAt`, both ISO-8601 or `null`.
+`lastLoginAt` is **derived from the audit trail** — the newest `LOGIN` row for
+that account (written by `AuthController::recordLoginIfFreshSignIn()`), loaded
+as a single `withMax` aggregate rather than one query per row. There is no
+`users.last_login` column and no second write path; `null` means the account
+has no `LOGIN` row, which the UI renders as *Never*.
+
+### POST `/api/users`
+
+**Purpose** — administrator-provisioned account creation. Writes **both**
+halves of an account or neither: the Supabase Auth identity (via the Admin API
+with the service-role key, server-side only) and the local `users` row. A local
+row on its own could never authenticate.
+
+**Failure is symmetric in both directions**, which matters because the two
+systems cannot share a transaction:
+
+- If Supabase refuses, the database transaction rolls back and no local row
+  survives.
+- If Supabase succeeds but the local row then cannot be saved or committed, the
+  newly created Supabase Auth user is **deleted again** before the error is
+  returned. Without that compensation the address would be permanently taken in
+  Supabase Auth while no local account existed, so every retry would fail with
+  *"already registered"* and the administrator would have no way forward. (Such
+  an orphan would not be a privilege risk — with no local row,
+  `SupabaseTokenValidator` rejects its tokens and it can never sign in — but it
+  would be an unrecoverable dead end.)
+
+Validated by `StoreUserRequest`.
+
+| Field | Type | Required |
+|---|---|---|
+| `fullName` | string, max 150 | **yes** |
+| `username` | string, max 50, unique | **yes** |
+| `email` | string, valid email, unique | **yes** |
+| `role` | `badac_admin` \| `encoder` \| `badac_readonly` | **yes** |
+| `isActive` | boolean (default `true`) | no |
+
+**No password field exists, and none can.** Supabase Auth owns every
+credential; the account is provisioned with a random value that is never
+returned, logged, or stored, and the new user sets their own password from the
+Supabase recovery email the administrator sends afterwards.
+
+`role` **is** accepted here, unlike `PUT /api/users/{user}` — choosing the role
+of an account that does not exist yet is provisioning; changing the role of a
+live account is privilege escalation, and remains unsupported.
+
+**Response** — `201 Created`, the new `UserResource`. Writes a `CREATE` audit row.
+
+**Status codes**
+
+| Code | Condition |
+|---|---|
+| `201` | Created in both systems |
+| `401` | No valid Supabase access token |
+| `403` | Caller is authenticated but is not an administrator |
+| `422` | Validation failed, the email already exists in Supabase Auth, the Admin API refused, or `SUPABASE_SERVICE_ROLE_KEY` is not configured |
+| `500` | A genuine server fault (e.g. the database). Deliberately **not** flattened into a `422`, so it is logged and reported as the fault it is rather than as bad input from the administrator. Any Supabase account created during the attempt is removed first. |
+
+### GET `/api/users/{user}/activity`
+
+**Purpose** — the selected account's own audit trail, for the User Activity
+view. Returns `AuditLogResource` objects.
+
+**Bounded by design** — hard-capped at the **50 most recent** rows, newest
+first. The cap is in the query, not the UI, so the endpoint can never return an
+unbounded history however long an account has been in use.
+
+`AuditLogResource` exposes `id`, `timestamp`, `performedBy`, `role`, `action`,
+`targetType` and `details`. It deliberately does **not** expose
+`audit_logs.ip_address`, so this endpoint reveals nothing about an account
+beyond the audited actions the Audit Logs module already shows an
+administrator.
+
+This reuses `audit_logs` — there is no second activity store. Scoping happens
+in the query, not in the browser, because `GET /api/audit-logs` returns only
+the 200 most recent rows system-wide and a quiet account's history would
+otherwise disappear behind a busy week of someone else's.
+
+Reading it writes a `VIEW` audit row: inspecting another person's activity is
+itself an administrative act.
+
+### POST `/api/users/{user}/password-reset-audit`
+
+**Purpose** — records that an administrator sent this account a password-reset
+email. It is named for exactly what it does: **it does not send the email** and
+never touches a credential.
+
+Supabase sends the email, requested from the browser via
+`supabase.auth.resetPasswordForEmail()` — the same mechanism the public Forgot
+Password page uses. The frontend calls this endpoint only after that call has
+succeeded, so the trail never records a reset that did not happen. No token,
+link, or password passes through this backend.
+
+**Response** — `200 OK`, `{ "message": "Password reset recorded." }`
 
 ### PUT `/api/users/{user}`
 
@@ -815,6 +966,41 @@ All routes in this group require the **admin** role.
 | `200` | Factors removed |
 | `422` | The account has never signed in via Supabase, or has no MFA enabled |
 | `502` | Supabase could not be reached, or the service-role key is not configured |
+
+### GET `/api/role-permissions`
+
+**Purpose** — which roles each module's endpoints actually admit.
+
+This **declares nothing**. It walks Laravel's own registered route table, reads
+the `role:` (`EnsureRole`) middleware attached to each route in
+`routes/api.php`, and groups the result by module — so it cannot drift from
+enforcement, because the middleware is its input. A route that is authenticated
+but carries no `role:` middleware admits every role, which is what the absence
+of `EnsureRole` means.
+
+Per role, per module: `full` (may read and write), `view` (read only), `none`.
+
+**Response** — `200 OK`
+
+```json
+{
+  "data": {
+    "roles": [{ "key": "badac_admin", "label": "Administrator" }],
+    "modules": [
+      {
+        "id": "user-management",
+        "label": "User Management",
+        "access": { "badac_admin": "full", "encoder": "none", "badac_readonly": "none" },
+        "endpoints": ["GET /api/users", "POST /api/users"]
+      }
+    ]
+  }
+}
+```
+
+Admin-only, deliberately: a precise map of who may reach what is reconnaissance
+for anyone who should not have it. The UI that renders this grants nothing —
+server-side authorization decides every request independently.
 
 ### GET `/api/audit-logs`
 
@@ -1037,7 +1223,8 @@ Supabase PostgreSQL          Supabase PostgreSQL          Supabase PostgreSQL
 | `/api/settings` | `settings` (read/write); writes `audit_logs` |
 | `/api/audit-logs` | `audit_logs` (read, with the related user) |
 | `/api/sync-logs` | `sync_logs` (read) |
-| `/api/notifications/*` | `app_notifications` (read/write) |
+| `/api/notifications/*` | `app_notifications` (read), `notification_reads` (read/write) |
+| `/api/crime-types` | `crime_types` (read/write); writes `audit_logs` |
 | `/api/embed/metabase/*` | **No database access** — signs a URL only |
 
 **Archiving, not deleting.** Incidents, criminals, and victims are archived by setting `status = 'Archived'`. Rows are retained for audit purposes and excluded from statistics.
@@ -1185,138 +1372,3 @@ In production, use Render's log stream. On a healthy boot it shows four `[entryp
 ---
 
 *Generated from the current source code and verified against `php artisan route:list` and the live production API.*
-| POST | `/api/users` | admin | Create an account (Supabase Auth + local row) |
-| GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
-| POST | `/api/users/{user}/password-reset-audit` | admin | Record that a reset email was sent |
-| GET | `/api/role-permissions` | admin | Role/module access, read from route middleware |
-`UserResource` includes `createdAt` and `lastLoginAt`, both ISO-8601 or `null`.
-`lastLoginAt` is **derived from the audit trail** — the newest `LOGIN` row for
-that account (written by `AuthController::recordLoginIfFreshSignIn()`), loaded
-as a single `withMax` aggregate rather than one query per row. There is no
-`users.last_login` column and no second write path; `null` means the account
-has no `LOGIN` row, which the UI renders as *Never*.
-
-### POST `/api/users`
-
-**Purpose** — administrator-provisioned account creation. Writes **both**
-halves of an account or neither: the Supabase Auth identity (via the Admin API
-with the service-role key, server-side only) and the local `users` row. A local
-row on its own could never authenticate.
-
-**Failure is symmetric in both directions**, which matters because the two
-systems cannot share a transaction:
-
-- If Supabase refuses, the database transaction rolls back and no local row
-  survives.
-- If Supabase succeeds but the local row then cannot be saved or committed, the
-  newly created Supabase Auth user is **deleted again** before the error is
-  returned. Without that compensation the address would be permanently taken in
-  Supabase Auth while no local account existed, so every retry would fail with
-  *"already registered"* and the administrator would have no way forward. (Such
-  an orphan would not be a privilege risk — with no local row,
-  `SupabaseTokenValidator` rejects its tokens and it can never sign in — but it
-  would be an unrecoverable dead end.)
-
-Validated by `StoreUserRequest`.
-
-| Field | Type | Required |
-|---|---|---|
-| `fullName` | string, max 150 | **yes** |
-| `username` | string, max 50, unique | **yes** |
-| `email` | string, valid email, unique | **yes** |
-| `role` | `badac_admin` \| `encoder` \| `badac_readonly` | **yes** |
-| `isActive` | boolean (default `true`) | no |
-
-**No password field exists, and none can.** Supabase Auth owns every
-credential; the account is provisioned with a random value that is never
-returned, logged, or stored, and the new user sets their own password from the
-Supabase recovery email the administrator sends afterwards.
-
-`role` **is** accepted here, unlike `PUT /api/users/{user}` — choosing the role
-of an account that does not exist yet is provisioning; changing the role of a
-live account is privilege escalation, and remains unsupported.
-
-**Response** — `201 Created`, the new `UserResource`. Writes a `CREATE` audit row.
-
-**Status codes**
-
-| Code | Condition |
-|---|---|
-| `201` | Created in both systems |
-| `401` | No valid Supabase access token |
-| `403` | Caller is authenticated but is not an administrator |
-| `422` | Validation failed, the email already exists in Supabase Auth, the Admin API refused, or `SUPABASE_SERVICE_ROLE_KEY` is not configured |
-| `500` | A genuine server fault (e.g. the database). Deliberately **not** flattened into a `422`, so it is logged and reported as the fault it is rather than as bad input from the administrator. Any Supabase account created during the attempt is removed first. |
-
-### GET `/api/users/{user}/activity`
-
-**Purpose** — the selected account's own audit trail, for the User Activity
-view. Returns `AuditLogResource` objects.
-
-**Bounded by design** — hard-capped at the **50 most recent** rows, newest
-first. The cap is in the query, not the UI, so the endpoint can never return an
-unbounded history however long an account has been in use.
-
-`AuditLogResource` exposes `id`, `timestamp`, `performedBy`, `role`, `action`,
-`targetType` and `details`. It deliberately does **not** expose
-`audit_logs.ip_address`, so this endpoint reveals nothing about an account
-beyond the audited actions the Audit Logs module already shows an
-administrator.
-
-This reuses `audit_logs` — there is no second activity store. Scoping happens
-in the query, not in the browser, because `GET /api/audit-logs` returns only
-the 200 most recent rows system-wide and a quiet account's history would
-otherwise disappear behind a busy week of someone else's.
-
-Reading it writes a `VIEW` audit row: inspecting another person's activity is
-itself an administrative act.
-
-### POST `/api/users/{user}/password-reset-audit`
-
-**Purpose** — records that an administrator sent this account a password-reset
-email. It is named for exactly what it does: **it does not send the email** and
-never touches a credential.
-
-Supabase sends the email, requested from the browser via
-`supabase.auth.resetPasswordForEmail()` — the same mechanism the public Forgot
-Password page uses. The frontend calls this endpoint only after that call has
-succeeded, so the trail never records a reset that did not happen. No token,
-link, or password passes through this backend.
-
-**Response** — `200 OK`, `{ "message": "Password reset recorded." }`
-
-### GET `/api/role-permissions`
-
-**Purpose** — which roles each module's endpoints actually admit.
-
-This **declares nothing**. It walks Laravel's own registered route table, reads
-the `role:` (`EnsureRole`) middleware attached to each route in
-`routes/api.php`, and groups the result by module — so it cannot drift from
-enforcement, because the middleware is its input. A route that is authenticated
-but carries no `role:` middleware admits every role, which is what the absence
-of `EnsureRole` means.
-
-Per role, per module: `full` (may read and write), `view` (read only), `none`.
-
-**Response** — `200 OK`
-
-```json
-{
-  "data": {
-    "roles": [{ "key": "badac_admin", "label": "Administrator" }],
-    "modules": [
-      {
-        "id": "user-management",
-        "label": "User Management",
-        "access": { "badac_admin": "full", "encoder": "none", "badac_readonly": "none" },
-        "endpoints": ["GET /api/users", "POST /api/users"]
-      }
-    ]
-  }
-}
-```
-
-Admin-only, deliberately: a precise map of who may reach what is reconnaissance
-for anyone who should not have it. The UI that renders this grants nothing —
-server-side authorization decides every request independently.
-

@@ -2235,6 +2235,108 @@ select {
   border-bottom: 1px solid var(--border-light);
 }
 
+/* ===== Crime-type legend =====
+   Generated from the incidents currently plotted, so it needs no maintenance
+   when an Administrator adds a crime type — see Mapping.jsx. The swatch colour
+   is set inline because it comes from the database, which is the whole point:
+   a colour that can be configured cannot live in a stylesheet.
+
+   Capped in height with its own scroll so a barangay with a long crime-type
+   vocabulary does not push the Statistics block off the bottom of the panel. */
+.map-legend {
+  margin-top: 4px;
+  max-height: 190px;
+  overflow-y: auto;
+  font-size: 0.82rem;
+}
+
+.map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 0;
+}
+
+.map-legend-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* A pale ring so a dark swatch still separates from a dark panel, matching
+     the white stroke the markers themselves carry. */
+  box-shadow: 0 0 0 1.5px var(--bg-card);
+  outline: 1px solid var(--border);
+}
+
+.map-legend-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.map-legend-count {
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.map-legend-empty {
+  padding: 8px 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* ===== Marker popup =====
+   Leaflet renders popups into its own container outside the app's DOM tree, so
+   these are plain (unnested) selectors rather than descendants of .map-*. */
+.map-popup {
+  min-width: 210px;
+  font-size: 0.8rem;
+}
+
+.map-popup-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.9rem;
+  margin-bottom: 2px;
+}
+
+/* Repeats the marker's own colour inside the popup, so the connection between
+   the dot just clicked and the crime type named below it is explicit rather
+   than remembered. */
+.map-popup-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  outline: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.map-popup-type {
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.map-popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 0;
+}
+
+.map-popup-row span {
+  opacity: 0.7;
+}
+
+.map-popup-link {
+  display: inline-block;
+  margin-top: 8px;
+}
+
 /* ===== Stats ===== */
 .stats-summary {
   display: grid;
@@ -2366,6 +2468,96 @@ select {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 20px;
+}
+
+/* ===== System Settings — crime types & map colours ===== */
+
+.settings-note {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.settings-empty {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  padding: 8px 0;
+}
+
+.crime-type-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.crime-type-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.84rem;
+}
+
+/* A disabled crime type is dimmed rather than hidden: existing incidents still
+   use it and the map still colours them, so it has to remain visible and
+   re-enableable. */
+.crime-type-row.disabled .crime-type-name,
+.crime-type-row.disabled .crime-type-hex {
+  opacity: 0.5;
+}
+
+.crime-type-color {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+
+.crime-type-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.crime-type-hex {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.crime-type-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  padding: 3px 11px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.crime-type-row:not(.disabled) .crime-type-toggle {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.crime-type-toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.crime-type-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .settings-add {
@@ -2506,6 +2698,100 @@ select {
   border-top: 1px solid var(--border);
 }
 
+/* ===== Complainant / evidence controls in the incident form ===== */
+
+/* The "is the complainant the same person as the victim?" control. The whole
+   label is the hit target, so the question itself is clickable rather than
+   only the 14px box. */
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.form-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.form-hint {
+  margin: 5px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* Evidence: one row per item, Evidence ID beside its description.
+   grid rather than flex so every row's ID column lines up at the same width
+   regardless of content, which is what makes a list of references scannable. */
+.evidence-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.evidence-row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.evidence-row-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.evidence-row-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.evidence-row-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Below ~560px the three-column row stops fitting; stacking keeps both inputs
+   usable instead of squeezing the description into a few characters. */
+@media (max-width: 560px) {
+  .evidence-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .evidence-row-desc {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Read-only evidence list in the incident view modal. */
+.evidence-view-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.evidence-view-list li {
+  margin-bottom: 4px;
+  line-height: 1.45;
+}
+
 /* ===== Toast ===== */
 .toast {
   position: fixed;
@@ -2539,6 +2825,212 @@ select {
 .toast.info {
   border-left: 4px solid var(--info);
   color: var(--info);
+}
+
+/* ===== Notification pop-up (upper right) =====
+   Distinct from `.toast` above, which is a one-line acknowledgement of
+   something the user just did and lives bottom-right. These announce something
+   that happened elsewhere — a new incident, a case resolved — so they carry a
+   title and body, can stack, and are dismissible.
+
+   Anchored top-right and INSET from the edge so the stack clears the topbar's
+   own controls (bell, theme toggle, date) rather than sitting on top of them.
+   The container itself is pointer-events: none so an empty stack can never
+   intercept a click meant for the page; each card re-enables pointer events
+   for its own dismiss button. */
+.notif-toast-stack {
+  position: fixed;
+  top: 74px;
+  right: 24px;
+  z-index: 2100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(360px, calc(100vw - 48px));
+  pointer-events: none;
+}
+
+.notif-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--info);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 12px 12px 12px 14px;
+  animation: badac-notif-toast-in 0.28s ease;
+}
+
+.notif-toast.success {
+  border-left-color: var(--success);
+}
+
+.notif-toast.warning {
+  border-left-color: var(--warning, #ff8a3d);
+}
+
+.notif-toast-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.notif-toast.success .notif-toast-icon {
+  color: var(--success);
+}
+
+.notif-toast.warning .notif-toast-icon {
+  color: var(--warning, #ff8a3d);
+}
+
+.notif-toast-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.notif-toast-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.notif-toast-msg {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  /* Long case descriptions wrap instead of stretching the card off-screen. */
+  overflow-wrap: anywhere;
+}
+
+.notif-toast-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.notif-toast-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+}
+
+.notif-toast-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* A pop-up that leads somewhere says so — pointer cursor, and a hairline lift
+   on hover. Cards with no destination get neither, so the affordance is honest
+   rather than decorative. */
+.notif-toast.actionable {
+  cursor: pointer;
+}
+
+.notif-toast.actionable:hover {
+  border-color: var(--accent);
+  box-shadow:
+    var(--shadow-lg),
+    0 0 0 1px var(--accent);
+}
+
+.notif-toast.actionable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes badac-notif-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .notif-toast-stack {
+    top: 66px;
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+}
+
+/* ===== Top-edge attention pulse =====
+   Replaces the idea of briefly brightening the whole upper portion of the
+   screen, which on a records system reads as a fault rather than a message.
+   A 3px line along the very top edge is noticeable in peripheral vision and
+   ignorable otherwise.
+
+   position: fixed with pointer-events: none means it is outside the document
+   flow entirely: it displaces nothing, covers no control, and cannot cause
+   layout shift or a scrollbar. It is present at all times at zero opacity —
+   only the animation is toggled — so nothing is inserted into or removed from
+   the layout when a notification arrives. */
+.badac-topline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 2200;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(46, 139, 71, 0) 0%,
+    var(--accent, #2e8b47) 25%,
+    rgba(255, 138, 61, 0.9) 50%,
+    var(--accent, #2e8b47) 75%,
+    rgba(46, 139, 71, 0) 100%
+  );
+}
+
+.badac-topline.pulsing {
+  animation: badac-topline-pulse 1.2s ease-in-out;
+}
+
+@keyframes badac-topline-pulse {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Both the pop-up's entrance and the top-edge pulse are motion. The pop-up
+   still appears and still reads identically, and the line still shows for its
+   moment — they just stop moving and fading. */
+@media (prefers-reduced-motion: reduce) {
+  .notif-toast {
+    animation: none;
+  }
+
+  .badac-topline.pulsing {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* ===== Tooltip for collapsed sidebar =====
@@ -2757,6 +3249,44 @@ select {
 .notif-bell-btn:hover {
   background: var(--bg-hover);
   border-color: var(--text-muted);
+}
+
+/* Arrival pulse on the bell itself.
+   Driven by the same signal as the top-edge line (see MainLayout), so a new
+   notification reads as ONE event across the pop-up, the line and the bell
+   rather than three unrelated flickers.
+
+   `transform: scale()` and `color` only — no margin, padding, width or height
+   is touched, so the topbar's layout is byte-identical while it animates and
+   nothing around the bell can shift. It runs twice and stops; it is an
+   announcement, not a permanent state, and a bell that pulsed forever would
+   be a distraction in a room where this dashboard is left on screen. */
+.notif-bell-btn.pulsing {
+  animation: badac-bell-pulse 0.6s ease-in-out 2;
+}
+
+@keyframes badac-bell-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    color: inherit;
+  }
+  30% {
+    transform: scale(1.18);
+    color: var(--accent);
+  }
+  60% {
+    transform: scale(0.97);
+  }
+}
+
+/* Motion is exactly what this preference suppresses. The bell still ends up in
+   its normal resting state and the unread badge — the part that actually
+   carries the information — is untouched either way. */
+@media (prefers-reduced-motion: reduce) {
+  .notif-bell-btn.pulsing {
+    animation: none;
+  }
 }
 
 .notif-bell-count {
@@ -3615,15 +4145,16 @@ select {
    disc is identical at every angle — it spins in place rather than wobbling
    or drifting. The box-shadow rotates with the element, which is invisible
    for a radially symmetric shadow.
-   30s linear keeps it barely perceptible: roughly 12 degrees per second, slow
-   enough to read as institutional rather than decorative. */
+   10s linear: one unhurried revolution every ten seconds, about 36 degrees
+   per second. Noticeable as a deliberate touch, and still slow enough to stay
+   out of the way of somebody typing their password. */
 .badac-left-seal {
   width: 132px;
   height: 132px;
   border-radius: 50%;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
   transform-origin: 50% 50%;
-  animation: badac-seal-rotate 30s linear infinite;
+  animation: badac-seal-rotate 10s linear infinite;
   will-change: transform;
 }
 
@@ -3642,6 +4173,41 @@ select {
   .badac-left-seal {
     animation: none;
     transform: none;
+  }
+}
+
+/* Hover glow.
+   filter: drop-shadow() rather than box-shadow on purpose: drop-shadow follows
+   the seal's own alpha channel, so the glow traces the EDGE of the seal rather
+   than painting a disc behind it. Two very soft, low-alpha shadows — one
+   white, one in the barangay green already used across this screen — read as a
+   halo around the outline instead of a light source. Neither touches the
+   seal's own pixels, so the detail inside stays exactly as sharp and as bright
+   as it is at rest.
+   The rest state declares the same filter at zero alpha so there is something
+   to transition FROM; transitioning from `none` would snap on instead of
+   fading. Only `filter` is transitioned, which is why this cannot disturb the
+   rotation — that is driven by `transform`, a separate property with its own
+   animation, and it keeps running whether or not the pointer is over the
+   seal. No geometry is involved either way, so nothing shifts and no
+   scrollbar can appear. */
+.badac-left-seal {
+  filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0))
+    drop-shadow(0 0 0 rgba(46, 139, 71, 0));
+  transition: filter 0.4s ease;
+}
+
+.badac-left-seal-link:hover .badac-left-seal,
+.badac-left-seal-link:focus-visible .badac-left-seal {
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5))
+    drop-shadow(0 0 14px rgba(46, 139, 71, 0.45));
+}
+
+/* The glow itself is a hover affordance rather than motion, so it stays; only
+   its fade is animation, and that is what gets dropped. */
+@media (prefers-reduced-motion: reduce) {
+  .badac-left-seal {
+    transition: none;
   }
 }
 

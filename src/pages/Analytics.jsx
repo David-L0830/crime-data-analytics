@@ -26,7 +26,10 @@ import {
   today,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
-import { COLORS, SITIOS, CRIME_TYPES, STATUSES } from '../utils/constants';
+// CRIME_TYPES is NOT imported here: the Crime Type filter below reads the
+// configured, enabled vocabulary from useData() instead, so a crime type an
+// Administrator adds in System Settings is filterable on this page too.
+import { COLORS, SITIOS, STATUSES } from '../utils/constants';
 
 const MONTH_ORDER = [
   'Jan',
@@ -47,7 +50,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 // ...(add to existing import block near the top)
 
 export default function Analytics() {
-  const { records, settings, CATEGORIES } = useData();
+  const { records, settings, CATEGORIES, CRIME_TYPES } = useData();
   const { showToast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
@@ -296,7 +299,12 @@ export default function Analytics() {
         { header: 'Status', key: 'status', width: 18, align: 'center' },
         { header: 'Victim', key: 'victimName', width: 22 },
         { header: 'Victim Age', key: 'victimAge', type: 'number', width: 11 },
-        { header: 'Victim Gender', key: 'victimGender', width: 13, align: 'center' },
+        {
+          header: 'Victim Gender',
+          key: 'victimGender',
+          width: 13,
+          align: 'center',
+        },
         { header: 'Suspect', key: 'suspectName', width: 22 },
         { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
       ],
@@ -332,7 +340,12 @@ export default function Analytics() {
               type: 'select',
               options: CRIME_TYPES,
             },
-            { id: 'ana-sitio', label: 'Sitio', type: 'select', options: SITIOS },
+            {
+              id: 'ana-sitio',
+              label: 'Sitio',
+              type: 'select',
+              options: SITIOS,
+            },
             {
               id: 'ana-status',
               label: 'Status',
@@ -588,7 +601,6 @@ export default function Analytics() {
         </Card>
 
         <PrintDocumentEnd />
-
       </PrintReport>
 
       <div className="export-bar">

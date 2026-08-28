@@ -9,7 +9,10 @@ use App\Http\Resources\IncidentResource;
 use App\Models\AppNotification;
 use App\Models\AuditLog;
 use App\Models\Incident;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class IncidentController extends Controller
 {
@@ -61,7 +64,7 @@ class IncidentController extends Controller
             });
         }
 
-        $incidents = $query->orderByDesc('incident_date')->orderByDesc('id')->get();
+        $incidents = $query->with('evidenceItems')->orderByDesc('incident_date')->orderByDesc('id')->get();
 
         return IncidentResource::collection($incidents);
     }
@@ -74,56 +77,77 @@ class IncidentController extends Controller
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
             ->where('status', '!=', 'Archived')
-            ->get(['id', 'crime_type', 'incident_date', 'street', 'sitio', 'status', 'latitude', 'longitude']);
+            ->get([
+                'id', 'case_number', 'crime_type', 'incident_date', 'incident_time',
+                'street', 'sitio', 'status', 'priority', 'latitude', 'longitude',
+            ]);
 
+        // Case number, time and priority are included because the map popup
+        // shows them. Victim, complainant and suspect details deliberately are
+        // NOT in this payload: a map pin is a location, and identifying a
+        // named individual by a dot on screen is exactly the disclosure this
+        // module has to avoid.
         return $incidents->map(fn ($i) => [
             'id' => (string) $i->id,
             'latitude' => (float) $i->latitude,
             'longitude' => (float) $i->longitude,
+            'caseNumber' => $i->case_number,
             'crimeType' => $i->crime_type,
             'date' => optional($i->incident_date)->format('Y-m-d'),
+            'time' => $i->incident_time ? substr($i->incident_time, 0, 5) : null,
             'location' => $i->street,
             'sitio' => $i->sitio,
             'status' => $i->status,
+            'priority' => $i->priority,
         ]);
     }
 
     // GET /api/incidents/{incident}
     public function show(Incident $incident)
     {
-        return new IncidentResource($incident);
+        return new IncidentResource($incident->load('evidenceItems'));
     }
 
     // POST /api/incidents
     public function store(StoreIncidentRequest $request)
     {
-        $data = $this->mapToColumns($request->validated());
+        $validated = $request->validated();
+        $data = $this->mapToColumns($validated);
         $data['incident_code'] = 'INC-'.str_pad((string) (Incident::max('id') + 1), 5, '0', STR_PAD_LEFT);
         $data['reported_by'] = $request->user()?->id;
 
-        $incident = Incident::create($data);
+        // The incident, its evidence items and its audit entry are ONE unit of
+        // work. Before this they were three unwrapped statements, so a failure
+        // partway through (a rejected evidence row, say) left a committed
+        // incident behind while the caller was told the save had failed —
+        // the encoder then re-entered the case and got a duplicate-case-number
+        // error for a record they could not see.
+        $incident = DB::transaction(function () use ($request, $data, $validated) {
+            $incident = Incident::create($data);
 
-        AuditLog::create([
-            'user_id' => $request->user()?->id,
-            'action' => 'CREATE',
-            'module' => 'incidents',
-            'target_type' => 'incident',
-            'description' => "Created incident {$incident->case_number}",
-            'ip_address' => $request->ip(),
-        ]);
+            // Structured evidence (Evidence ID + Description), written only when
+            // the caller sent the field at all - see syncEvidence().
+            $this->syncEvidence($request, $incident, $validated);
 
-        // Same reasoning as announceResolutionIfNewlyResolved() below: the
-        // "New Incident" notification is now written from the row that was
-        // actually created, instead of being a fixed seeded sentence that
-        // referred to nothing in particular.
-        $created = $incident->fresh();
+            AuditLog::create([
+                'user_id' => $request->user()?->id,
+                'action' => 'CREATE',
+                'module' => 'incidents',
+                'target_type' => 'incident',
+                'description' => "Created incident {$incident->case_number}",
+                'ip_address' => $request->ip(),
+            ]);
 
-        AppNotification::create([
-            'title' => 'New Incident',
-            'message' => "Case {$created->case_number} ({$created->crime_type}) was logged in {$created->sitio}.",
-            'type' => 'info',
-            'read' => false,
-        ]);
+            return $incident;
+        });
+
+        $created = $incident->fresh()->load('evidenceItems');
+
+        // Announced only now, OUTSIDE and AFTER the transaction. That ordering
+        // is the guarantee that a notification can never describe an incident
+        // that was not actually saved: if the transaction above rolls back,
+        // this line is never reached.
+        $this->announceNewIncident($created, $request->user());
 
         // fresh() so values the DATABASE supplied are reflected in the 201
         // payload. incidents.status is NOT NULL DEFAULT 'Open', so when the
@@ -155,7 +179,9 @@ class IncidentController extends Controller
 
         $incident->update($this->mapToColumns($request->validated()));
 
-        $incident->refresh();
+        $this->syncEvidence($request, $incident, $request->validated());
+
+        $incident->refresh()->load('evidenceItems');
 
         AuditLog::create([
             'user_id' => $request->user()?->id,
@@ -169,6 +195,54 @@ class IncidentController extends Controller
         $this->announceResolutionIfNewlyResolved($incident, $statusBefore);
 
         return new IncidentResource($incident);
+    }
+
+    /**
+     * Announces a newly recorded incident on the topbar bell.
+     *
+     * Deliberately called AFTER the creating transaction commits (see store()),
+     * so the announcement can only ever describe a case that really exists.
+     * Exactly one notification is written per created incident — "incident",
+     * "case" and "record" are the same entity in this system, so a single
+     * action must not fan out into three announcements.
+     *
+     * The message is built from the committed row plus the acting user, and
+     * carries what the bell needs to be useful without opening the case: the
+     * case number, what happened, and where. Nothing here identifies a victim,
+     * a complainant or a suspect — the notification is visible to every role,
+     * including read-only BADAC accounts, and naming a private individual in
+     * it would disclose more than the recipient needs in order to decide
+     * whether to open the record.
+     *
+     * A failure to announce must never turn a SUCCESSFUL save into an error
+     * response, which is why this swallows and logs instead of throwing: the
+     * crime record is the artefact that matters, the bell is a convenience.
+     */
+    private function announceNewIncident(Incident $incident, ?User $actor): void
+    {
+        try {
+            AppNotification::create([
+                'title' => 'New Incident',
+                'message' => sprintf(
+                    'Case %s (%s) was logged in %s by %s.',
+                    $incident->case_number,
+                    $incident->crime_type,
+                    $incident->sitio ?: 'an unspecified location',
+                    $actor?->name ?: 'the system'
+                ),
+                'type' => 'info',
+                // No audience restriction: every role can open Crime Data
+                // Collection, so a new incident is relevant to all of them.
+                'audience_roles' => null,
+                'read' => false,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Incident saved but its notification could not be written', [
+                'incident_id' => $incident->id,
+                'case_number' => $incident->case_number,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -245,7 +319,7 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return new IncidentResource($incident->fresh());
+        return new IncidentResource($incident->fresh()->load('evidenceItems'));
     }
 
     private function mapToColumns(array $v): array
@@ -256,6 +330,11 @@ class IncidentController extends Controller
             'latitude' => 'latitude', 'longitude' => 'longitude',
             'victimName' => 'victim_name', 'victimAge' => 'victim_age', 'victimGender' => 'victim_gender',
             'suspectName' => 'suspect_name', 'suspectAge' => 'suspect_age',
+            'complainantIsVictim' => 'complainant_is_victim',
+            'complainantName' => 'complainant_name',
+            'complainantRelationship' => 'complainant_relationship',
+            'complainantContact' => 'complainant_contact',
+            'complainantAddress' => 'complainant_address',
             'reportingOfficer' => 'reporting_officer', 'investigatingOfficer' => 'investigating_officer',
             'badgeNumber' => 'badge_number', 'unit' => 'unit', 'status' => 'status', 'priority' => 'priority',
             'description' => 'description', 'evidence' => 'evidence',
@@ -268,6 +347,89 @@ class IncidentController extends Controller
             }
         }
 
+        // "The complainant IS the victim" means there is no separate
+        // complainant, so no separate complainant details may be stored.
+        // Clearing them here (rather than trusting the form to send blanks) is
+        // what stops a record from keeping a stale second person's name and
+        // phone number after somebody ticks the box - data the barangay has no
+        // basis to hold once it has been said not to apply.
+        if (array_key_exists('complainant_is_victim', $out) && $out['complainant_is_victim']) {
+            $out['complainant_name'] = null;
+            $out['complainant_relationship'] = null;
+            $out['complainant_contact'] = null;
+            $out['complainant_address'] = null;
+        }
+
         return $out;
+    }
+
+    /**
+     * Replaces an incident's evidence list with what was submitted.
+     *
+     * Only runs when `evidenceItems` was actually present in the validated
+     * payload. That distinction matters for PUT: an edit that never touches
+     * evidence (correcting a typo in the description, changing a status) must
+     * leave the existing evidence rows alone, not delete them because the
+     * request happened not to mention them.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function syncEvidence(Request $request, Incident $incident, array $validated): void
+    {
+        if (! array_key_exists('evidenceItems', $validated)) {
+            return;
+        }
+
+        $items = collect($validated['evidenceItems'] ?? [])
+            ->map(fn ($item) => [
+                'evidence_code' => trim((string) ($item['evidenceId'] ?? '')),
+                'description' => trim((string) ($item['description'] ?? '')),
+            ])
+            // A row with neither an id nor a description is an empty form row,
+            // not evidence.
+            ->filter(fn ($item) => $item['evidence_code'] !== '' || $item['description'] !== '')
+            ->values();
+
+        $existingCount = $incident->evidenceItems()->count();
+        $incident->evidenceItems()->delete();
+
+        $seq = 0;
+        $used = [];
+        foreach ($items as $item) {
+            $seq++;
+            $code = $item['evidence_code'];
+            if ($code === '') {
+                // Auto-numbered when the encoder leaves the reference blank,
+                // so an evidence item always has an identifier to cite.
+                $code = 'EV-'.str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
+            }
+            // The (incident_id, evidence_code) unique index would reject a
+            // repeated reference; suffix it rather than failing the whole save.
+            $candidate = $code;
+            $suffix = 1;
+            while (in_array($candidate, $used, true)) {
+                $suffix++;
+                $candidate = $code.'-'.$suffix;
+            }
+            $used[] = $candidate;
+
+            $incident->evidenceItems()->create([
+                'evidence_code' => $candidate,
+                'description' => $item['description'] !== '' ? $item['description'] : $candidate,
+            ]);
+        }
+
+        if ($existingCount === 0 && $items->isEmpty()) {
+            return;
+        }
+
+        AuditLog::create([
+            'user_id' => $request->user()?->id,
+            'action' => 'UPDATE',
+            'module' => 'incidents',
+            'target_type' => 'evidence',
+            'description' => "Recorded {$items->count()} evidence item(s) for incident {$incident->case_number}",
+            'ip_address' => $request->ip(),
+        ]);
     }
 }

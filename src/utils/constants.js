@@ -315,9 +315,24 @@ export const NAV_ITEMS = [
     icon: 'userManagement',
     section: 'administration',
   },
-  // System Settings intentionally has no sidebar entry (Part C-11 of the design
-  // spec) — the route below still exists for BADAC Administrator's authorized
-  // use, it's just not a nav item.
+  // System Settings is reachable from the sidebar again. It previously had no
+  // nav entry (Part C-11 of the design spec) even though the /settings route
+  // existed, which left the module effectively unreachable for the
+  // Administrator it was built for.
+  //
+  // This entry alone grants nothing. The sidebar renders an item only when
+  // hasAccess(item.id) passes, and 'settings' appears in ROLES.badac_admin
+  // .modules and in no other role's, so Encoder and BADAC never see it;
+  // ProtectedRoute enforces the same on the route. Both are conveniences on
+  // top of the real control, which is server-side: every /settings and
+  // /crime-types write is behind role:badac_admin in backend/routes/api.php
+  // and returns 403 to anyone else regardless of what the UI shows.
+  {
+    id: 'settings',
+    label: 'System Settings',
+    icon: 'settings',
+    section: 'administration',
+  },
 ];
 
 export const NAV_SECTION_LABELS = {

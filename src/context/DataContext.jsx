@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { today } from '../utils/helpers';
@@ -15,6 +16,7 @@ import { victimService } from '../services/victimService';
 import { auditLogService } from '../services/auditLogService';
 import { notificationService } from '../services/notificationService';
 import { settingsService } from '../services/settingsService';
+import { crimeTypeService } from '../services/crimeTypeService';
 import { syncLogService } from '../services/syncLogService';
 import { ApiError } from '../services/api';
 
@@ -64,6 +66,12 @@ export function DataProvider({ children }) {
   const [victims, setVictims] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  // Configurable crime types and their map colours, loaded from the API (see
+  // backend CrimeTypeController). This is what makes the Crime Mapping legend,
+  // the incident form's Crime Type list and every crime-type filter follow
+  // what an Administrator configured in System Settings, instead of a
+  // hard-coded array in constants.js.
+  const [crimeTypes, setCrimeTypes] = useState([]);
   const [syncLogs, setSyncLogs] = useState([]);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
@@ -77,6 +85,53 @@ export function DataProvider({ children }) {
   const [secondaryLoading, setSecondaryLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Notifications that have arrived since this session started looking, and
+  // have not yet been announced. MainLayout drains this and turns each one
+  // into a pop-up, a chime and a top-edge pulse.
+  const [newNotifications, setNewNotifications] = useState([]);
+  // Every notification id this session has already seen. An id enters this set
+  // the first time it appears in a fetch, INCLUDING the very first fetch after
+  // sign-in — which is why signing in does not fire a burst of pop-ups for the
+  // backlog already sitting in the bell. It is also what guarantees the "only
+  // once per notification" rule: an id can only ever be new once.
+  const seenNotificationIds = useRef(new Set());
+  // Whether the inbox has been read at least once this session. The FIRST
+  // successful read is the backlog and is recorded silently; everything after
+  // it can announce. Tracked as its own flag rather than inferred from an
+  // empty seen-set, because an account whose inbox is genuinely empty would
+  // otherwise treat its first real notification as backlog and stay silent.
+  const notificationsSeeded = useRef(false);
+
+  const consumeNewNotifications = useCallback(() => {
+    setNewNotifications([]);
+  }, []);
+
+  // The one place a notification list from the API becomes state.
+  //
+  // Announcing is decided here rather than at each call site so the rule
+  // cannot differ between the initial load, the poll, and the refresh that
+  // follows a write: a notification is announced only if this session has
+  // never seen its id AND the backlog has already been recorded AND it is
+  // still unread. That conjunction is what makes "exactly once per
+  // notification, never a burst on sign-in" hold no matter which path the list
+  // arrived by.
+  const applyNotificationList = useCallback((list) => {
+    const items = list || [];
+    const isFirstRead = !notificationsSeeded.current;
+
+    const fresh = isFirstRead
+      ? []
+      : items.filter((n) => !seenNotificationIds.current.has(n.id) && !n.read);
+
+    items.forEach((n) => seenNotificationIds.current.add(n.id));
+    notificationsSeeded.current = true;
+
+    setNotifications(items);
+    if (fresh.length) {
+      setNewNotifications((prev) => [...prev, ...fresh]);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) {
       setRecords([]);
@@ -84,8 +139,15 @@ export function DataProvider({ children }) {
       setVictims([]);
       setAuditLogs([]);
       setNotifications([]);
+      setCrimeTypes([]);
       setSyncLogs([]);
       setSettings(DEFAULT_SETTINGS);
+      // Signing out must forget what this session had seen, or signing back in
+      // as a different person would suppress their pop-ups for notifications
+      // the PREVIOUS account had already been shown.
+      seenNotificationIds.current = new Set();
+      notificationsSeeded.current = false;
+      setNewNotifications([]);
       setLoading(false);
       setSecondaryLoading(false);
       return;
@@ -208,6 +270,12 @@ export function DataProvider({ children }) {
       victimService.list(),
       settingsService.get(),
       syncLogService.list(),
+      // Primary, not secondary: the Crime Type vocabulary and its colours are
+      // read by the very first paint of Crime Data Collection (the form's
+      // Crime Type list), every FilterBar, and Crime Mapping's markers and
+      // legend. Deferring it would render those against a stale hard-coded
+      // fallback and then change them.
+      crimeTypeService.list(),
     ]).then((results) => {
       if (cancelled) return;
       const sessionDead = applyResults(results, [
@@ -216,21 +284,26 @@ export function DataProvider({ children }) {
         (v) => setVictims(v || []),
         (v) => setSettings(normalizeSettings(v)),
         (v) => setSyncLogs(v || []),
+        (v) => setCrimeTypes(v || []),
       ]);
       setLoading(false);
       if (sessionDead) setSecondaryLoading(false);
     });
 
-    Promise.allSettled([auditLogService.list(), notificationService.list()]).then(
-      (results) => {
-        if (cancelled) return;
-        applyResults(results, [
-          (v) => setAuditLogs(v || []),
-          (v) => setNotifications(v || []),
-        ]);
-        setSecondaryLoading(false);
-      },
-    );
+    Promise.allSettled([
+      auditLogService.list(),
+      notificationService.list(),
+    ]).then((results) => {
+      if (cancelled) return;
+      applyResults(results, [
+        (v) => setAuditLogs(v || []),
+        // First sight of the inbox: recorded, not announced — what is
+        // already in the bell is history, not news. See
+        // applyNotificationList.
+        (v) => applyNotificationList(v),
+      ]);
+      setSecondaryLoading(false);
+    });
 
     return () => {
       cancelled = true;
@@ -257,9 +330,52 @@ export function DataProvider({ children }) {
   const refreshNotifications = useCallback(() => {
     notificationService
       .list()
-      .then(setNotifications)
+      .then(applyNotificationList)
       .catch(() => {});
-  }, []);
+  }, [applyNotificationList]);
+
+  // Polls for notifications raised elsewhere — another encoder logging an
+  // incident, an Administrator resolving a case. Without this the bell would
+  // only ever change on a full page load or on this user's own writes.
+  //
+  // Paused while the tab is hidden (and refreshed once on becoming visible
+  // again) so a backgrounded tab is not requesting on a timer all day; the
+  // notification is still there when the person comes back, because the
+  // announcement is a database row, not an event that can be missed.
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const POLL_MS = 30000;
+    let timer = null;
+
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => {
+        if (document.visibilityState === 'visible') refreshNotifications();
+      }, POLL_MS);
+    };
+    const stop = () => {
+      clearInterval(timer);
+      timer = null;
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshNotifications();
+        start();
+      } else {
+        stop();
+      }
+    };
+
+    if (document.visibilityState === 'visible') start();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [isAuthenticated, refreshNotifications]);
 
   // Local audit-log entries are no longer created client-side — every
   // mutating API call already writes its own audit_logs row server-side.
@@ -291,6 +407,15 @@ export function DataProvider({ children }) {
         isDuplicateCaseNumber(data.caseNumber.trim(), excludeId)
       ) {
         errors.push('Case number already exists.');
+      }
+      // Mirrors the server's required_if rule (see StoreIncidentRequest), so
+      // the encoder is told in the form instead of by a 422 after submitting.
+      // The server rule is the one that actually enforces it — this check only
+      // saves a round trip.
+      if (data.complainantIsVictim === false && !data.complainantName?.trim()) {
+        errors.push(
+          'Complainant full name is required when the complainant is not the victim.',
+        );
       }
       return errors;
     },
@@ -382,6 +507,9 @@ export function DataProvider({ children }) {
   );
 
   // ===== Notifications =====
+  // Read state is per-user server-side (see the notification_reads table), so
+  // this marks the notification read for THIS account only and the unread
+  // count that drops is this account's own.
   const markNotificationRead = useCallback(async (id) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
@@ -416,6 +544,23 @@ export function DataProvider({ children }) {
     }
   }, []);
 
+  // Names only, enabled only — the vocabulary a user may pick from or filter
+  // by. A disabled crime type stays in `crimeTypes` (existing incidents still
+  // reference it and the map still has to colour them) but must not be
+  // offered for new records.
+  const activeCrimeTypeNames = useMemo(
+    () => crimeTypes.filter((t) => t.isActive).map((t) => t.name),
+    [crimeTypes],
+  );
+
+  // { 'Theft': '#EA580C', ... } — the one lookup the map, the legend and any
+  // other crime-type-coloured surface share, so a colour cannot mean one thing
+  // in the legend and another on the markers.
+  const crimeTypeColors = useMemo(
+    () => Object.fromEntries(crimeTypes.map((t) => [t.name, t.color])),
+    [crimeTypes],
+  );
+
   const unreadNotificationCount = useMemo(
     () => notifications.filter((n) => !n.read).length,
     [notifications],
@@ -425,6 +570,35 @@ export function DataProvider({ children }) {
       notifications.filter((n) => n.title === 'Hotspot Alert' && !n.read)
         .length,
     [notifications],
+  );
+
+  // ===== Crime types =====
+  // Only an Administrator can reach these (the API enforces it — see
+  // routes/api.php); the Settings page is simply where the UI for them lives.
+  const addCrimeType = useCallback(
+    async (name) => {
+      const created = await crimeTypeService.create({ name });
+      setCrimeTypes((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      refreshAuditLogs();
+      return created;
+    },
+    [refreshAuditLogs],
+  );
+
+  const updateCrimeType = useCallback(
+    async (id, patch) => {
+      const updated = await crimeTypeService.update(id, patch);
+      setCrimeTypes((prev) =>
+        prev
+          .map((t) => (t.id === id ? updated : t))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      refreshAuditLogs();
+      return updated;
+    },
+    [refreshAuditLogs],
   );
 
   // ===== Settings =====
@@ -506,9 +680,21 @@ export function DataProvider({ children }) {
     secondaryLoading,
     error,
     SITIOS,
-    CRIME_TYPES,
+    // The configured, ENABLED crime types drive every picker and filter in the
+    // app. The hard-coded constant remains only as the fallback for the moment
+    // before the list has loaded (or for a role whose request failed), so a
+    // Crime Type dropdown is never empty.
+    CRIME_TYPES: activeCrimeTypeNames.length
+      ? activeCrimeTypeNames
+      : CRIME_TYPES,
     CATEGORIES: settings.categories?.length ? settings.categories : CATEGORIES,
     STATUSES,
+    // Full records, including disabled ones and every colour — what System
+    // Settings manages and what the map legend reads.
+    crimeTypes,
+    crimeTypeColors,
+    addCrimeType,
+    updateCrimeType,
     validateRecord,
     updateRecord,
     archiveRecord,
@@ -521,6 +707,9 @@ export function DataProvider({ children }) {
     markAllNotificationsRead,
     unreadNotificationCount,
     unreadHotspotAlertCount,
+    newNotifications,
+    consumeNewNotifications,
+    refreshNotifications,
     saveSettings,
     getLastSync,
     getTodayImportedCount,

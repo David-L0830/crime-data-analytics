@@ -52,6 +52,47 @@ export function monthLabelToRange(monthLabel) {
   };
 }
 
+// Relative age of a notification, for the bell's dropdown ("2 minutes ago").
+//
+// A notification's value is mostly "how recently did this happen", and an
+// absolute "8/28/2026, 1:07:39 AM" makes the reader do that subtraction
+// themselves. Absolute time is still available: the panel puts it in the
+// entry's `title`, so hovering gives the exact moment.
+//
+// Intl.RelativeTimeFormat is used rather than a date library — it is built into
+// every browser this app supports, so this costs nothing to ship and localises
+// itself. Anything older than a week falls back to a plain date, because
+// "37 days ago" is harder to place than the date itself.
+export function relativeTime(value) {
+  if (!value) return '';
+
+  const then = new Date(value);
+  if (Number.isNaN(then.getTime())) return '';
+
+  const seconds = Math.round((Date.now() - then.getTime()) / 1000);
+
+  // A clock skew between the browser and the server can put a just-created
+  // notification a few seconds in the FUTURE. "in 4 seconds" would be absurd,
+  // so anything within a minute either way reads as "Just now".
+  if (seconds < 60) return 'Just now';
+
+  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return rtf.format(-minutes, 'minute');
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return rtf.format(-hours, 'hour');
+
+  const days = Math.round(hours / 24);
+  if (days < 7) return rtf.format(-days, 'day');
+
+  return then.toLocaleDateString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 export function uid(prefix = 'UID') {
   return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }

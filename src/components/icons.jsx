@@ -61,6 +61,7 @@ import {
   MoreVertical,
   ChevronRight,
   Camera,
+  Plus,
 } from 'lucide-react';
 
 // Login redesign (BADAC Analytics visual refresh) — small inline icon that
@@ -177,6 +178,8 @@ export const Icons = {
   MoreVertical,
   ChevronRight,
   Camera,
+  // Structured evidence rows in the incident form
+  Plus,
 };
 
 export default Icons;
