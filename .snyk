@@ -1,3 +1,59 @@
 # Snyk policy file — see https://docs.snyk.io/scan-with-snyk/policy
 version: v1.5.0
-ignore: {}
+ignore:
+  # External Control of File Name or Path (CWE-73).
+  SNYK-JS-EXCELJS-19234019:
+    - '*':
+        reason: >-
+          Unreachable: this application never passes a path to exceljs.
+          The vulnerable class is reached through path-accepting APIs such as
+          Workbook.addImage({ filename }); addImage does not appear anywhere in
+          the repository. exceljs is used in exactly one module
+          (src/utils/exportWorkbook.js) and its complete API surface there is
+          Workbook, creator, created, addWorksheet, getRow, getCell,
+          mergeCells, columns, views, autoFilter and xlsx.writeBuffer - none of
+          which accepts a path. The module's own `filename` argument is the
+          browser download name only: it is used solely at line 196 in
+          downloadFile() and never reaches exceljs, whose only I/O call,
+          wb.xlsx.writeBuffer() (line 193), takes no arguments. No fixed
+          release exists - 4.4.0 is the newest published version and
+          exceljs@5.0.0 returns HTTP 404 from npm.
+        expires: 2026-11-28T00:00:00.000Z
+        created: 2026-08-28T00:00:00.000Z
+
+  # Prototype Pollution.
+  SNYK-JS-EXCELJS-19234023:
+    - '*':
+        reason: >-
+          Unreachable: no property name reaching exceljs is ever derived from
+          data. Pollution of this class requires an attacker-controlled key
+          (for example __proto__ arriving through note serialisation) to enter
+          exceljs's object handling. In src/utils/exportWorkbook.js all record
+          data flows through exactly one sink - cell.value at line 166 - after
+          coerce() has stringified arrays and objects. cell.note is never
+          assigned. Every other cell property (font, fill, alignment, border,
+          numFmt) is set from hard-coded literals, and there is no
+          Object.assign, no spread onto a cell and no computed property
+          assignment anywhere in the module, so a key from data cannot become a
+          property name. Column keys and headers are literals at all nine call
+          sites. No fixed release exists - 4.4.0 is the newest published
+          version and exceljs@5.0.0 returns HTTP 404 from npm.
+        expires: 2026-11-28T00:00:00.000Z
+        created: 2026-08-28T00:00:00.000Z
+
+  # Improper Handling of Highly Compressed Data (decompression bomb).
+  SNYK-JS-EXCELJS-19234025:
+    - '*':
+        reason: >-
+          Unreachable: this application never parses a workbook, and the issue
+          requires inflating attacker-supplied compressed .xlsx content.
+          exceljs is used write-only - xlsx.load(), xlsx.readFile() and .read()
+          appear nowhere in the codebase, and the sole workbook I/O call is
+          wb.xlsx.writeBuffer() at src/utils/exportWorkbook.js line 193. No
+          spreadsheet is ever accepted as input: the only file inputs in the
+          application are an avatar image upload and a restore control
+          restricted to accept=".json" which is an inert stub that never reads
+          the selected file. No fixed release exists - 4.4.0 is the newest
+          published version and exceljs@5.0.0 returns HTTP 404 from npm.
+        expires: 2026-11-28T00:00:00.000Z
+        created: 2026-08-28T00:00:00.000Z
