@@ -8,9 +8,13 @@
 // to it, keeps the card's own value/label always readable.
 import { Link } from 'react-router-dom';
 
+// `caption` is an optional third line under the label (e.g. "Accounts",
+// "Security" on the Account Administration statistics row). Purely additive:
+// every existing call site omits it and renders exactly as before.
 export default function KpiCard({
   label,
   value,
+  caption,
   cls = 'accent',
   hint,
   to,
@@ -57,6 +61,7 @@ export default function KpiCard({
       )}
       <div className="kpi-value">{value}</div>
       <div className="kpi-label">{label}</div>
+      {caption && <div className="kpi-caption">{caption}</div>}
     </Tag>
   );
 }

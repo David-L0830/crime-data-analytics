@@ -3952,3 +3952,431 @@ select {
   outline: 2px solid var(--accent, #2f8f4e);
   outline-offset: -2px;
 }
+
+/* ===== Account Administration & Security Center =====
+   Additive only. Everything here reuses the existing design tokens
+   (--bg-card, --border, --accent, --radius, --text-*) so the module keeps the
+   same dark/light identity, card radii and green accent as the rest of the
+   application — no new palette, no gradients, no new type scale. */
+
+/* Module heading + subtitle. The previous version styled its <h2> inline;
+   these two classes replace that so the toolbar can carry a subtitle without
+   another inline style block. */
+.module-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.module-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+/* Third line on a statistics tile ("Users", "Accounts", "Security"). */
+.kpi-caption {
+  margin-top: 2px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The search field takes the slack in the filter row so the three selects
+   stay their natural width and the row still collapses cleanly on narrow
+   screens (.filters-bar already wraps). */
+.filter-group-grow {
+  flex: 1 1 240px;
+}
+
+.filter-group-grow input {
+  width: 100%;
+}
+
+/* Name cell: display name over username, so dropping the Email column from
+   the table costs no identifying information. */
+.user-name-cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.user-name-cell-primary {
+  font-weight: 600;
+}
+
+.user-name-cell-secondary {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* 2FA badge wording. Same two visual states the rest of the app uses for
+   Active/Inactive — only the label differs, because "enrolled" is the honest
+   description of what Supabase reports. */
+.status-Enrolled {
+  background: var(--accent-light);
+  color: var(--success);
+}
+
+.status-Not-enrolled {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+}
+
+/* Row kebab menu. Shares .account-menu-btn / .account-menu-dropdown with the
+   sidebar account menu; these rules only re-anchor it, because the row menu
+   is rendered in a portal with position: fixed (the table lives inside
+   .table-wrap, whose overflow would otherwise clip it). */
+.row-menu-btn {
+  margin-left: auto;
+}
+
+.row-menu-dropdown {
+  position: fixed;
+  bottom: auto;
+  right: auto;
+  width: 200px;
+  min-width: 200px;
+}
+
+.row-menu-dropdown button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.row-menu-dropdown button:disabled:hover {
+  background: none;
+}
+
+.row-menu-dropdown button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The destructive item stays visually destructive without being a large red
+   button sitting beside every row. */
+.row-menu-dropdown button.row-menu-danger {
+  color: var(--danger);
+}
+
+.row-menu-dropdown button.row-menu-danger:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.1);
+}
+
+.row-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border-light, var(--border));
+}
+
+/* ----- User Details modal ----- */
+.user-details-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light, var(--border));
+}
+
+.user-details-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent-light);
+  color: var(--accent-dark, var(--accent));
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.user-details-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.user-details-username {
+  margin: 2px 0 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.user-details-section {
+  margin-top: 18px;
+}
+
+.user-details-section h4 {
+  margin: 0 0 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.user-details-list {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 8px 20px;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.user-details-list dt {
+  color: var(--text-secondary);
+}
+
+.user-details-list dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.user-details-inline-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* ----- User Activity modal ----- */
+.user-activity-subject {
+  margin: 0 0 14px;
+  font-weight: 600;
+}
+
+.user-activity-group + .user-activity-group {
+  margin-top: 16px;
+}
+
+.user-activity-group h4 {
+  margin: 0 0 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.user-activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.user-activity-list li {
+  display: flex;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-light, var(--border));
+  font-size: 0.84rem;
+}
+
+.user-activity-list li:last-child {
+  border-bottom: none;
+}
+
+.user-activity-time {
+  flex-shrink: 0;
+  width: 78px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.user-activity-detail {
+  word-break: break-word;
+}
+
+.user-activity-empty,
+.user-activity-note,
+.role-perm-intro,
+.role-perm-note {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ----- Confirmation dialogs ----- */
+.confirm-lead {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+}
+
+.confirm-subject {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  font-size: 0.84rem;
+}
+
+.confirm-subject span {
+  color: var(--text-secondary);
+  font-size: 0.79rem;
+}
+
+.confirm-note {
+  margin: 12px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ----- Create/Edit form controls ----- */
+.radio-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.radio-option,
+.checkbox-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.radio-option input,
+.checkbox-option input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.checkbox-option-disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* ----- Security summary ----- */
+.security-summary-card {
+  margin-top: 24px;
+}
+
+.security-alert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.security-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.security-alert svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.security-alert-ok {
+  background: var(--accent-light);
+  color: var(--success);
+}
+
+.security-alert-warning {
+  background: var(--orange-light);
+  color: var(--warning);
+}
+
+.security-alert-danger {
+  background: rgba(192, 57, 43, 0.1);
+  color: var(--danger);
+}
+
+.security-alert-note {
+  margin: 12px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ----- Role permissions matrix ----- */
+.role-perm-table th:not(:first-child),
+.role-perm-table td:not(:first-child) {
+  text-align: center;
+  width: 1%;
+  white-space: nowrap;
+}
+
+.perm-cell {
+  display: inline-block;
+  min-width: 42px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: help;
+}
+
+.perm-full {
+  background: var(--accent-light);
+  color: var(--success);
+}
+
+.perm-view {
+  background: var(--orange-light);
+  color: var(--warning);
+}
+
+.perm-none {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+}
+
+/* ----- Responsive -----
+   The account table carries six columns. Rather than let it force a
+   horizontal scrollbar on a 1366px laptop or a tablet, the two columns that
+   are reference rather than identity (Last Login, then Role) drop out at the
+   widths where they would start to squeeze — both remain available in View
+   Details, so nothing becomes unreachable. */
+@media (max-width: 900px) {
+  .user-account-table th:nth-child(5),
+  .user-account-table td:nth-child(5) {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .user-account-table th:nth-child(2),
+  .user-account-table td:nth-child(2) {
+    display: none;
+  }
+
+  .user-details-list {
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+  }
+
+  .user-details-list dd {
+    margin-bottom: 8px;
+  }
+
+  .row-menu-dropdown {
+    width: 180px;
+    min-width: 180px;
+  }
+}

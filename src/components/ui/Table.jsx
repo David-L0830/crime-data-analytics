@@ -3,11 +3,16 @@ import { Icons } from '../icons';
 
 // Reusable data table. `columns`: [{ key, label, render?(value, row) }]
 // `actions(row)` returns a node rendered in a trailing "Actions" column.
+// `className` is optional and lands on the <table> itself, so a page can
+// attach responsive column rules to its own table without those rules
+// leaking to every other table in the application. Purely additive - every
+// existing call site omits it and renders exactly as before.
 export default function Table({
   columns,
   rows,
   actions,
   onRowClick,
+  className,
   emptyMessage = 'No records found.',
 }) {
   if (!rows || !rows.length) {
@@ -24,7 +29,7 @@ export default function Table({
   }
 
   return (
-    <table>
+    <table className={className}>
       <thead>
         <tr>
           {columns.map((c) => (

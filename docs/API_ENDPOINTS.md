@@ -1185,3 +1185,138 @@ In production, use Render's log stream. On a healthy boot it shows four `[entryp
 ---
 
 *Generated from the current source code and verified against `php artisan route:list` and the live production API.*
+| POST | `/api/users` | admin | Create an account (Supabase Auth + local row) |
+| GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
+| POST | `/api/users/{user}/password-reset-audit` | admin | Record that a reset email was sent |
+| GET | `/api/role-permissions` | admin | Role/module access, read from route middleware |
+`UserResource` includes `createdAt` and `lastLoginAt`, both ISO-8601 or `null`.
+`lastLoginAt` is **derived from the audit trail** — the newest `LOGIN` row for
+that account (written by `AuthController::recordLoginIfFreshSignIn()`), loaded
+as a single `withMax` aggregate rather than one query per row. There is no
+`users.last_login` column and no second write path; `null` means the account
+has no `LOGIN` row, which the UI renders as *Never*.
+
+### POST `/api/users`
+
+**Purpose** — administrator-provisioned account creation. Writes **both**
+halves of an account or neither: the Supabase Auth identity (via the Admin API
+with the service-role key, server-side only) and the local `users` row. A local
+row on its own could never authenticate.
+
+**Failure is symmetric in both directions**, which matters because the two
+systems cannot share a transaction:
+
+- If Supabase refuses, the database transaction rolls back and no local row
+  survives.
+- If Supabase succeeds but the local row then cannot be saved or committed, the
+  newly created Supabase Auth user is **deleted again** before the error is
+  returned. Without that compensation the address would be permanently taken in
+  Supabase Auth while no local account existed, so every retry would fail with
+  *"already registered"* and the administrator would have no way forward. (Such
+  an orphan would not be a privilege risk — with no local row,
+  `SupabaseTokenValidator` rejects its tokens and it can never sign in — but it
+  would be an unrecoverable dead end.)
+
+Validated by `StoreUserRequest`.
+
+| Field | Type | Required |
+|---|---|---|
+| `fullName` | string, max 150 | **yes** |
+| `username` | string, max 50, unique | **yes** |
+| `email` | string, valid email, unique | **yes** |
+| `role` | `badac_admin` \| `encoder` \| `badac_readonly` | **yes** |
+| `isActive` | boolean (default `true`) | no |
+
+**No password field exists, and none can.** Supabase Auth owns every
+credential; the account is provisioned with a random value that is never
+returned, logged, or stored, and the new user sets their own password from the
+Supabase recovery email the administrator sends afterwards.
+
+`role` **is** accepted here, unlike `PUT /api/users/{user}` — choosing the role
+of an account that does not exist yet is provisioning; changing the role of a
+live account is privilege escalation, and remains unsupported.
+
+**Response** — `201 Created`, the new `UserResource`. Writes a `CREATE` audit row.
+
+**Status codes**
+
+| Code | Condition |
+|---|---|
+| `201` | Created in both systems |
+| `401` | No valid Supabase access token |
+| `403` | Caller is authenticated but is not an administrator |
+| `422` | Validation failed, the email already exists in Supabase Auth, the Admin API refused, or `SUPABASE_SERVICE_ROLE_KEY` is not configured |
+| `500` | A genuine server fault (e.g. the database). Deliberately **not** flattened into a `422`, so it is logged and reported as the fault it is rather than as bad input from the administrator. Any Supabase account created during the attempt is removed first. |
+
+### GET `/api/users/{user}/activity`
+
+**Purpose** — the selected account's own audit trail, for the User Activity
+view. Returns `AuditLogResource` objects.
+
+**Bounded by design** — hard-capped at the **50 most recent** rows, newest
+first. The cap is in the query, not the UI, so the endpoint can never return an
+unbounded history however long an account has been in use.
+
+`AuditLogResource` exposes `id`, `timestamp`, `performedBy`, `role`, `action`,
+`targetType` and `details`. It deliberately does **not** expose
+`audit_logs.ip_address`, so this endpoint reveals nothing about an account
+beyond the audited actions the Audit Logs module already shows an
+administrator.
+
+This reuses `audit_logs` — there is no second activity store. Scoping happens
+in the query, not in the browser, because `GET /api/audit-logs` returns only
+the 200 most recent rows system-wide and a quiet account's history would
+otherwise disappear behind a busy week of someone else's.
+
+Reading it writes a `VIEW` audit row: inspecting another person's activity is
+itself an administrative act.
+
+### POST `/api/users/{user}/password-reset-audit`
+
+**Purpose** — records that an administrator sent this account a password-reset
+email. It is named for exactly what it does: **it does not send the email** and
+never touches a credential.
+
+Supabase sends the email, requested from the browser via
+`supabase.auth.resetPasswordForEmail()` — the same mechanism the public Forgot
+Password page uses. The frontend calls this endpoint only after that call has
+succeeded, so the trail never records a reset that did not happen. No token,
+link, or password passes through this backend.
+
+**Response** — `200 OK`, `{ "message": "Password reset recorded." }`
+
+### GET `/api/role-permissions`
+
+**Purpose** — which roles each module's endpoints actually admit.
+
+This **declares nothing**. It walks Laravel's own registered route table, reads
+the `role:` (`EnsureRole`) middleware attached to each route in
+`routes/api.php`, and groups the result by module — so it cannot drift from
+enforcement, because the middleware is its input. A route that is authenticated
+but carries no `role:` middleware admits every role, which is what the absence
+of `EnsureRole` means.
+
+Per role, per module: `full` (may read and write), `view` (read only), `none`.
+
+**Response** — `200 OK`
+
+```json
+{
+  "data": {
+    "roles": [{ "key": "badac_admin", "label": "Administrator" }],
+    "modules": [
+      {
+        "id": "user-management",
+        "label": "User Management",
+        "access": { "badac_admin": "full", "encoder": "none", "badac_readonly": "none" },
+        "endpoints": ["GET /api/users", "POST /api/users"]
+      }
+    ]
+  }
+}
+```
+
+Admin-only, deliberately: a precise map of who may reach what is reconnaissance
+for anyone who should not have it. The UI that renders this grants nothing —
+server-side authorization decides every request independently.
+

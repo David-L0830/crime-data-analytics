@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 
 class User extends Authenticatable
 {
@@ -76,6 +77,34 @@ class User extends Authenticatable
     public function incidents()
     {
         return $this->hasMany(Incident::class, 'reported_by');
+    }
+
+    /**
+     * When this account last signed in, or null if it never has.
+     *
+     * Derived from the existing audit trail — the LOGIN rows written by
+     * AuthController::recordLoginIfFreshSignIn() — rather than from a
+     * users.last_login column, deliberately. Sign-in happens entirely in
+     * Supabase on the frontend, so Laravel observes it in exactly one place
+     * and already records it there; adding a second, parallel timestamp
+     * column would mean a new write path that could disagree with the audit
+     * trail, for information the audit trail already holds accurately.
+     *
+     * Reads a `last_login_at` aggregate off the model when the caller has
+     * already loaded one (UserController::index/show use withMax so listing
+     * every account stays a single extra query, not one per row), and falls
+     * back to querying for it when the model was built without it — e.g. the
+     * single-record UserResource returned by update()/updateStatus(), where
+     * one small aggregate is cheaper than making every call site remember to
+     * eager-load it.
+     */
+    public function lastLoginAt(): ?Carbon
+    {
+        $value = array_key_exists('last_login_at', $this->getAttributes())
+            ? $this->getAttributes()['last_login_at']
+            : $this->auditLogs()->where('action', 'LOGIN')->max('created_at');
+
+        return $value ? Carbon::parse($value) : null;
     }
 
     public function getRoleLabelAttribute(): string

@@ -19,6 +19,19 @@ class UserResource extends JsonResource
             'role' => $this->role,
             'roleLabel' => $this->role_label,
             'isActive' => (bool) $this->is_active,
+            // Account Administration — the User Details modal shows when an
+            // account was provisioned. The column already existed
+            // (users.timestamps, since the very first migration); it simply
+            // was never exposed. Null-safe because created_at is nullable in
+            // the schema, and the frontend renders "Not available" rather
+            // than inventing a date when it is null.
+            'createdAt' => $this->created_at?->toIso8601String(),
+            // Derived from the LOGIN rows in the existing audit trail — see
+            // User::lastLoginAt() for why this is not a users.last_login
+            // column. Null means "this account has never signed in since
+            // LOGIN auditing began", which the frontend renders as "Never" —
+            // it is never substituted with a made-up timestamp.
+            'lastLoginAt' => $this->lastLoginAt()?->toIso8601String(),
             'avatar' => strtoupper(substr($this->name, 0, 1)),
             // Checkpoint 25 — Profile Settings avatar upload. Null when no
             // picture has been uploaded (the vast majority of accounts, and

@@ -158,6 +158,12 @@ export const Icons = {
   BarChart3,
   ScrollText,
   ShieldCheck,
+  // ShieldAlert is also exposed as `Wanted` above, which is a criminal-status
+  // name from the Records module. Account Administration needs the same glyph
+  // for a security warning, where "Wanted" would read as nonsense to the next
+  // person editing that file, so it is exported under its own name too --
+  // exactly the pairing ShieldCheck already has with `Cleared`.
+  ShieldAlert,
   Headset,
   ClipboardList,
   // Public landing page additions
