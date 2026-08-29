@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Incident;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 
 // Mirrors src/utils/mockData.js `generateIncidents()` so seeded data keeps the
@@ -68,9 +69,35 @@ class IncidentSeeder extends Seeder
 
     private const CENTER_LNG = 121.0270;
 
-    private const MONTHS = ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06', '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12'];
-
     private const BASE_COUNTS = [8, 7, 9, 8, 10, 12, 14, 13, 11, 10, 8, 7];
+
+    /**
+     * The twelve months this seeder fills, oldest first, ending with the
+     * CURRENT month.
+     *
+     * This used to be a hard-coded ['2025-01' ... '2025-12']. That pinned the
+     * demo dataset to a fixed year, so the further the calendar moved past it
+     * the more of the application read as empty — the Dashboard's "Today's
+     * Incidents" and "This Month" cards both count against today's date and
+     * settle on zero once the newest seeded incident is a year old, which is
+     * exactly what happened.
+     *
+     * Deriving the window from now() instead means a freshly seeded install is
+     * always current, whenever it is set up. It also matches what `synced_at`
+     * in this same seeder was already doing (now()->subDays(...)) — the two
+     * are consistent now rather than one absolute and one relative.
+     *
+     * @return list<string> e.g. ['2025-09', ..., '2026-08']
+     */
+    private static function months(): array
+    {
+        $start = now()->startOfMonth()->subMonths(11);
+
+        return array_map(
+            fn (int $offset) => $start->copy()->addMonths($offset)->format('Y-m'),
+            range(0, 11),
+        );
+    }
 
     public function run(): void
     {
@@ -80,13 +107,51 @@ class IncidentSeeder extends Seeder
 
         $id = 1;
 
-        foreach (self::MONTHS as $mIndex => $month) {
+        // Ownership. Every incident created through the application records
+        // who encoded it (IncidentController::store), and the Encoder role is
+        // built on that column: an Encoder may only correct or archive records
+        // they personally encoded. Seeded incidents used to leave it null,
+        // which made `reported_by !== $user->id` true for every single one —
+        // so the demo Encoder account could edit nothing at all and the whole
+        // role was invisible in a walkthrough.
+        //
+        // Roughly 60/40 Encoder/Administrator. Both sides matter: the Encoder
+        // needs records it CAN edit, and records owned by someone else so the
+        // ownership restriction is demonstrable rather than merely asserted.
+        // Deterministic (id modulo) rather than random, so a reseed produces
+        // the same split and a walkthrough script stays valid.
+        $encoderId = User::where('username', 'encoder')->value('id');
+        $adminId = User::where('username', 'admin')->value('id');
+
+        $months = self::months();
+        $lastMonthIndex = count($months) - 1;
+
+        // Past months draw days from 1..28, which is safe in every month
+        // including February. The final month in the window is the CURRENT
+        // month, and there the ceiling is TODAY: generating a later day would
+        // create future-dated crime records, which is both nonsensical and the
+        // exact thing incident-date validation should reject.
+        //
+        // Today's day number is used directly rather than min(28, today) —
+        // capping at 28 would make it impossible for any record to land on
+        // today for three days of most months, which is precisely the case
+        // the "Today's Incidents" card needs.
+        $todayDay = (int) now()->format('j');
+
+        foreach ($months as $mIndex => $month) {
             $count = min(self::BASE_COUNTS[$mIndex] + random_int(-2, 3), 120 - $id + 1);
+            $isCurrentMonth = $mIndex === $lastMonthIndex;
+            $maxDay = $isCurrentMonth ? $todayDay : 28;
 
             for ($i = 0; $i < $count && $id <= 120; $i++) {
                 $type = self::CRIME_TYPES[array_rand(self::CRIME_TYPES)];
                 $category = self::TYPE_CATEGORY_MAP[$type] ?? 'Public Order';
-                $day = str_pad((string) random_int(1, 28), 2, '0', STR_PAD_LEFT);
+                // The first record of the current month is pinned to TODAY so
+                // the Dashboard's "Today's Incidents" card has something to
+                // count on a freshly seeded install. Without it that card
+                // reads zero on any day the random draw happens to miss.
+                $dayNumber = $isCurrentMonth && $i === 0 ? $maxDay : random_int(1, $maxDay);
+                $day = str_pad((string) $dayNumber, 2, '0', STR_PAD_LEFT);
                 $hour = str_pad((string) random_int(0, 23), 2, '0', STR_PAD_LEFT);
                 $minute = str_pad((string) random_int(0, 59), 2, '0', STR_PAD_LEFT);
                 $sitio = self::SITIOS[array_rand(self::SITIOS)];
@@ -105,7 +170,11 @@ class IncidentSeeder extends Seeder
                 $age = random_int(18, 72);
                 $officer = self::OFFICERS[array_rand(self::OFFICERS)];
                 $hasSuspect = random_int(0, 100) > 45;
-                $caseNumber = 'CN-2025-'.str_pad((string) $id, 4, '0', STR_PAD_LEFT);
+                // Year comes from the record's own date rather than a literal,
+                // so a case number can never disagree with the incident it
+                // identifies. The sequence stays global (not per-year) because
+                // incidents.case_number is UNIQUE across the whole table.
+                $caseNumber = 'CN-'.substr($month, 0, 4).'-'.str_pad((string) $id, 4, '0', STR_PAD_LEFT);
 
                 Incident::create([
                     'incident_code' => 'INC-'.str_pad((string) $id, 5, '0', STR_PAD_LEFT),
@@ -132,6 +201,10 @@ class IncidentSeeder extends Seeder
                     'description' => "{$type} incident reported in {$sitio}, Barangay 178, North Caloocan.",
                     'evidence' => random_int(0, 1) ? "evidence_{$id}.pdf" : null,
                     'synced_at' => random_int(0, 100) > 30 ? now()->subDays(random_int(0, 20)) : null,
+                    // Null only if the seeded accounts are absent — this
+                    // seeder must not hard-fail on an install where
+                    // UserSeeder has not run.
+                    'reported_by' => ($id % 5 < 3 ? $encoderId : $adminId) ?: null,
                 ]);
 
                 $id++;
