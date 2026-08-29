@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
@@ -343,6 +343,16 @@ function IncidentFormFields({
   sitios,
   statuses,
 }) {
+  // These fields are rendered twice in this file — once inside
+  // IncidentCreateModal and once inside IncidentEditModal — and IncidentFeed
+  // holds `creating` and `editing` as independent state, so nothing
+  // structurally stops both from being mounted at the same moment. A
+  // hand-written id prefix would then be emitted twice and every label would
+  // point at whichever copy of the control the browser found first. useId()
+  // gives each instance its own prefix, so the two cannot collide however the
+  // page is driven.
+  const uid = useId();
+
   const evidenceItems = form.evidenceItems?.length
     ? form.evidenceItems
     : [{ evidenceId: '', description: '' }];
@@ -376,12 +386,22 @@ function IncidentFormFields({
   return (
     <div className="form-grid">
       <div className="form-group">
-        <label>Case Number *</label>
-        <input value={form.caseNumber} onChange={set('caseNumber')} required />
+        <label htmlFor={`${uid}-case-number`}>Case Number *</label>
+        <input
+          id={`${uid}-case-number`}
+          value={form.caseNumber}
+          onChange={set('caseNumber')}
+          required
+        />
       </div>
       <div className="form-group">
-        <label>Crime Type *</label>
-        <select value={form.crimeType} onChange={set('crimeType')} required>
+        <label htmlFor={`${uid}-crime-type`}>Crime Type *</label>
+        <select
+          id={`${uid}-crime-type`}
+          value={form.crimeType}
+          onChange={set('crimeType')}
+          required
+        >
           <option value="">Select…</option>
           {crimeTypes.map((t) => (
             <option key={t} value={t}>
@@ -391,8 +411,12 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Category</label>
-        <select value={form.category} onChange={set('category')}>
+        <label htmlFor={`${uid}-category`}>Category</label>
+        <select
+          id={`${uid}-category`}
+          value={form.category}
+          onChange={set('category')}
+        >
           <option value="">Select…</option>
           {categories.map((c) => (
             <option key={c} value={c}>
@@ -402,8 +426,12 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Status</label>
-        <select value={form.status} onChange={set('status')}>
+        <label htmlFor={`${uid}-status`}>Status</label>
+        <select
+          id={`${uid}-status`}
+          value={form.status}
+          onChange={set('status')}
+        >
           <option value="">Select…</option>
           {statuses.map((s) => (
             <option key={s} value={s}>
@@ -413,16 +441,32 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Date *</label>
-        <input type="date" value={form.date} onChange={set('date')} required />
+        <label htmlFor={`${uid}-date`}>Date *</label>
+        <input
+          id={`${uid}-date`}
+          type="date"
+          value={form.date}
+          onChange={set('date')}
+          required
+        />
       </div>
       <div className="form-group">
-        <label>Time</label>
-        <input type="time" value={form.time} onChange={set('time')} />
+        <label htmlFor={`${uid}-time`}>Time</label>
+        <input
+          id={`${uid}-time`}
+          type="time"
+          value={form.time}
+          onChange={set('time')}
+        />
       </div>
       <div className="form-group">
-        <label>Sitio *</label>
-        <select value={form.sitio} onChange={set('sitio')} required>
+        <label htmlFor={`${uid}-sitio`}>Sitio *</label>
+        <select
+          id={`${uid}-sitio`}
+          value={form.sitio}
+          onChange={set('sitio')}
+          required
+        >
           <option value="">Select…</option>
           {sitios.map((s) => (
             <option key={s} value={s}>
@@ -432,12 +476,17 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Location / Street</label>
-        <input value={form.street} onChange={set('street')} />
+        <label htmlFor={`${uid}-street`}>Location / Street</label>
+        <input
+          id={`${uid}-street`}
+          value={form.street}
+          onChange={set('street')}
+        />
       </div>
       <div className="form-group">
-        <label>Latitude</label>
+        <label htmlFor={`${uid}-latitude`}>Latitude</label>
         <input
+          id={`${uid}-latitude`}
           type="number"
           step="any"
           value={form.latitude}
@@ -445,8 +494,9 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Longitude</label>
+        <label htmlFor={`${uid}-longitude`}>Longitude</label>
         <input
+          id={`${uid}-longitude`}
           type="number"
           step="any"
           value={form.longitude}
@@ -454,12 +504,17 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Victim Name</label>
-        <input value={form.victimName} onChange={set('victimName')} />
+        <label htmlFor={`${uid}-victim-name`}>Victim Name</label>
+        <input
+          id={`${uid}-victim-name`}
+          value={form.victimName}
+          onChange={set('victimName')}
+        />
       </div>
       <div className="form-group">
-        <label>Victim Age</label>
+        <label htmlFor={`${uid}-victim-age`}>Victim Age</label>
         <input
+          id={`${uid}-victim-age`}
           type="number"
           min="0"
           value={form.victimAge}
@@ -467,20 +522,29 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Victim Gender</label>
-        <select value={form.victimGender} onChange={set('victimGender')}>
+        <label htmlFor={`${uid}-victim-gender`}>Victim Gender</label>
+        <select
+          id={`${uid}-victim-gender`}
+          value={form.victimGender}
+          onChange={set('victimGender')}
+        >
           <option value="">—</option>
           <option value="Male">Male</option>
           <option value="Female">Female</option>
         </select>
       </div>
       <div className="form-group">
-        <label>Suspect Name</label>
-        <input value={form.suspectName} onChange={set('suspectName')} />
+        <label htmlFor={`${uid}-suspect-name`}>Suspect Name</label>
+        <input
+          id={`${uid}-suspect-name`}
+          value={form.suspectName}
+          onChange={set('suspectName')}
+        />
       </div>
       <div className="form-group">
-        <label>Suspect Age</label>
+        <label htmlFor={`${uid}-suspect-age`}>Suspect Age</label>
         <input
+          id={`${uid}-suspect-age`}
           type="number"
           min="0"
           value={form.suspectAge}
@@ -488,26 +552,34 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Reporting Officer</label>
+        <label htmlFor={`${uid}-reporting-officer`}>Reporting Officer</label>
         <input
+          id={`${uid}-reporting-officer`}
           value={form.reportingOfficer}
           onChange={set('reportingOfficer')}
         />
       </div>
       <div className="form-group">
-        <label>Investigating Officer</label>
+        <label htmlFor={`${uid}-investigating-officer`}>
+          Investigating Officer
+        </label>
         <input
+          id={`${uid}-investigating-officer`}
           value={form.investigatingOfficer}
           onChange={set('investigatingOfficer')}
         />
       </div>
       <div className="form-group">
-        <label>Badge Number</label>
-        <input value={form.badgeNumber} onChange={set('badgeNumber')} />
+        <label htmlFor={`${uid}-badge-number`}>Badge Number</label>
+        <input
+          id={`${uid}-badge-number`}
+          value={form.badgeNumber}
+          onChange={set('badgeNumber')}
+        />
       </div>
       <div className="form-group">
-        <label>Unit</label>
-        <input value={form.unit} onChange={set('unit')} />
+        <label htmlFor={`${uid}-unit`}>Unit</label>
+        <input id={`${uid}-unit`} value={form.unit} onChange={set('unit')} />
       </div>
       {/* Complainant — who actually filed the report. Kept immediately after
           the victim fields because the question it answers ("was it this
@@ -530,30 +602,42 @@ function IncidentFormFields({
       {form.complainantIsVictim === false && (
         <>
           <div className="form-group">
-            <label>Complainant Full Name *</label>
+            <label htmlFor={`${uid}-complainant-name`}>
+              Complainant Full Name *
+            </label>
             <input
+              id={`${uid}-complainant-name`}
               value={form.complainantName}
               onChange={set('complainantName')}
             />
           </div>
           <div className="form-group">
-            <label>Relationship to Victim</label>
+            <label htmlFor={`${uid}-complainant-relationship`}>
+              Relationship to Victim
+            </label>
             <input
+              id={`${uid}-complainant-relationship`}
               value={form.complainantRelationship}
               onChange={set('complainantRelationship')}
               placeholder="e.g. Mother"
             />
           </div>
           <div className="form-group">
-            <label>Complainant Contact Number</label>
+            <label htmlFor={`${uid}-complainant-contact`}>
+              Complainant Contact Number
+            </label>
             <input
+              id={`${uid}-complainant-contact`}
               value={form.complainantContact}
               onChange={set('complainantContact')}
             />
           </div>
           <div className="form-group">
-            <label>Complainant Address</label>
+            <label htmlFor={`${uid}-complainant-address`}>
+              Complainant Address
+            </label>
             <input
+              id={`${uid}-complainant-address`}
               value={form.complainantAddress}
               onChange={set('complainantAddress')}
             />
@@ -562,8 +646,9 @@ function IncidentFormFields({
       )}
 
       <div className="form-group full">
-        <label>Description</label>
+        <label htmlFor={`${uid}-description`}>Description</label>
         <textarea
+          id={`${uid}-description`}
           rows={3}
           value={form.description}
           onChange={set('description')}
@@ -575,8 +660,16 @@ function IncidentFormFields({
           the server numbers the item (EV-001, EV-002, ...) so every piece of
           evidence has a reference that can be cited. */}
       <div className="form-group full">
-        <label>Evidence</label>
-        <div className="evidence-rows">
+        {/* A heading for the block, not a label for one control: the number
+            of rows varies, so there is no single input for `htmlFor` to point
+            at. The container is named as a group instead, and each row's
+            inputs keep the aria-labels they already carried. */}
+        <label id={`${uid}-evidence`}>Evidence</label>
+        <div
+          className="evidence-rows"
+          role="group"
+          aria-labelledby={`${uid}-evidence`}
+        >
           {evidenceItems.map((item, index) => (
             // eslint-disable-next-line react/no-array-index-key
             <div className="evidence-row" key={index}>

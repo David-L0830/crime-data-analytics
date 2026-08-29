@@ -228,24 +228,31 @@ export default function Settings() {
 
         <Card title="General Settings">
           <div className="form-group">
-            <label>Crime Rate Threshold (per 1000 pop)</label>
+            <label htmlFor="setting-crime-rate-threshold">
+              Crime Rate Threshold (per 1000 pop)
+            </label>
             <input
+              id="setting-crime-rate-threshold"
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
             />
           </div>
           <div className="form-group">
-            <label>Hotspot Alert Threshold</label>
+            <label htmlFor="setting-hotspot-threshold">
+              Hotspot Alert Threshold
+            </label>
             <input
+              id="setting-hotspot-threshold"
               type="number"
               value={hotspotThreshold}
               onChange={(e) => setHotspotThreshold(e.target.value)}
             />
           </div>
           <div className="form-group">
-            <label>Barangay Population</label>
+            <label htmlFor="setting-population">Barangay Population</label>
             <input
+              id="setting-population"
               type="number"
               value={population}
               onChange={(e) => setPopulation(e.target.value)}

@@ -41,9 +41,14 @@ export default function FilterBar({
     <div className="filters-bar">
       {fields.map((f) => (
         <div className="filter-group" key={f.id}>
-          <label>{f.label}</label>
+          {/* `f.id` doubles as the DOM id. The ids callers pass are already
+              namespaced per page — dash-, ana-, tr-, inc-, audit-, crim-,
+              victim- — so they are unique across the application, and only one
+              page is mounted at a time. */}
+          <label htmlFor={f.id}>{f.label}</label>
           {f.type === 'select' ? (
             <select
+              id={f.id}
               value={values[f.id] || ''}
               onChange={(e) => setField(f.id, e.target.value)}
             >
@@ -56,6 +61,7 @@ export default function FilterBar({
             </select>
           ) : (
             <input
+              id={f.id}
               type={f.type || 'text'}
               placeholder={f.type === 'date' ? '' : f.label}
               value={values[f.id] || ''}

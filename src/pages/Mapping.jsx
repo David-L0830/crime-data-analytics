@@ -337,8 +337,11 @@ export default function Mapping() {
           <div>
             {fields.map((f) => (
               <div className="filter-group" key={f.id}>
-                <label>{f.label}</label>
+                {/* `f.id` doubles as the DOM id: the three ids are literals
+                    declared above and are unique on this page. */}
+                <label htmlFor={f.id}>{f.label}</label>
                 <select
+                  id={f.id}
                   value={filters[f.id] || ''}
                   onChange={(e) => setFilter(f.id, e.target.value)}
                 >
@@ -354,16 +357,18 @@ export default function Mapping() {
               </div>
             ))}
             <div className="filter-group">
-              <label>From</label>
+              <label htmlFor="map-dateFrom">From</label>
               <input
+                id="map-dateFrom"
                 type="date"
                 value={filters['map-dateFrom'] || ''}
                 onChange={(e) => setFilter('map-dateFrom', e.target.value)}
               />
             </div>
             <div className="filter-group">
-              <label>To</label>
+              <label htmlFor="map-dateTo">To</label>
               <input
+                id="map-dateTo"
                 type="date"
                 value={filters['map-dateTo'] || ''}
                 onChange={(e) => setFilter('map-dateTo', e.target.value)}
