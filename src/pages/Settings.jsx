@@ -1,10 +1,9 @@
 import { Icons } from '../components/icons';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
-import { downloadFile, today } from '../utils/helpers';
 
 // System Settings — Administrator only.
 //
@@ -30,7 +29,6 @@ export default function Settings() {
   // id of the crime type currently being toggled/recoloured, so only that
   // row's controls disable while its request is in flight.
   const [busyCrimeTypeId, setBusyCrimeTypeId] = useState(null);
-  const fileInputRef = useRef(null);
 
   const categories = settings.categories || [];
 
@@ -122,29 +120,6 @@ export default function Settings() {
     } catch (err) {
       showToast(err.message || 'Could not save settings', 'error');
     }
-  };
-
-  const handleBackup = () => {
-    const backup = JSON.stringify(
-      { settings, crimeTypes, exportedAt: new Date().toISOString() },
-      null,
-      2,
-    );
-    downloadFile(backup, `brgy178_backup_${today()}.json`, 'application/json');
-    showToast('Backup downloaded', 'success');
-  };
-
-  const handleRestoreClick = () => fileInputRef.current?.click();
-
-  const handleRestoreFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    // Frontend-only prototype: restoring isn't wired to a persistence layer yet.
-    showToast(
-      'Restore requires a backend connection — not available in this frontend prototype.',
-      'info',
-    );
-    e.target.value = '';
   };
 
   return (
@@ -279,76 +254,6 @@ export default function Settings() {
           <Button onClick={handleSaveSettings}>
             <Icons.Save size={15} strokeWidth={2} /> Save Settings
           </Button>
-        </Card>
-
-        <Card title="Data Backup & Restore">
-          <p
-            style={{
-              color: 'var(--text-secondary)',
-              fontSize: '0.85rem',
-              marginBottom: 12,
-            }}
-          >
-            Export all system data as JSON backup or restore from a previous
-            backup.
-          </p>
-          <div className="export-bar">
-            <Button variant="secondary" onClick={handleBackup}>
-              <Icons.Down size={15} strokeWidth={2} /> Download Backup
-            </Button>
-            <Button variant="secondary" onClick={handleRestoreClick}>
-              <Icons.Up size={15} strokeWidth={2} /> Restore Backup
-            </Button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept=".json"
-              className="hidden"
-              onChange={handleRestoreFile}
-            />
-          </div>
-        </Card>
-
-        <Card title="Database Maintenance">
-          <p
-            style={{
-              color: 'var(--text-secondary)',
-              fontSize: '0.85rem',
-              marginBottom: 12,
-            }}
-          >
-            Clear old audit logs, optimize storage, and reset sample data.
-          </p>
-          <div className="export-bar">
-            <Button
-              variant="secondary"
-              onClick={() =>
-                showToast(
-                  'Audit logs older than 90 days will be cleared.',
-                  'info',
-                )
-              }
-            >
-              <Icons.Archive size={15} strokeWidth={2} /> Clear Old Logs
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Reset sample data? This will restore the original mock dataset the next time the app loads.',
-                  )
-                ) {
-                  showToast(
-                    'Reset requires a backend connection — not available in this frontend prototype.',
-                    'info',
-                  );
-                }
-              }}
-            >
-              <Icons.Sync size={15} strokeWidth={2} /> Reset Sample Data
-            </Button>
-          </div>
         </Card>
       </div>
     </section>
