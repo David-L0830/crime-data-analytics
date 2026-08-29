@@ -108,6 +108,7 @@ export default function CriminalRecords() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
     if (ok) {
       showToast('Criminal records exported to Excel', 'success');

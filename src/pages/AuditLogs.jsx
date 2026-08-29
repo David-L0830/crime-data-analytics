@@ -179,6 +179,7 @@ export default function AuditLogs() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
     if (ok) {
       showToast('Audit logs exported to Excel', 'success');

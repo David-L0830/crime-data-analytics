@@ -153,6 +153,7 @@ export default function CriminalProfile() {
       ],
       rows,
       onEmpty: () => showToast('Could not export profile.', 'error'),
+      onError: () => showToast('Could not export profile.', 'error'),
     });
     if (ok) {
       showToast('Profile exported to Excel', 'success');

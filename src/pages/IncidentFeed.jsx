@@ -245,6 +245,7 @@ export default function IncidentFeed() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
     if (ok) {
       showToast('Incidents exported to Excel', 'success');

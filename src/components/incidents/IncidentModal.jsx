@@ -105,6 +105,7 @@ export function IncidentViewModal({
       ],
       rows,
       onEmpty: () => showToast('Could not export incident.', 'error'),
+      onError: () => showToast('Could not export incident.', 'error'),
     });
     if (ok) {
       showToast('Incident exported to Excel', 'success');

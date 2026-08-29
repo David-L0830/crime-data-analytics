@@ -410,6 +410,7 @@ export default function Dashboard() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
     if (ok) {
       showToast('Dashboard data exported to Excel', 'success');

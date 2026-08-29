@@ -116,6 +116,7 @@ export default function VictimProfile() {
       ],
       rows,
       onEmpty: () => showToast('Could not export profile.', 'error'),
+      onError: () => showToast('Could not export profile.', 'error'),
     });
     if (ok) {
       showToast('Profile exported to Excel', 'success');

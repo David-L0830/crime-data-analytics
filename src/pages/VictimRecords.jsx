@@ -107,6 +107,7 @@ export default function VictimRecords() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
     if (ok) {
       showToast('Victim records exported to Excel', 'success');
