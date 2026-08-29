@@ -31,15 +31,26 @@ import { Icons } from '../components/icons';
 // 'RESTORE'), and undoing an archive is exactly the kind of event an
 // administrator reviews the trail for. Purely additive — no existing action
 // value changes and no historical row is affected.
+// REPORT_GENERATED and SYNC_COMPLETED are retired as filter choices, for the
+// same reason and by the same rule DELETE, CREATE and 'resident' were: no code
+// path writes either one. Printing goes through window.print(), which cannot
+// report whether a report was actually produced, so REPORT_GENERATED is
+// deliberately never written (see AuditLogController); and nothing anywhere
+// emits SYNC_COMPLETED — the sync KPIs on the Dashboard are summed from
+// `sync_logs`, a different table. The only rows that ever carried either value
+// came from the audit seeder that has since been removed, so selecting them
+// could only ever return an empty table.
+//
+// This does not hide historical rows. The filter is opt-in — an unset filter
+// matches everything — so any row already in the database keeps rendering, and
+// ACTION_COLORS still colours both values below.
 const ACTIONS = [
   'LOGIN',
   'LOGOUT',
-  'REPORT_GENERATED',
   'REPORT_EXPORTED',
   'UPDATE',
   'ARCHIVE',
   'RESTORE',
-  'SYNC_COMPLETED',
 ];
 // Aligned with the target types the backend actually writes. 'resident' is
 // gone: the residents table was dropped and no ResidentController remains, so

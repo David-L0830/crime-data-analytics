@@ -210,33 +210,30 @@ export default function Dashboard() {
         filters: { ...baseFilters, dateFrom: monthStart, dateTo: undefined },
       },
     },
+    // The two sync KPIs below do not link anywhere, unlike every card above
+    // them. They used to open Audit Logs filtered by action SYNC_COMPLETED,
+    // which no code path has ever written — the only rows carrying it came
+    // from the audit seeder that was removed — so the drill-down landed on
+    // "No records found" however large the number on the card was.
+    //
+    // Restoring the link would need a destination that actually holds this
+    // data, and there is none: these two values are a sum of
+    // `records_received` over `sync_logs`, not a count of audit rows, so even
+    // a populated audit list could not add up to the figure shown. KpiCard
+    // renders a plain <div> rather than a <Link> when `to` is absent, so the
+    // cards keep their value, label and hint and simply stop pretending to be
+    // clickable. The figures themselves are unchanged.
     {
       label: 'Today Imported',
       value: getTodayImportedCount(),
       cls: 'accent',
       hint: 'Records received via sync today — tracks sync activity, independent of the date range filter above.',
-      to: '/audit-logs',
-      state: {
-        filters: {
-          action: 'SYNC_COMPLETED',
-          dateFrom: today(),
-          dateTo: today(),
-        },
-      },
     },
     {
       label: 'Month Imported',
       value: getThisMonthImportedCount(),
       cls: 'info',
       hint: 'Records received via sync this calendar month — tracks sync activity, independent of the date range filter above.',
-      to: '/audit-logs',
-      state: {
-        filters: {
-          action: 'SYNC_COMPLETED',
-          dateFrom: monthStart,
-          dateTo: undefined,
-        },
-      },
     },
   ];
 
