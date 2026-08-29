@@ -24,27 +24,13 @@ import {
   variance,
   stdDev,
   today,
+  continuousMonths,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
 // CRIME_TYPES is NOT imported here: the Crime Type filter below reads the
 // configured, enabled vocabulary from useData() instead, so a crime type an
 // Administrator adds in System Settings is filterable on this page too.
 import { COLORS, SITIOS, STATUSES } from '../utils/constants';
-
-const MONTH_ORDER = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
 
 import { useLocation, useNavigate } from 'react-router-dom';
 // ...(add to existing import block near the top)
@@ -147,10 +133,24 @@ export default function Analytics() {
     },
   ];
 
-  const byMonth = countBy(filtered, (r) =>
-    new Date(`${r.date}T00:00:00`).toLocaleString('en', { month: 'short' }),
-  );
-  const months = MONTH_ORDER.filter((m) => byMonth[m]);
+  // Keyed by YYYY-MM, like Trends and Dashboard.
+  //
+  // This used to group by month NAME with the year discarded, then impose order
+  // from a hard-coded ['Jan'...'Dec'] array — a display format used as a
+  // grouping key, which is not injective over time. Two things went wrong. On a
+  // rolling Sep-to-Aug window, which is the default unfiltered view, the series
+  // was drawn with the 2026 months first, so a monotonically rising count
+  // appeared to rise and then fall off a cliff that does not exist in the data.
+  // And over any range covering the same calendar month in two years, both were
+  // summed into one bar — which also made this chart's own average disagree
+  // with the Mean (monthly) figure in the statistics table on the same page,
+  // because that figure was already grouped by YYYY-MM.
+  //
+  // continuousMonths() then gives the same zero-filled timeline Trends and
+  // Dashboard use, so a month with no incidents is a real zero rather than a
+  // point the axis skips.
+  const byMonth = countBy(filtered, (r) => r.date.slice(0, 7));
+  const months = continuousMonths(byMonth);
   const byYear = countBy(filtered, (r) => r.date.slice(0, 4));
   const years = Object.keys(byYear).sort();
   const byCat = countBy(filtered, 'category');
@@ -176,7 +176,7 @@ export default function Analytics() {
   // data table only (no insight) since buildCategoryInsight's wording
   // hardcodes the word "category", which doesn't fit those two charts —
   // see chartInsights.js.
-  const monthlyPrintValues = months.map((m) => byMonth[m]);
+  const monthlyPrintValues = months.map((m) => byMonth[m] ?? 0);
   const monthlyTrendResult = buildCrimeTrendInsight(
     months,
     monthlyPrintValues,
@@ -201,9 +201,14 @@ export default function Analytics() {
     sitioPrintValues,
   );
 
-  const monthlyCounts = Object.values(
-    countBy(filtered, (r) => r.date.slice(0, 7)),
-  );
+  // Reuses byMonth above, which is now the same YYYY-MM grouping this line used
+  // to recompute for itself. Deliberately Object.values(byMonth) — the months
+  // actually PRESENT — and not the zero-filled `months` axis: these measures are
+  // documented as covering "the months present in the filtered range", and a
+  // month with no incidents is not an observation of zero crimes, it is the
+  // absence of one. Feeding zeros in would drag the mean down and inflate the
+  // variance. The values here are identical to what this line produced before.
+  const monthlyCounts = Object.values(byMonth);
   const measures = [
     {
       label: 'Mean (monthly)',

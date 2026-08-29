@@ -509,3 +509,131 @@ describe('continuousMonths — roadmap 3.3 zero-filled month axis', () => {
     ).toBe(3.6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Roadmap 3.4 — the Analytics monthly series must be keyed by YYYY-MM.
+//
+// Analytics grouped its monthly chart by month NAME with the year discarded:
+//   countBy(filtered, r => new Date(...).toLocaleString('en', {month:'short'}))
+// then ordered the result from a hard-coded ['Jan'...'Dec'] array. A display
+// format was being used as a grouping key, and it is not injective over time.
+//
+// Two consequences, both reproduced below. On a rolling Sep-to-Aug window — the
+// shape the seeder produces, and the default unfiltered view — the series is
+// rendered 2026 months first, so a monotonically rising count is drawn rising
+// and then collapsing off a cliff that does not exist in the data. And on any
+// range covering the same calendar month in two years, both are summed into one
+// bar, which also makes the chart's own average disagree with the Mean
+// (monthly) figure in the statistics table on the same page.
+//
+// These tests characterise the GROUPING STRATEGY, using the same countBy the
+// page calls. They are not a test of Analytics.jsx itself: its month logic sits
+// inside the component body and is not exported, and exporting it would make a
+// component file export a non-component, which is the react-refresh warning
+// this project keeps at zero. Analytics.jsx is covered here by the build and by
+// review of its diff.
+// ---------------------------------------------------------------------------
+describe('Analytics month key — roadmap 3.4 YYYY-MM grouping', () => {
+  // The key Analytics uses for its monthly series.
+  const monthKeyOf = (r) => r.date.slice(0, 7);
+
+  // What it used to use, kept only so these tests state what was wrong.
+  const legacyMonthNameKey = (r) =>
+    new Date(`${r.date}T00:00:00`).toLocaleString('en', { month: 'short' });
+
+  const days = (month, n) =>
+    Array.from({ length: n }, (_, i) => ({
+      date: `${month}-${String(i + 1).padStart(2, '0')}`,
+    }));
+
+  it('keeps two different years apart instead of summing them', () => {
+    const recs = [...days('2025-01', 10), ...days('2026-01', 1)];
+
+    // The defect, stated: the old key collapsed both Januaries into one bucket.
+    const legacy = h.countBy(recs, legacyMonthNameKey);
+    expect(Object.keys(legacy)).toEqual(['Jan']);
+    expect(legacy.Jan).toBe(11);
+
+    const byMonth = h.countBy(recs, monthKeyOf);
+    expect(Object.keys(byMonth).sort()).toEqual(['2025-01', '2026-01']);
+    expect(byMonth['2025-01']).toBe(10);
+    expect(byMonth['2026-01']).toBe(1);
+  });
+
+  it('sorts chronologically across a year boundary', () => {
+    const recs = [...days('2025-12', 2), ...days('2026-01', 3)];
+    expect(Object.keys(h.countBy(recs, monthKeyOf)).sort()).toEqual([
+      '2025-12',
+      '2026-01',
+    ]);
+  });
+
+  it('renders a rolling Sep-to-Aug window in true order, with no cliff', () => {
+    // Twelve months, counts rising 3..14. The old calendar-order axis drew
+    // 7,8,...,14 then dropped to 3 at Sep.
+    const recs = [
+      ...days('2025-09', 3),
+      ...days('2025-10', 4),
+      ...days('2025-11', 5),
+      ...days('2025-12', 6),
+      ...days('2026-01', 7),
+      ...days('2026-02', 8),
+      ...days('2026-03', 9),
+      ...days('2026-04', 10),
+      ...days('2026-05', 11),
+      ...days('2026-06', 12),
+      ...days('2026-07', 13),
+      ...days('2026-08', 14),
+    ];
+    const byMonth = h.countBy(recs, monthKeyOf);
+    const months = h.continuousMonths(byMonth);
+    const values = months.map((m) => byMonth[m] ?? 0);
+
+    expect(months[0]).toBe('2025-09');
+    expect(months[months.length - 1]).toBe('2026-08');
+    expect(values).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    // Monotonic: every step is an increase, so there is no fabricated cliff.
+    expect(values.every((v, i) => i === 0 || v > values[i - 1])).toBe(true);
+  });
+
+  it('uses the same continuous axis as Trends and Dashboard', () => {
+    const recs = [...days('2026-01', 2), ...days('2026-04', 6)];
+    const byMonth = h.countBy(recs, monthKeyOf);
+    const months = h.continuousMonths(byMonth);
+    expect(months).toEqual(['2026-01', '2026-02', '2026-03', '2026-04']);
+    expect(months.map((m) => byMonth[m] ?? 0)).toEqual([2, 0, 0, 6]);
+  });
+
+  it('makes the chart agree with the Mean (monthly) figure beside it', () => {
+    const recs = [
+      ...days('2025-01', 10),
+      ...days('2025-02', 2),
+      ...days('2025-03', 2),
+      ...days('2026-01', 1),
+      ...days('2026-02', 2),
+      ...days('2026-03', 3),
+    ];
+    const byMonth = h.countBy(recs, monthKeyOf);
+
+    // The measures read the months PRESENT — zero-filled months are not real
+    // observations and must not enter the mean. This is Object.values(byMonth),
+    // which is exactly what the page recomputed separately before.
+    const monthlyCounts = Object.values(byMonth);
+    expect(monthlyCounts).toHaveLength(6);
+    expect(h.mean(monthlyCounts).toFixed(2)).toBe('3.33');
+
+    // Under the old key the chart saw three buckets and a mean of 6.7, while
+    // the table beside it said 3.33.
+    const legacyValues = Object.values(h.countBy(recs, legacyMonthNameKey));
+    expect(legacyValues).toHaveLength(3);
+    expect(h.mean(legacyValues).toFixed(2)).toBe('6.67');
+  });
+
+  it('handles a single month and an empty set', () => {
+    expect(Object.keys(h.countBy(days('2026-07', 4), monthKeyOf))).toEqual([
+      '2026-07',
+    ]);
+    expect(h.countBy([], monthKeyOf)).toEqual({});
+    expect(h.continuousMonths(h.countBy([], monthKeyOf))).toEqual([]);
+  });
+});
