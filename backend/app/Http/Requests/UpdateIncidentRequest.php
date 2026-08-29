@@ -54,7 +54,10 @@ class UpdateIncidentRequest extends FormRequest
             'badgeNumber' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', 'string', 'max:100'],
             'status' => ['string', Rule::in(Incident::STATUSES)],
-            'priority' => ['nullable', 'string', 'max:50'],
+            // See StoreIncidentRequest for why this is 'sometimes' rather than
+            // 'nullable': incidents.priority is NOT NULL DEFAULT 'Normal', so
+            // an explicit null was a 500 rather than a 422.
+            'priority' => ['sometimes', 'string', 'max:50'],
             'description' => ['nullable', 'string'],
             'evidence' => ['nullable', 'string', 'max:255'],
         ];

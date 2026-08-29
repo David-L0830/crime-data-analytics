@@ -52,7 +52,15 @@ class StoreIncidentRequest extends FormRequest
             'badgeNumber' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', 'string', 'max:100'],
             'status' => ['string', Rule::in(Incident::STATUSES)],
-            'priority' => ['nullable', 'string', 'max:50'],
+            // 'sometimes', not 'nullable', for the same reason status carries
+            // no 'nullable': incidents.priority is NOT NULL DEFAULT 'Normal',
+            // so an explicit null passed validation, reached mapToColumns()
+            // and raised SQLSTATE[23000] as a 500. 'sometimes' rejects the
+            // explicit null with an ordinary 422 while leaving an OMITTED
+            // priority untouched — Laravel skips non-implicit rules for an
+            // absent key, so it never reaches validated() and the column
+            // default still applies.
+            'priority' => ['sometimes', 'string', 'max:50'],
             'description' => ['nullable', 'string'],
             'evidence' => ['nullable', 'string', 'max:255'],
         ];

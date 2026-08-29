@@ -11,7 +11,13 @@ class AuditLogResource extends JsonResource
     {
         return [
             'id' => (string) $this->id,
-            'timestamp' => $this->created_at->toIso8601String(),
+            // audit_logs.created_at is nullable in the schema, and this was
+            // the only unguarded timestamp dereference in the file — the two
+            // lines below already use ?->. One null row would have raised a
+            // 500 for the WHOLE collection, taking down the Audit Logs page
+            // rather than degrading a single row. The column stays nullable;
+            // this is a serialisation guard, not a schema change.
+            'timestamp' => $this->created_at?->toIso8601String(),
             'performedBy' => $this->user?->name ?? 'System',
             'role' => $this->user?->role ?? 'system',
             'action' => $this->action,

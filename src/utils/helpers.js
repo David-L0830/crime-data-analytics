@@ -178,9 +178,27 @@ export function movingAverage(data, window = 3) {
 }
 
 // ===== Data Utilities =====
+// The bucket a record falls into when the field being grouped by has no
+// value. Without this, `acc[k]` with k === null coerces the object key to the
+// STRING "null", and that string is what reaches the charts — so a Category
+// Distribution pie and the Category × Sitio crosstab would render a slice and
+// a row literally labelled "null" in a printed barangay report.
+//
+// incidents.category is nullable in the schema and 'nullable' in
+// StoreIncidentRequest, so an incident saved without a category is a
+// legitimate record, not bad data. It just needs an honest label rather than a
+// JavaScript coercion artefact. Category is not made required by this.
+export const UNCATEGORISED = 'Uncategorised';
+
 export function groupBy(arr, key) {
   return arr.reduce((acc, item) => {
-    const k = typeof key === 'function' ? key(item) : item[key];
+    const raw = typeof key === 'function' ? key(item) : item[key];
+    // Only absent values are rebucketed. Composite keys built by a callback
+    // (e.g. `${sitio}|${street}`) are already non-empty strings and are
+    // unaffected, and 0 / false are preserved rather than being swallowed by a
+    // truthiness check.
+    const k =
+      raw === null || raw === undefined || raw === '' ? UNCATEGORISED : raw;
     (acc[k] = acc[k] || []).push(item);
     return acc;
   }, {});
