@@ -177,6 +177,26 @@ export function movingAverage(data, window = 3) {
   return result;
 }
 
+// The regression line evaluated one step past the end of the data — the value
+// Trends reports as next month's Forecast.
+//
+// Clamped at zero because a sufficiently declining series drives the
+// extrapolation below it, and "-1 incidents next month" is not a pessimistic
+// estimate, it is an impossible one — and it goes into a printed barangay
+// report. Zero is the honest floor: the fewest crimes that can occur is none.
+//
+// Only this extrapolated point is clamped. The historical fitted values Trends
+// draws are left exactly as linearRegression() produced them, because they
+// describe a line through data that actually happened and flattening them at
+// zero would misrepresent the fit. linearRegression() itself is unchanged.
+//
+// Lives here rather than in Trends.jsx so the clamp is unit-testable without
+// importing a React page, and so a component file does not export a
+// non-component (which react-refresh warns about).
+export function forecastNext(slope, intercept, n) {
+  return Math.max(0, +(slope * n + intercept).toFixed(1));
+}
+
 // ===== Data Utilities =====
 // The bucket a record falls into when the field being grouped by has no
 // value. Without this, `acc[k]` with k === null coerces the object key to the

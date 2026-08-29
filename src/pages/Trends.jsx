@@ -17,6 +17,7 @@ import {
   countBy,
   movingAverage,
   linearRegression,
+  forecastNext,
   monthLabelToRange,
 } from '../utils/helpers';
 import {
@@ -242,7 +243,7 @@ export default function Trends() {
     : 'Forecast';
   const forecast = [...regression];
   if (monthKeys.length)
-    forecast.push(+(slope * monthKeys.length + intercept).toFixed(1));
+    forecast.push(forecastNext(slope, intercept, monthKeys.length));
   const regLabels = [...monthKeys, nextLabel];
   const regressionResult = buildRegressionInsight(
     slope,

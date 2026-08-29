@@ -366,3 +366,58 @@ describe('relativeTime', () => {
     expect(h.relativeTime('2026-07-01T12:00:00Z')).toBe('Jul 1, 2026');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Roadmap 3.2 — the forecast must never be negative.
+//
+// Trends extrapolates one month past the data by evaluating the regression line
+// at x = monthKeys.length. On any sufficiently declining series that value goes
+// below zero, and the chart then forecasts a negative number of crimes for next
+// month — which is not a pessimistic estimate, it is an impossible one, and it
+// is printed in a barangay report.
+//
+// Only the EXTRAPOLATED point is clamped. The historical fitted values stay
+// exactly as linearRegression produced them: they describe the line through
+// data that actually happened, and flattening them at zero would misrepresent
+// the fit the chart is drawing. linearRegression() itself is unchanged.
+// ---------------------------------------------------------------------------
+describe('forecastNext — roadmap 3.2 non-negative clamp', () => {
+  it('returns the plain extrapolation when it is positive', () => {
+    // counts [1,3,5] -> slope 2, intercept 1; next month = 2*3 + 1 = 7
+    expect(h.forecastNext(2, 1, 3)).toBe(7);
+  });
+
+  it('clamps a negative extrapolation to zero', () => {
+    // counts [5,3,1] -> slope -2, intercept 5; next month = -2*3 + 5 = -1
+    expect(h.forecastNext(-2, 5, 3)).toBe(0);
+  });
+
+  it('clamps a steeply negative extrapolation to zero', () => {
+    expect(h.forecastNext(-10, 4, 3)).toBe(0);
+  });
+
+  it('keeps zero as zero', () => {
+    expect(h.forecastNext(-1, 3, 3)).toBe(0);
+  });
+
+  it('keeps the existing one-decimal rounding', () => {
+    expect(h.forecastNext(1.24, 0, 1)).toBe(1.2);
+    expect(h.forecastNext(1.26, 0, 1)).toBe(1.3);
+  });
+
+  it('does not clamp the historical regression line, only the extrapolation', () => {
+    // The fitted value at an EARLIER x may legitimately be negative; that is the
+    // line the chart draws through real data and is left untouched. This test
+    // pins the boundary of the fix: the same arithmetic, unclamped, is what
+    // Trends still uses for the historical series.
+    const { slope, intercept } = h.linearRegression([
+      [0, 1],
+      [1, 0],
+      [2, 0],
+    ]);
+    const historical = [0, 1, 2].map(
+      (i) => +(slope * i + intercept).toFixed(1),
+    );
+    expect(historical.some((v) => v < 0)).toBe(true);
+  });
+});
