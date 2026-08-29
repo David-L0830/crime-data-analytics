@@ -121,6 +121,11 @@ export default function Mapping() {
   // including for people who never open this page.
   const [mapIncidents, setMapIncidents] = useState([]);
   const [mapLoading, setMapLoading] = useState(true);
+  // Separate from `mapLoading` because a settled request and a successful one
+  // are not the same thing. Without this the sidebar cannot tell a failed load
+  // apart from a barangay with nothing to plot — both leave `mapIncidents`
+  // empty — and it would state the second when the first is what happened.
+  const [mapError, setMapError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,8 +140,13 @@ export default function Mapping() {
       .catch(() => {
         if (cancelled) return;
         // A failed request must not read as "no crimes here". The map would be
-        // empty either way, so the difference has to be said out loud.
+        // empty either way, so the difference has to be said out loud — by the
+        // toast, and by the sidebar message, which unlike the toast does not
+        // disappear after 3.5 seconds and leave the failure looking like zero.
+        // Only set here: the request is made once and there is no retry, so
+        // there is no path back from this flag.
         setMapLoading(false);
+        setMapError(true);
         showToast('Could not load crime mapping data.', 'error');
       });
 
@@ -155,25 +165,33 @@ export default function Mapping() {
     [crimeTypeColors],
   );
 
+  // Everything the map could plot if no filter were set. This predicate used to
+  // live inline inside `filtered` below; it is lifted out — same predicate, same
+  // result, `filtered` unchanged — because the sidebar has to tell "nothing was
+  // recorded" apart from "the filters excluded everything", and only the
+  // unfiltered base can answer that.
+  const plottable = useMemo(
+    () =>
+      mapIncidents.filter(
+        (r) => r.status !== 'Archived' && r.latitude && r.longitude,
+      ),
+    [mapIncidents],
+  );
+
   // No category filter. The map payload deliberately does not carry `category`,
   // and filterRecords compares it strictly — passing an undefined field against
   // a selected value would exclude every incident and render an empty map with
   // no explanation. Crime Type, Sitio, Status and the date range are unchanged.
   const filtered = useMemo(
     () =>
-      filterRecords(
-        mapIncidents.filter(
-          (r) => r.status !== 'Archived' && r.latitude && r.longitude,
-        ),
-        {
-          crimeType: filters['map-crimeType'],
-          sitio: filters['map-sitio'],
-          status: filters['map-status'],
-          dateFrom: filters['map-dateFrom'],
-          dateTo: filters['map-dateTo'],
-        },
-      ),
-    [mapIncidents, filters],
+      filterRecords(plottable, {
+        crimeType: filters['map-crimeType'],
+        sitio: filters['map-sitio'],
+        status: filters['map-status'],
+        dateFrom: filters['map-dateFrom'],
+        dateTo: filters['map-dateTo'],
+      }),
+    [plottable, filters],
   );
 
   // The legend lists the crime types actually plotted on the map right now,
@@ -269,6 +287,29 @@ export default function Mapping() {
 
     setTimeout(() => map.invalidateSize(), 200);
   }, [filtered, vizType, colorFor]);
+
+  // The four states an empty map can be in, said out loud rather than left to
+  // an unexplained blank. Kept inline because nothing outside this sidebar
+  // consumes the decision.
+  //
+  // The order is the point. A request that is still running and a request that
+  // failed both leave the data empty, so testing emptiness first would report
+  // "No incidents have been recorded" about incidents nobody has looked for
+  // yet, or about a load that never returned. Filters are only a truthful
+  // explanation once incidents actually arrived, which is why that case reads
+  // `plottable` — the unfiltered base — rather than `filtered`. Null when there
+  // is something on the map, so nothing is said when nothing needs saying.
+  let mapStatus = null;
+  if (mapLoading) mapStatus = 'Loading incidents…';
+  else if (mapError) mapStatus = 'Could not load incidents.';
+  else if (!plottable.length) mapStatus = 'No incidents have been recorded.';
+  else if (!filtered.length) mapStatus = 'No incidents match these filters.';
+
+  // Held once so the two branches below render the same node rather than two
+  // copies of the same markup that could drift apart.
+  const statusNode = mapStatus ? (
+    <div className="map-legend-empty">{mapStatus}</div>
+  ) : null;
 
   const bySitio = countBy(filtered, 'sitio');
   const topSitio = Object.entries(bySitio).sort((a, b) => b[1] - a[1])[0];
@@ -381,16 +422,17 @@ export default function Mapping() {
           </div>
 
           {/* The legend is meaningless for the heatmap, which encodes density
-              rather than crime type, so it is not shown there. */}
-          {vizType !== 'heatmap' && (
+              rather than crime type, so it is not shown there. The state
+              message is not meaningless there: a heatmap left blank by a failed
+              load has exactly as much to explain as a marker map left blank by
+              one, and it used to say nothing at all because the only message on
+              this page lived inside the legend that the heatmap suppresses. It
+              now renders in both branches. */}
+          {vizType !== 'heatmap' ? (
             <>
               <h3>Crime Type</h3>
               <div className="map-legend">
-                {legend.length === 0 && (
-                  <div className="map-legend-empty">
-                    No incidents match these filters.
-                  </div>
-                )}
+                {statusNode}
                 {legend.map((entry) => (
                   <div className="map-legend-item" key={entry.name}>
                     <span
@@ -404,6 +446,8 @@ export default function Mapping() {
                 ))}
               </div>
             </>
+          ) : (
+            statusNode
           )}
 
           <h3>Statistics</h3>
