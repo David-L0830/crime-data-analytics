@@ -41,7 +41,32 @@ const ACTIONS = [
   'RESTORE',
   'SYNC_COMPLETED',
 ];
-const TARGET_TYPES = ['auth', 'report', 'user', 'resident', 'incident'];
+// Aligned with the target types the backend actually writes. 'resident' is
+// gone: the residents table was dropped and no ResidentController remains, so
+// nothing has emitted that value since — it could only ever match rows the
+// audit seeder fabricated, and that seeder no longer exists.
+//
+// The five added values were already being written and simply had no filter:
+// criminal, victim, crime_type, evidence and settings. Without them an
+// administrator could not narrow the trail to criminal-record or victim
+// activity at all, which is a large part of what the trail is reviewed for.
+//
+// Removing 'resident' from this list does NOT hide historical rows. The filter
+// is opt-in — an unset filter matches everything — so any resident row already
+// in the database keeps rendering in the table, and ACTION_COLORS still colours
+// its action. Same treatment DELETE and CREATE already get above: retired as a
+// filter choice, never erased from the record.
+const TARGET_TYPES = [
+  'auth',
+  'report',
+  'user',
+  'incident',
+  'criminal',
+  'victim',
+  'crime_type',
+  'evidence',
+  'settings',
+];
 
 const ACTION_COLORS = {
   LOGIN: 'var(--accent)',
