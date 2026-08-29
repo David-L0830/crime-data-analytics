@@ -6,6 +6,8 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import 'leaflet.markercluster';
 import 'leaflet.heat';
 import { useData } from '../hooks/useData';
+import { useToast } from '../hooks/useToast';
+import { incidentService } from '../services/incidentService';
 import {
   filterRecords,
   formatDate,
@@ -92,7 +94,7 @@ function popupContent(r, color) {
     ${row('Date', formatDate(r.date))}
     ${row('Time', formatTime(r.time))}
     ${row('Sitio', r.sitio)}
-    ${row('Location', r.street)}
+    ${row('Location', r.location)}
     ${row('Status', r.status)}
     ${row('Priority', r.priority)}
     <a class="map-popup-link" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${r.latitude},${r.longitude}`)}" target="_blank" rel="noreferrer">Route to incident →</a>
@@ -100,9 +102,47 @@ function popupContent(r, color) {
 }
 
 export default function Mapping() {
-  const { records, CRIME_TYPES, CATEGORIES, crimeTypeColors } = useData();
+  const { CRIME_TYPES, crimeTypeColors } = useData();
+  const { showToast } = useToast();
   const [filters, setFilters] = useState({});
   const [vizType, setVizType] = useState('markers');
+
+  // Crime Mapping reads GET /incidents/map rather than the shared `records`
+  // slice, which carries the full incident payload — victim, suspect and
+  // complainant names, contacts and addresses, and the narrative description.
+  // None of that is used by this page, and a map is a surface that gets
+  // projected in a barangay hall or printed, so it has no business receiving
+  // identifying details at all. The endpoint returns eleven fields and filters
+  // out archived and uncoordinated incidents server-side.
+  //
+  // Fetched here rather than through DataContext because this is the only
+  // consumer: adding a context slice would pull map data on every login,
+  // including for people who never open this page.
+  const [mapIncidents, setMapIncidents] = useState([]);
+  const [mapLoading, setMapLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    incidentService
+      .map()
+      .then((data) => {
+        if (cancelled) return;
+        setMapIncidents(data || []);
+        setMapLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // A failed request must not read as "no crimes here". The map would be
+        // empty either way, so the difference has to be said out loud.
+        setMapLoading(false);
+        showToast('Could not load crime mapping data.', 'error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showToast]);
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -114,22 +154,25 @@ export default function Mapping() {
     [crimeTypeColors],
   );
 
+  // No category filter. The map payload deliberately does not carry `category`,
+  // and filterRecords compares it strictly — passing an undefined field against
+  // a selected value would exclude every incident and render an empty map with
+  // no explanation. Crime Type, Sitio, Status and the date range are unchanged.
   const filtered = useMemo(
     () =>
       filterRecords(
-        records.filter(
+        mapIncidents.filter(
           (r) => r.status !== 'Archived' && r.latitude && r.longitude,
         ),
         {
           crimeType: filters['map-crimeType'],
-          category: filters['map-category'],
           sitio: filters['map-sitio'],
           status: filters['map-status'],
           dateFrom: filters['map-dateFrom'],
           dateTo: filters['map-dateTo'],
         },
       ),
-    [records, filters],
+    [mapIncidents, filters],
   );
 
   // The legend lists the crime types actually plotted on the map right now,
@@ -238,7 +281,6 @@ export default function Mapping() {
   // in System Settings makes it filterable here immediately.
   const fields = [
     { id: 'map-crimeType', label: 'Crime Type', options: CRIME_TYPES },
-    { id: 'map-category', label: 'Category', options: CATEGORIES },
     { id: 'map-sitio', label: 'Sitio', options: SITIOS },
     { id: 'map-status', label: 'Status', options: STATUSES },
   ];
@@ -351,7 +393,9 @@ export default function Mapping() {
           <div className="map-stats">
             <div className="stat-row">
               <span>Total Markers</span>
-              <strong>{filtered.length}</strong>
+              {/* A dash until the request settles, so an in-flight fetch is not
+                  read as a barangay with zero incidents. */}
+              <strong>{mapLoading ? '—' : filtered.length}</strong>
             </div>
             <div className="stat-row">
               <span>Top Sitio</span>
