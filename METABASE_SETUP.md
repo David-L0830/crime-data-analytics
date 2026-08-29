@@ -12,7 +12,7 @@ Supabase PostgreSQL
         |
 Metabase Questions -> Metabase Dashboards (3x, you create these)
         |
-GET /api/metabase/embed-url?dashboard=...&dateFrom=...&sitio=...   <- Laravel
+GET /api/embed/metabase/{crime|analytics|trends}?dateFrom=...&sitio=...  <- Laravel
         | (signs a short-lived JWT server-side, using firebase/php-jwt,
         |  already a project dependency — no new package installed)
         v
@@ -81,7 +81,9 @@ an extra slug a given dashboard doesn't define is harmless (Metabase
 ignores it), so the backend always sends the full set it has values for.
 
 These become **locked** parameters (baked into the signed embed URL, not
-editable by the viewer) — see `app/Http/Controllers/Api/MetabaseController.php`.
+editable by the viewer) — built by
+`app/Http/Controllers/Api/MetabaseEmbedController.php::buildLockedParams()` and
+signed by `app/Services/MetabaseEmbedService.php`.
 
 ## 3. Environment variables (backend `.env` — NOT frontend)
 
@@ -91,9 +93,9 @@ Already appended (blank) to `backend/.env` and documented in
 ```env
 METABASE_SITE_URL=
 METABASE_EMBEDDING_SECRET_KEY=
-METABASE_DASHBOARD_CRIME_ID=
-METABASE_DASHBOARD_ANALYTICS_ID=
-METABASE_DASHBOARD_TRENDS_ID=
+METABASE_DASHBOARD_ID_CRIME=
+METABASE_DASHBOARD_ID_ANALYTICS=
+METABASE_DASHBOARD_ID_TRENDS=
 ```
 
 Fill these in once you've completed step 2. No real secrets have been
@@ -111,18 +113,23 @@ written anywhere by this change — the values above are blank in both files.
    ```bash
    cd backend
    php artisan route:list | grep metabase
-   # GET|HEAD  api/metabase/embed-url  Api\MetabaseController@embedUrl
+   # GET|HEAD  api/embed/metabase/{dashboardKey}  Api\MetabaseEmbedController@show
    ```
    Then, once `.env` is filled in, hit the endpoint directly (with a valid
    Supabase session cookie/token) and confirm it returns
    `{ "url": "https://.../embed/dashboard/...#..." }` — a `503` means an
-   env var is still missing, a `422` means an unknown `dashboard` key.
+   env var is still missing (the site URL, the secret, or that dashboard's ID),
+   and a `404` with `{"message":"Unknown dashboard."}` means the key in the path
+   was not one of `crime`, `analytics`, `trends`. A `403` means the signed-in
+   account is not a BADAC administrator or read-only user. All of these are
+   covered by `backend/tests/Feature/MetabaseEmbedTest.php`.
 5. **React can embed it** — run `npm run dev` (or `npm run build`, already
    verified to succeed in this change), log in, open Dashboard/Analytics/
    Trends and confirm the Metabase card loads (not stuck on the spinner or
    an error card).
-6. **Filters work** — set a Sitio/date filter on the page's FilterBar and
-   click Apply; the Metabase iframe should reload (a new signed URL is
+6. **Filters work** — set a Sitio/date filter on the page's FilterBar
+   (filters apply automatically; there is no Apply button); the Metabase
+   iframe should reload (a new signed URL is
    requested automatically) and reflect the filtered data, **provided**
    you've added the matching dashboard filter in Metabase per §2b. If a
    dashboard has no matching filter defined yet, the locked param is simply
@@ -134,6 +141,7 @@ If you ever need to go back to the old Chart.js visuals temporarily, the
 change is isolated to: `Dashboard.jsx`, `Analytics.jsx`, `Trends.jsx` (each
 had one `<div className="chart-grid">...</div>` block + a
 `<ChartSummaryModal>` replaced by one `<MetabaseDashboard>` call), plus the
-three new files (`MetabaseDashboard.jsx`, `metabaseService.js`,
-`MetabaseController.php`, `config/metabase.php`) and one new route. Nothing
+the added files (`MetabaseDashboard.jsx`, `metabaseService.js`,
+`MetabaseEmbedController.php`, `MetabaseEmbedService.php`,
+`config/metabase.php`) and one new route. Nothing
 about auth, CRUD, sidebar, navigation, or the database was touched.

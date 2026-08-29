@@ -1,82 +1,109 @@
 # CI/CD and Security Scanning
 
-This project uses **GitHub Actions** for continuous integration and
-**Snyk** for dependency/container vulnerability scanning. The workflow
-lives at `.github/workflows/ci.yml` and runs on every push to `main` and
-every pull request targeting `main`.
+This project uses **GitHub Actions** for continuous integration and **Snyk**
+for dependency vulnerability scanning. They live in two separate workflows:
 
-## CI/CD (GitHub Actions)
+| Workflow                         | Jobs                            | Purpose                       |
+| -------------------------------- | ------------------------------- | ----------------------------- |
+| `.github/workflows/ci.yml`       | `frontend`, `backend`           | Lint, test and build the app  |
+| `.github/workflows/security.yml` | `snyk-frontend`, `snyk-backend` | Dependency vulnerability scan |
 
-`ci.yml` has four jobs:
+Both run on **every push to `main` and every pull request targeting `main`**.
+Neither runs on pushes to other branches, so work on a feature branch is not
+checked by CI until it is opened as a pull request against `main`.
 
-| Job        | What it does |
-|------------|--------------|
-| `frontend` | `npm ci`, then `npx turbo run lint build --filter=cdars-react` — runs the existing `oxlint` and `vite build` scripts from the root `package.json` through Turborepo. Uploads the built `dist/` as a workflow artifact. |
-| `backend`  | Installs PHP 8.2 and Composer dependencies, copies `backend/.env.example` to `.env` and generates an app key, then runs `npx turbo run lint test --filter=@cdars/backend` — the existing `./vendor/bin/pint --test` and `php artisan test` scripts. Tests run against an **in-memory SQLite database** (already configured in `backend/phpunit.xml`), so no live Postgres/Supabase instance is needed in CI. |
-| `docker`   | Builds `backend/Dockerfile` and `Dockerfile.frontend` with `docker/build-push-action` (`push: false`) to confirm both images still build. Nothing is pushed to a registry. |
-| `snyk`     | See below. |
+## CI (`ci.yml`)
 
-Any dependency install failure, build failure, failing test, or failing
-lint check fails the job — nothing is suppressed with `|| true` or similar.
+Two jobs, run in parallel.
 
-Turborepo (`turbo.json`) is used to invoke each workspace's own scripts
-rather than duplicating commands in the workflow, so CI always runs
-exactly what `npm run <task>` / `composer run <task>` would run locally.
+### `frontend` — React + Vite
 
-## Security (Snyk)
+Node.js **22** with npm caching, then:
 
-The `snyk` job scans:
+| Step    | Command         | What it actually runs           |
+| ------- | --------------- | ------------------------------- |
+| Install | `npm ci`        | —                               |
+| Lint    | `npm run lint`  | `oxlint`                        |
+| Test    | `npm test`      | `vitest run` (Node environment) |
+| Build   | `npm run build` | `vite build`                    |
 
-- **JavaScript dependencies** — `snyk test` against the root `package.json`/`package-lock.json`, honoring the repo's `.snyk` policy file.
-- **PHP/Composer dependencies** — `snyk test --command=composer` against `backend/composer.lock`.
-- **Both Docker images** — `snyk container test` against `backend/Dockerfile` and `Dockerfile.frontend` after building them locally in the runner.
+The test step pins its own timezone in `vitest.setup.js`, so assertions that
+format dates behave identically on the runner's UTC clock and on a local
+machine in Asia/Manila.
 
-Scanning happens on every push/PR to `main`, alongside the build/test job
-(as a separate job, so a security finding and a code/test failure are
-reported independently rather than one masking the other).
+Nothing is uploaded as an artifact — the build step exists to prove the bundle
+still compiles, not to publish it. Deployment is handled by Vercel and Render
+from their own integrations, not by this workflow.
 
-**Severity threshold:** the job fails on **high or critical** severity
-findings (`--severity-threshold=high`). Lower-severity findings are
-reported by Snyk but do not fail the build. Adjust the threshold in
-`.github/workflows/ci.yml` if the project's risk tolerance changes.
+### `backend` — Laravel
 
-Findings are visible in the Actions run log for the `snyk` job (and, once
-the repo is connected in the Snyk dashboard, in Snyk's own UI/PR checks).
+PHP **8.3** with a cached Composer directory, then:
+
+| Step        | Command                                            | Notes                                              |
+| ----------- | -------------------------------------------------- | -------------------------------------------------- |
+| Install     | `composer install --no-interaction …`              | —                                                  |
+| Environment | `cp .env.example .env`, `php artisan key:generate` | No real secrets are needed                         |
+| Code style  | `php ./vendor/bin/pint --test`                     | **`continue-on-error: true`** — see the note below |
+| Tests       | `php artisan test`                                 | —                                                  |
+
+**Tests run against an in-memory SQLite database**, configured directly in
+`backend/phpunit.xml` along with a dummy `APP_KEY` and a test-only Supabase JWT
+secret. **No Postgres service container, no Supabase project, and no repository
+secrets are involved.** If a test ever needs real Postgres behaviour — the
+analytics grouping uses `to_char()`, for example — the suite provides a SQLite
+shim in `tests/TestCase.php` rather than standing up a database service.
+
+**One check is deliberately non-blocking.** The Pint code-style step carries
+`continue-on-error: true`, so a formatting violation is reported in the run log
+but does **not** fail the job. There is currently pre-existing Pint debt in the
+repository (mostly CRLF line endings on Windows-authored files), which is why
+the step is advisory. Every other step is blocking: an install failure, a lint
+error, a failing test, or a broken build fails CI.
+
+## Security (`security.yml`)
+
+Two independent jobs, so a vulnerability finding and a build failure are
+reported separately rather than one masking the other.
+
+| Job             | Scans                 | How                                                         |
+| --------------- | --------------------- | ----------------------------------------------------------- |
+| `snyk-frontend` | npm dependencies      | `snyk/actions/node@master` with `--severity-threshold=high` |
+| `snyk-backend`  | Composer dependencies | `snyk test --severity-threshold=high --file=composer.lock`  |
+
+**Severity threshold:** both jobs fail on **high or critical** findings only.
+Lower-severity findings are reported but do not fail the build. The repository's
+`.snyk` policy file records the accepted exceptions.
+
+**Container images are not scanned.** `Dockerfile.frontend`, `backend/Dockerfile`
+and `docker-compose.yml` exist and are used for local containers, but no
+workflow builds or scans them. A broken Dockerfile would therefore not be caught
+by CI.
 
 ### Required secret
 
-The workflow needs one repository secret:
+| Secret       | Purpose                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SNYK_TOKEN` | Snyk API token, from Snyk → Account Settings → API Token. Add it under **Settings → Secrets and variables → Actions → New repository secret**. |
 
-| Secret | Purpose |
-|--------|---------|
-| `SNYK_TOKEN` | Your Snyk API token, from Snyk → Account Settings → API Token. Add it under **Settings → Secrets and variables → Actions → New repository secret**. |
+Without `SNYK_TOKEN`, both `security.yml` jobs fail at the Snyk step. `ci.yml` is
+unaffected — it needs no secrets at all.
 
-Without `SNYK_TOKEN` configured, the `snyk` job will fail at the
-"Authenticate Snyk" step — the rest of CI (frontend/backend/docker) is
-unaffected, since Snyk runs as an independent job.
-
-Two optional secrets let CI build the frontend with real public Supabase
-values instead of the local-dev defaults (harmless either way, since only
-the publishable/public key ever belongs in frontend code):
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_PUBLISHABLE_KEY`
-
-The Supabase **service role key** (`SUPABASE_SERVICE_ROLE_KEY`) is a
-backend-only secret, is never read by this workflow, and must never be
-added as a `VITE_*` value anywhere.
-
-## Docker
-
-`docker-compose.yml`, `Dockerfile.frontend`, and `backend/Dockerfile` were
-already correctly configured and are unchanged. The `docker` CI job simply
-builds both images on every push/PR (without pushing) so a broken
-Dockerfile is caught in CI instead of at deploy time.
+The Supabase **service role key** (`SUPABASE_SERVICE_ROLE_KEY`) and the
+**Metabase embedding secret** (`METABASE_EMBEDDING_SECRET_KEY`) are backend-only
+values. Neither workflow reads them, and neither may ever be exposed to the
+frontend or added as a `VITE_*` variable.
 
 ## Turborepo
 
-`turbo.json` already defined `dev`/`build`/`lint`/`test` tasks for the two
-workspaces (`cdars-react` at the repo root, `@cdars/backend`). No changes
-were made to `turbo.json` — CI now simply invokes those existing tasks via
-`npx turbo run ... --filter=<package>` instead of calling `npm`/`composer`
-scripts directly, so local and CI runs stay in sync.
+`turbo.json` defines `dev`/`build`/`lint`/`test` tasks for the two workspaces
+(`cdars-react` at the repository root and `@cdars/backend`). **CI does not use
+it** — both jobs call `npm`, `composer` and `artisan` directly. Turborepo is
+available for local use only; changing a task in `turbo.json` has no effect on
+what CI runs, and vice versa.
+
+## Deployment
+
+There is **no deployment workflow in this repository.** Vercel (frontend) and
+Render (backend) deploy from their own GitHub integrations, watching `main`.
+Merging to `main` is therefore the deployment trigger — see the README's
+Deployment Guide for the required order and environment variables.
