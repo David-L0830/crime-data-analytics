@@ -184,6 +184,37 @@ Supporting tables include `users`, `criminals`, `victims`, `incident_victim`, `a
 
 **Archiving, not deleting.** Records are archived by setting `status = 'Archived'` rather than being removed. Every statistic excludes archived rows.
 
+### Manual backup (`pg_dump`)
+
+There is no automated backup on the Supabase free plan, so take a manual dump before anything risky — a migration, a bulk edit, or a demo. The database is PostgreSQL 17, so use a `pg_dump` of version **17 or newer**; an older client refuses to dump a newer server.
+
+Get the connection string from **Supabase Dashboard → Project Settings → Database → Connection string → URI**, and prefer the **session pooler** (port `5432`) over the transaction pooler (`6543`), which does not support the prepared statements `pg_dump` issues.
+
+```bash
+# Full logical backup — schema + data, custom format, compressed.
+pg_dump "postgresql://postgres.<project-ref>:<password>@<host>:5432/postgres?sslmode=require" \
+  --format=custom --no-owner --no-privileges \
+  --file="cdars-$(date +%Y%m%d-%H%M).dump"
+
+# Schema only, when all you need is the shape of the database.
+pg_dump "<same URI>" --schema-only --no-owner --no-privileges \
+  --file="cdars-schema-$(date +%Y%m%d).sql"
+```
+
+Restore into a **new or non-production** database first and check it before trusting it:
+
+```bash
+pg_restore --dbname="<target URI>" --no-owner --no-privileges --clean --if-exists \
+  cdars-YYYYMMDD-HHMM.dump
+```
+
+Notes:
+
+- **The dump contains real crime records, victim and suspect names, and contact details.** Treat the file as confidential: keep it out of the repository (it is not git-ignored by name), do not attach it to an issue or a chat, and delete it when you are finished with it.
+- `--no-owner --no-privileges` avoids restore errors caused by Supabase-managed roles that do not exist in your target database.
+- The dump covers the `public` schema Laravel owns. It does **not** back up Supabase Auth users (`auth.*`), which Supabase manages separately, nor anything in Metabase — Metabase keeps its own dashboards, questions and IDs in its H2 file on the machine it runs on. Back that file up separately; recreating Metabase from scratch reassigns dashboard IDs and breaks the embed.
+- Verify a dump before relying on it: `pg_restore --list cdars-YYYYMMDD-HHMM.dump` should list the tables.
+
 ---
 
 ## Metabase & the Cloudflare Tunnel

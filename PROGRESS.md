@@ -1,5 +1,23 @@
 # PROGRESS LOG
 
+> **Reconciliation note — 2026-08-30.** The entries below are a historical
+> record of one earlier session and are kept as written. Two of its statements
+> are no longer true and should not be acted on:
+>
+> - _"Backend PHPUnit suite: **not run** — no PHP interpreter available in this
+>   sandbox"_ and the matching next action _"Get PHP available somewhere and run
+>   the backend test suite for real."_ PHP 8.3 is available and the suite runs:
+>   **274 passed (1008 assertions)** against the in-memory SQLite database
+>   configured in `backend/phpunit.xml`. It also runs in CI (`.github/workflows/ci.yml`).
+> - The frontend now has a Vitest suite that did not exist when this log was
+>   written — **67 passed**, covering the analytics helpers — and it runs in CI
+>   as well.
+>
+> The browser-verification gaps this log flags (items 2, 4, 6, and next action 4)
+> **are still open**: no session since has had a browser available, so the login
+> page, collapsed sidebar, profile menu, KPI tooltips, avatar upload and section
+> layout remain verified by code review and a successful build only.
+
 ## Task-by-task status
 
 | # | Task | Status | Notes |
