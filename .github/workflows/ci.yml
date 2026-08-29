@@ -26,6 +26,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The Vitest suite runs in a Node environment against the pure helpers
+      # in src/utils (see vitest.config.js) — no browser, no services, no
+      # secrets. It was previously the only check in the repository that CI
+      # never ran, so a regression in the KPI/forecast/month-grouping helpers
+      # could reach main with a green tick. TZ is pinned in vitest.setup.js,
+      # so this passes identically on the runner's UTC clock and locally.
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
 
