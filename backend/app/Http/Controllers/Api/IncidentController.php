@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class IncidentController extends Controller
 {
@@ -113,8 +114,14 @@ class IncidentController extends Controller
     {
         $validated = $request->validated();
         $data = $this->mapToColumns($validated);
-        $data['incident_code'] = 'INC-'.str_pad((string) (Incident::max('id') + 1), 5, '0', STR_PAD_LEFT);
         $data['reported_by'] = $request->user()?->id;
+
+        // incident_code is NOT NULL UNIQUE and the id it names does not exist
+        // until the insert has happened, so the row goes in carrying a
+        // placeholder that is replaced from its own id a statement later,
+        // inside the same transaction. Nothing outside the transaction can
+        // observe the placeholder, and a rollback takes it with it.
+        $data['incident_code'] = 'TMP-'.Str::uuid()->toString();
 
         // The incident, its evidence items and its audit entry are ONE unit of
         // work. Before this they were three unwrapped statements, so a failure
@@ -124,6 +131,10 @@ class IncidentController extends Controller
         // error for a record they could not see.
         $incident = DB::transaction(function () use ($request, $data, $validated) {
             $incident = Incident::create($data);
+
+            $incident->forceFill([
+                'incident_code' => $this->mintIncidentCode($incident->id),
+            ])->save();
 
             // Structured evidence (Evidence ID + Description), written only when
             // the caller sent the field at all - see syncEvidence().
@@ -157,6 +168,42 @@ class IncidentController extends Controller
         // and DataContext.addRecord() pushes that response straight into the
         // UI. Same pattern already used by archive() below.
         return (new IncidentResource($created))->response()->setStatusCode(201);
+    }
+
+    /**
+     * The human-facing code for an incident, derived from the row it names.
+     *
+     * This used to be 'INC-'.(max(id) + 1), read outside the transaction — a
+     * PREDICTION of the id, made before the row existed, under no lock. Two
+     * simultaneous creates read the same max(id), computed the same code and
+     * the second one violated incidents_incident_code_unique, so an encoder got
+     * a 500 and lost the case they had just typed. Worse, it did not recover:
+     * the failed insert rolls back, so max(id) never advances, and every retry
+     * recomputed the same colliding code — the endpoint stayed on 500 until a
+     * row was added by some other means.
+     *
+     * Deriving from the row's own id removes the race by construction rather
+     * than by retrying: ids are unique, so no two concurrent transactions can
+     * ever want the same code. The only collision still possible is with a
+     * legacy row that already holds this id's code, and that is static data
+     * rather than a competitor — which is why reading it here is safe.
+     *
+     * Such a legacy row gets the suffix treatment syncEvidence() has always
+     * applied to a repeated evidence reference (EV-001 -> EV-001-2), so the
+     * code still names its row and the save still succeeds.
+     */
+    private function mintIncidentCode(int $id): string
+    {
+        $base = 'INC-'.str_pad((string) $id, 5, '0', STR_PAD_LEFT);
+        $candidate = $base;
+        $suffix = 1;
+
+        while (Incident::where('incident_code', $candidate)->whereKeyNot($id)->exists()) {
+            $suffix++;
+            $candidate = $base.'-'.$suffix;
+        }
+
+        return $candidate;
     }
 
     // PUT /api/incidents/{incident}
