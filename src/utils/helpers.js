@@ -236,6 +236,50 @@ export function forecastNext(slope, intercept, n) {
   return Math.max(0, +(slope * n + intercept).toFixed(1));
 }
 
+// The incident count at which a sitio's severity reaches High. This was a bare
+// 5 inside Trends, alongside a bare 3 that the configurable Hotspot Alert
+// Threshold has now replaced. It stays a constant rather than becoming a second
+// setting: nothing in the repository ever documented it — git log on the
+// literal reaches only the initial commit, no comment or doc relates it to the
+// hotspot threshold, and the design spec the code cites ("Part F-19") is not in
+// the repository — so promoting it to a named default is the most it can honestly
+// become without inventing a meaning for it.
+const HOTSPOT_HIGH_BOUNDARY = 5;
+
+// The severity band for a sitio, given its incident count and the configured
+// Hotspot Alert Threshold.
+//
+// The threshold decides what counts as a hotspot at all: docs/API_ENDPOINTS.md
+// defines it as the count a sitio "meets or exceeds" to qualify, which is why
+// every comparison here is >=. Before this, the setting was editable, validated
+// and persisted, and then read by nothing — Trends classified with hard-coded
+// literals, so moving the setting from 1 to 99 changed nothing anyone could see.
+//
+//   Low     count <  threshold          not a hotspot
+//   Medium  count >= threshold          a hotspot, below the High boundary
+//   High    count >= max(5, threshold)
+//
+// The max() is what keeps the two bands coherent. With a threshold above 5 a
+// bare `count >= 5` would label a sitio High while it sat BELOW the configured
+// threshold — worst severity for somewhere that does not qualify as a hotspot
+// at all, printed in a barangay report. Above 5 the two boundaries coincide and
+// Medium is empty, which is a real consequence of the rule rather than an
+// oversight: once the threshold is that strict, qualifying as a hotspot and
+// being severe are the same statement.
+//
+// A missing threshold falls back to 3, matching normalizeSettings() in
+// DataContext and the hotspot_threshold column default. A configured 0 is
+// honoured rather than treated as missing, because SettingController validates
+// the field as integer min:0, so 0 is a real value a user can choose.
+export function hotspotRisk(count, threshold) {
+  const configured = Number.isFinite(threshold) ? threshold : 3;
+  const highBoundary = Math.max(HOTSPOT_HIGH_BOUNDARY, configured);
+
+  if (count >= highBoundary) return 'High';
+  if (count >= configured) return 'Medium';
+  return 'Low';
+}
+
 // ===== Data Utilities =====
 // The bucket a record falls into when the field being grouped by has no
 // value. Without this, `acc[k]` with k === null coerces the object key to the

@@ -637,3 +637,106 @@ describe('Analytics month key — roadmap 3.4 YYYY-MM grouping', () => {
     expect(h.continuousMonths(h.countBy([], monthKeyOf))).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Roadmap 3.5 — wire the Hotspot Threshold setting into the severity bands.
+//
+// "Hotspot Alert Threshold" was editable in System Settings, validated,
+// persisted and reloaded, and then read by nothing: Trends classified sitios
+// with hard-coded literals (>= 5 High, >= 3 Medium, and a separate >= 3 High
+// Risk). Moving the setting from 1 to 99 changed nothing on screen or in the
+// printed report.
+//
+// The band rule is a PRODUCT DECISION, not something the repository could
+// establish. git log on the literals reaches only "Initial commit", no comment
+// or doc relates 3 to 5, and the design spec the code cites ("Part F-19") is
+// not in the repository. docs/API_ENDPOINTS.md does document the setting itself
+// — "counts sitios whose incident total meets or exceeds hotspot_threshold" —
+// which fixes the hotspot boundary but says nothing about a High band. The rule
+// implemented here was supplied explicitly:
+//
+//   Low    count <  hotspotThreshold
+//   Medium count >= hotspotThreshold, below the effective High boundary
+//   High   count >= max(5, hotspotThreshold)
+//
+// The max() exists so a sitio can never be labelled High while sitting below
+// the configured hotspot threshold — i.e. while not being a hotspot at all.
+// ---------------------------------------------------------------------------
+describe('hotspotRisk — roadmap 3.5 configurable severity bands', () => {
+  it('preserves the existing behaviour at the default threshold of 3', () => {
+    // This is the shipped default, so the printed report must not move.
+    expect(h.hotspotRisk(0, 3)).toBe('Low');
+    expect(h.hotspotRisk(2, 3)).toBe('Low');
+    expect(h.hotspotRisk(3, 3)).toBe('Medium');
+    expect(h.hotspotRisk(4, 3)).toBe('Medium');
+    expect(h.hotspotRisk(5, 3)).toBe('High');
+    expect(h.hotspotRisk(6, 3)).toBe('High');
+  });
+
+  it('moves the Low/Medium boundary with a threshold below 5', () => {
+    expect(h.hotspotRisk(1, 2)).toBe('Low');
+    expect(h.hotspotRisk(2, 2)).toBe('Medium');
+    expect(h.hotspotRisk(4, 2)).toBe('Medium');
+    expect(h.hotspotRisk(5, 2)).toBe('High');
+  });
+
+  it('treats a count exactly equal to the threshold as a hotspot', () => {
+    // >= semantics, matching the documented "meets or exceeds".
+    expect(h.hotspotRisk(4, 4)).toBe('Medium');
+    expect(h.hotspotRisk(3, 4)).toBe('Low');
+    expect(h.hotspotRisk(7, 7)).toBe('High');
+  });
+
+  it('collapses Medium when the threshold equals the High boundary', () => {
+    // At 5 the two boundaries coincide, so there is no room between them.
+    expect(h.hotspotRisk(4, 5)).toBe('Low');
+    expect(h.hotspotRisk(5, 5)).toBe('High');
+    expect(h.hotspotRisk(6, 5)).toBe('High');
+  });
+
+  it('never labels a sitio High while it is below the configured threshold', () => {
+    // The whole point of max(5, threshold). With a threshold of 8, counts of
+    // 5-7 are NOT hotspots, so they must not carry the worst severity.
+    expect(h.hotspotRisk(5, 8)).toBe('Low');
+    expect(h.hotspotRisk(6, 8)).toBe('Low');
+    expect(h.hotspotRisk(7, 8)).toBe('Low');
+    expect(h.hotspotRisk(8, 8)).toBe('High');
+    expect(h.hotspotRisk(9, 8)).toBe('High');
+  });
+
+  it('handles zero counts and a very large threshold', () => {
+    expect(h.hotspotRisk(0, 3)).toBe('Low');
+    expect(h.hotspotRisk(0, 99)).toBe('Low');
+    expect(h.hotspotRisk(50, 99)).toBe('Low');
+    expect(h.hotspotRisk(99, 99)).toBe('High');
+  });
+
+  it('falls back to the documented default of 3 for a missing threshold', () => {
+    // DataContext.normalizeSettings() defaults hotspotThreshold to 3, matching
+    // the column default, so an absent value behaves as 3 rather than as 0.
+    expect(h.hotspotRisk(3, undefined)).toBe('Medium');
+    expect(h.hotspotRisk(2, undefined)).toBe('Low');
+    expect(h.hotspotRisk(3, null)).toBe('Medium');
+    expect(h.hotspotRisk(3, NaN)).toBe('Medium');
+  });
+
+  it('honours a configured threshold of 0, which the API permits', () => {
+    // SettingController validates hotspotThreshold as integer min:0, so 0 is a
+    // real configured value and not a missing one.
+    expect(h.hotspotRisk(0, 0)).toBe('Medium');
+    expect(h.hotspotRisk(5, 0)).toBe('High');
+  });
+
+  it('agrees with the High Risk classification by construction', () => {
+    // Trends derives High Risk as "not Low", so the two tables can never
+    // disagree about whether a sitio is a hotspot.
+    for (const threshold of [0, 2, 3, 5, 8]) {
+      for (const count of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+        const effective = threshold === 0 ? 0 : threshold;
+        expect(h.hotspotRisk(count, threshold) !== 'Low').toBe(
+          count >= effective,
+        );
+      }
+    }
+  });
+});

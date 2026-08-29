@@ -19,6 +19,7 @@ import {
   linearRegression,
   forecastNext,
   continuousMonths,
+  hotspotRisk,
   monthLabelToRange,
 } from '../utils/helpers';
 import {
@@ -266,15 +267,13 @@ export default function Trends() {
   ].join(' \u00B7 ');
 
   // ===== Hotspot / location tables (shown only inside the Hotspots panel) =====
+  // Severity now honours the configured Hotspot Alert Threshold instead of the
+  // literals that used to sit here — the setting was editable and persisted but
+  // read by nothing. See hotspotRisk() for the band rule.
   const hotspots = SITIOS.map((s) => ({
     sitio: s,
     count: bySitioForAlerts[s] || 0,
-    risk:
-      (bySitioForAlerts[s] || 0) >= 5
-        ? 'High'
-        : (bySitioForAlerts[s] || 0) >= 3
-          ? 'Medium'
-          : 'Low',
+    risk: hotspotRisk(bySitioForAlerts[s] || 0, settings.hotspotThreshold),
   })).sort((a, b) => b.count - a.count);
   const repeatLocs = Object.entries(locCountsForAlerts)
     .filter(([, c]) => c > 1)
@@ -293,7 +292,15 @@ export default function Trends() {
           1000
         ).toFixed(2)
       : '—',
-    level: (bySitioForAlerts[s] || 0) >= 3 ? 'High Risk' : 'Normal',
+    // "High Risk" is exactly "qualifies as a hotspot", which is the same
+    // question the severity band already answers — anything above Low is at or
+    // over the configured threshold. Deriving it from hotspotRisk() rather than
+    // repeating the comparison means this table and the Severity column cannot
+    // drift apart, and both pick up the same fallback for a missing setting.
+    level:
+      hotspotRisk(bySitioForAlerts[s] || 0, settings.hotspotThreshold) === 'Low'
+        ? 'Normal'
+        : 'High Risk',
   })).sort((a, b) => b.count - a.count);
 
   return (
