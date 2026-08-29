@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import { playNotificationChime } from '../utils/notificationSound';
@@ -24,6 +25,10 @@ export default function MainLayout() {
     markNotificationRead,
   } = useData();
   const navigate = useNavigate();
+  // Only used as the ErrorBoundary's key below — remounting the boundary on
+  // every navigation is what clears a caught error without the boundary
+  // needing reset logic of its own.
+  const location = useLocation();
   const { showNotificationToast } = useToast();
   const [toplinePulsing, setToplinePulsing] = useState(false);
   const pulseTimer = useRef(null);
@@ -175,7 +180,14 @@ export default function MainLayout() {
               Loading dashboard data…
             </div>
           ) : (
-            <Outlet />
+            // Keyed on the path so navigating to another module remounts the
+            // boundary and clears any error it is currently showing. The
+            // boundary sits INSIDE .content-area, so Sidebar and Header are
+            // its siblings, not its children — a page that throws cannot take
+            // the navigation down with it.
+            <ErrorBoundary key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
           )}
         </div>
       </main>

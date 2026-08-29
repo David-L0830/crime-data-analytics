@@ -307,9 +307,10 @@ export default function Dashboard() {
       // `time` is nullable on purpose — incident_time is nullable in the
       // migration and the Time field is optional in IncidentModal, so
       // IncidentResource legitimately returns time: null. Calling
-      // .localeCompare on null throws a TypeError during render, and with no
-      // ErrorBoundary above this page that white-screens the whole app rather
-      // than breaking one card. Coercing to '' keeps the ordering intact and
+      // .localeCompare on null throws a TypeError during render. The
+      // ErrorBoundary in MainLayout now contains such a throw to this page
+      // instead of white-screening the whole app, but containing a crash is
+      // not the same as not crashing: coercing to '' keeps the ordering intact and
       // sorts a missing time last within its own date. `date` needs no such
       // guard: incident_date is NOT NULL in the schema and required by both
       // StoreIncidentRequest and UpdateIncidentRequest.
