@@ -828,4 +828,64 @@ class UserManagementTest extends TestCase
     // token resolution entirely. Covering it properly needs a test that
     // exercises SupabaseTokenValidator with a stubbed/mocked JWT, which is
     // a genuinely new test rather than a cleanup of this one.
+
+    /**
+     * UserResource must report two-factor as enabled only for a VERIFIED
+     * factor.
+     *
+     * Supabase keeps an abandoned enrolment as a row with status
+     * 'unverified', and SupabaseAdminService::listFactors() deliberately
+     * returns factors of every status. Counting them all meant an
+     * administrator saw "2FA enabled" for an account that had merely opened
+     * the setup dialog and walked away — while that account's own security
+     * panel correctly showed "Not enrolled", because the frontend's
+     * selectActiveTotpFactor filters on status === 'verified'.
+     *
+     * A half-finished enrolment protects nobody, so the stricter reading is
+     * the correct one and the two views now agree on it. This test pins that
+     * down in both directions so the looser count cannot come back.
+     */
+    public function test_only_a_verified_factor_reports_two_factor_as_enabled(): void
+    {
+        $this->actingAdmin();
+        config(['supabase.service_role_key' => 'test-only-service-role-key']);
+
+        $target = User::factory()->create([
+            'role' => User::ROLE_ENCODER,
+            'supabase_user_id' => '99999999-8888-7777-6666-555555555555',
+        ]);
+
+        // ONE fake, reading a mutable variable at call time. Calling
+        // Http::fake() repeatedly would not work here: successive calls
+        // append stubs and the first one registered for a matching URL wins,
+        // so a later "verified" stub would never be reached and the test
+        // would assert against the first scenario four times over.
+        $factors = [];
+        Http::fake(function () use (&$factors) {
+            return Http::response(['factors' => $factors], 200);
+        });
+
+        $read = fn () => $this->getJson("/api/users/{$target->id}")
+            ->assertOk()
+            ->json('data.twoFactorEnabled');
+
+        // Enrolment started and abandoned — must NOT read as protected.
+        $factors = [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'unverified']];
+        $this->assertFalse($read(), 'An unverified factor must not report as two-factor enabled.');
+
+        // Same account, factor now actually verified — must read as enabled.
+        $factors = [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'verified']];
+        $this->assertTrue($read(), 'A verified factor must report as two-factor enabled.');
+
+        // A stale unverified factor must not mask a verified one.
+        $factors = [
+            ['id' => 'factor-old', 'factor_type' => 'totp', 'status' => 'unverified'],
+            ['id' => 'factor-new', 'factor_type' => 'totp', 'status' => 'verified'],
+        ];
+        $this->assertTrue($read(), 'A verified factor must win over a stale unverified one.');
+
+        // No factors at all.
+        $factors = [];
+        $this->assertFalse($read(), 'No factors must not report as two-factor enabled.');
+    }
 }

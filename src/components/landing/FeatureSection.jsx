@@ -29,7 +29,10 @@ const FEATURES = [
   {
     icon: Icons.ShieldCheck,
     title: 'Secure Access',
-    desc: 'Protect sensitive records with authentication, two-factor login, and role-based access control.',
+    // "two-factor login" was inaccurate — sign-in performs no second-factor
+    // challenge. Authenticator enrolment is real and available; enforcement
+    // at login is not implemented, so this no longer claims it.
+    desc: 'Protect sensitive records with verified sign-in, server-enforced role-based access control, and a full audit trail.',
   },
 ];
 

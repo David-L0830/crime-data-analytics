@@ -114,7 +114,10 @@ export default function TwoFactorSelfService() {
 
       closeSetup();
       await loadStatus();
-      showToast('Two-factor authentication enabled.', 'success');
+      // "enabled" would imply the factor is now enforced at sign-in. It is
+      // not — see the status text below. This states exactly what happened:
+      // the authenticator was registered and its first code checked out.
+      showToast('Authenticator registered and verified.', 'success');
     } catch (err) {
       setSetupError(
         err instanceof ApiError || err instanceof Error
@@ -201,9 +204,18 @@ export default function TwoFactorSelfService() {
                   maxWidth: 480,
                 }}
               >
+                {/* Deliberately precise about what enrolling does and does
+                    not do. This panel previously said the account "requires a
+                    code from your authenticator app every time you sign in",
+                    which was untrue: sign-in performs no second-factor
+                    challenge (see AuthContext.loginWithEmail) and no route
+                    requires aal2 (see backend/routes/api.php). Telling
+                    somebody they are protected when they are not is worse
+                    than offering no protection, because it changes how they
+                    choose a password. */}
                 {factor
-                  ? 'Your account requires a code from your authenticator app every time you sign in.'
-                  : 'Add an extra layer of security to your account by requiring a code from an authenticator app when you sign in.'}
+                  ? 'An authenticator app is registered to your account and can be used for verification. Sign-in does not currently request a code — enrolment is recorded, but it is not yet enforced at login.'
+                  : 'Register an authenticator app against your account. Note that sign-in does not currently request a code: enrolment is recorded for administration and future use, but it is not yet enforced at login.'}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
