@@ -11,6 +11,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { VICTIM_STATUSES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -107,7 +108,13 @@ export default function VictimRecords() {
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
     });
-    if (ok) showToast('Victim records exported to Excel', 'success');
+    if (ok) {
+      showToast('Victim records exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('victim-records');
+    }
   };
 
   // Checkpoint 20, Tasks 8/9 — Victim records had no delete/archive UI at

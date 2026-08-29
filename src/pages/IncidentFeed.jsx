@@ -23,6 +23,7 @@ import {
   PENDING_STATUSES,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { TYPE_CATEGORY_MAP } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -245,7 +246,13 @@ export default function IncidentFeed() {
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
     });
-    if (ok) showToast('Incidents exported to Excel', 'success');
+    if (ok) {
+      showToast('Incidents exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('incidents');
+    }
   };
 
   const handleCreate = async (data) => {

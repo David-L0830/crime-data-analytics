@@ -7,6 +7,7 @@ import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import { today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { Icons } from '../components/icons';
 
 // Checkpoint 19, Task 2 (frontend) + Checkpoint 20 (backend): the filter
@@ -154,7 +155,13 @@ export default function AuditLogs() {
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
     });
-    if (ok) showToast('Audit logs exported to Excel', 'success');
+    if (ok) {
+      showToast('Audit logs exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('audit-logs');
+    }
   };
 
   return (

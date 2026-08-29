@@ -27,6 +27,7 @@ import {
   continuousMonths,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 // CRIME_TYPES is NOT imported here: the Crime Type filter below reads the
 // configured, enabled vocabulary from useData() instead, so a crime type an
 // Administrator adds in System Settings is filterable on this page too.
@@ -316,7 +317,13 @@ export default function Analytics() {
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
     });
-    if (ok) showToast('Statistical analysis exported to Excel', 'success');
+    if (ok) {
+      showToast('Statistical analysis exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('analytics');
+    }
   };
 
   return (

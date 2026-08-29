@@ -124,6 +124,19 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
     ->get('/audit-logs', [AuditLogController::class, 'index']);
 
+// POST /report-export-audit — records that a report was exported, the way
+// POST /users/{user}/password-reset-audit records that a reset was sent. The
+// frontend calls it only after exportWorkbook() reports success.
+//
+// Authenticated but NOT role-restricted, unlike GET /audit-logs above: every
+// role exports something it is entitled to see — Encoder from Crime Data
+// Collection, Badac (read-only) from Records and the analytics pages — so
+// restricting the write to administrators would silently drop exactly the
+// events an administrator reviews the trail for. Writing an entry about
+// yourself is not the same permission as reading everyone's.
+Route::middleware(['auth:supabase'])
+    ->post('/report-export-audit', [AuditLogController::class, 'reportExported']);
+
 // GET /sync-logs, GET /users, GET /users/{user} — admin-only. Badac
 // (read-only) has no User Management, Settings, or Audit Logs access.
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {

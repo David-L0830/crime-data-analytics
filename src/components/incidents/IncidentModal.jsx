@@ -4,6 +4,7 @@ import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import { formatDate, formatTime, today } from '../../utils/helpers';
 import { exportWorkbook } from '../../utils/exportWorkbook';
+import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
@@ -105,7 +106,13 @@ export function IncidentViewModal({
       rows,
       onEmpty: () => showToast('Could not export incident.', 'error'),
     });
-    if (ok) showToast('Incident exported to Excel', 'success');
+    if (ok) {
+      showToast('Incident exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('incident-record');
+    }
   };
 
   return (

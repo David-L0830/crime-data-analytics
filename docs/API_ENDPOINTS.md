@@ -100,6 +100,7 @@ Populated from `php artisan route:list`. **47 API routes**, plus two application
 | POST | `/api/users/{user}/two-factor/disable` | admin | Remove another user's MFA factors |
 | GET | `/api/role-permissions` | admin | Role/module access, read from route middleware |
 | GET | `/api/audit-logs` | admin | Recent audit trail (max 200) |
+| POST | `/api/report-export-audit` | Authenticated | Record that a report was exported |
 | GET | `/api/sync-logs` | admin | Data import history |
 
 > `storage/{path}` also appears in the route list. It is Laravel's built-in symlinked file server for uploaded avatars, not an API endpoint.
@@ -1025,6 +1026,42 @@ server-side authorization decides every request independently.
 ```
 
 **Status codes** — `200`, `401`, `403`
+
+### POST `/api/report-export-audit`
+
+**Purpose** — records that a report was exported, writing a `REPORT_EXPORTED`
+row into the audit trail. Named for exactly what it does: **it does not produce
+the export**. The workbook is built in the browser by `exportWorkbook()`, and
+the frontend calls this endpoint only after that has returned success, so the
+trail never records an export that did not happen — the same discipline as
+`POST /api/users/{user}/password-reset-audit`.
+
+**Authenticated, but not admin-only.** Every role exports something it is
+entitled to see — Encoder from Crime Data Collection, Badac (read-only) from
+Records and the analytics pages — so restricting the write to administrators
+would drop exactly the events an administrator reviews the trail for. Reading
+the trail is unchanged: `GET /api/audit-logs` remains admin-only.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `report` | string | **yes** — one of `dashboard`, `analytics`, `incidents`, `audit-logs`, `criminal-records`, `criminal-profile`, `victim-records`, `victim-profile`, `incident-record` |
+
+`report` is a key, not a description. The row's wording is composed server-side
+from that key, so a client cannot write free text into the audit record. The
+description names the report and nothing else — no row counts and no filter
+values, since the audit log is itself exportable.
+
+There is no `REPORT_GENERATED` counterpart. Printing goes through
+`window.print()`, which reports neither success nor cancellation, so such a row
+could only claim a report that may never have been produced.
+
+**Response** — `200 OK`, `{ "message": "Report export recorded." }`
+
+**Status codes** — `200`, `401`, `422` (unknown or missing `report`), `500` (the
+row could not be written — logged server-side; the browser ignores this, so a
+completed download is never presented as failed)
 
 ---
 

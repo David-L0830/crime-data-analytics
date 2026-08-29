@@ -13,6 +13,7 @@ import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import Button from '../components/ui/Button';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import {
   filterRecords,
   countBy,
@@ -410,7 +411,13 @@ export default function Dashboard() {
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
     });
-    if (ok) showToast('Dashboard data exported to Excel', 'success');
+    if (ok) {
+      showToast('Dashboard data exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('dashboard');
+    }
   };
 
   return (
