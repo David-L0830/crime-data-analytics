@@ -343,6 +343,13 @@ export default function IncidentFeed() {
           ]}
           onApply={setFilters}
           initialValues={filterResetKey === 0 ? filters : {}}
+          // The search box lives outside the bar, so clearing the filters has
+          // to clear it too — otherwise "Clear Filters" would leave the list
+          // still narrowed by a search term the user was told had been cleared.
+          // The notification-arrival reset above is untouched and still uses
+          // filterResetKey; this path does not remount the bar, so the two do
+          // not interfere.
+          onClear={() => setSearch('')}
         />
 
         {/* Print-only section heading, so the printed table is introduced

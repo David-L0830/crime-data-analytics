@@ -21,6 +21,7 @@ import {
   BARANGAY_178_CENTER,
 } from '../utils/constants';
 import { Icons } from '../components/icons';
+import Button from '../components/ui/Button';
 
 // Leaflet's default marker icon URLs break under Vite bundling — point them at the CDN instead.
 delete L.Icon.Default.prototype._getIconUrl;
@@ -327,6 +328,22 @@ export default function Mapping() {
                 onChange={(e) => setFilter('map-dateTo', e.target.value)}
               />
             </div>
+            {/* Crime Mapping builds its own filter controls rather than using
+                the shared FilterBar, so it needs its own Clear Filters. These
+                inputs read `filters` directly — there is no second copy of the
+                state to fall out of step — so emptying it clears the controls
+                and the map together.
+
+                Visualization type is deliberately untouched: markers, clusters
+                and the heatmap are how the same filtered data is drawn, not
+                part of what is being filtered. */}
+            <Button
+              variant="secondary"
+              onClick={() => setFilters({})}
+              style={{ marginTop: 12, width: '100%' }}
+            >
+              Clear Filters
+            </Button>
           </div>
 
           <h3>Visualization</h3>

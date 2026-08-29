@@ -207,6 +207,10 @@ export default function CriminalRecords() {
           },
         ]}
         onApply={setFilters}
+        // The search box sits outside the bar, so clearing the filters clears
+        // it too — otherwise the list would stay narrowed by a term the user
+        // was told had been cleared.
+        onClear={() => setSearch('')}
       />
 
       <Card bodyClassName="table-wrap">
