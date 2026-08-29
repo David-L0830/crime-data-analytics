@@ -421,3 +421,91 @@ describe('forecastNext — roadmap 3.2 non-negative clamp', () => {
     expect(historical.some((v) => v < 0)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Roadmap 3.3 — a continuous month axis with zero-filled missing months.
+//
+// Trends and Dashboard built the axis from whatever month keys happened to
+// exist, and plotted them at x = array index. A month with no matching
+// incidents produced no key, so the gap silently closed: February and May were
+// drawn adjacent and equally spaced, and the regression fitted a line through a
+// timeline that had been compressed. On a 2/4/-/-/6 series that inflated the
+// slope 5x (2.0 against 0.4) and the forecast from 3.6 to 8.
+//
+// Interior gaps only, by decision: first present month through last present
+// month. The axis is NOT expanded to the filter's requested range.
+// ---------------------------------------------------------------------------
+describe('continuousMonths — roadmap 3.3 zero-filled month axis', () => {
+  it('fills an interior gap', () => {
+    expect(
+      h.continuousMonths({ '2026-01': 2, '2026-02': 4, '2026-05': 6 }),
+    ).toEqual(['2026-01', '2026-02', '2026-03', '2026-04', '2026-05']);
+  });
+
+  it('leaves an already-continuous run untouched', () => {
+    expect(
+      h.continuousMonths({ '2026-01': 1, '2026-02': 2, '2026-03': 3 }),
+    ).toEqual(['2026-01', '2026-02', '2026-03']);
+  });
+
+  it('crosses a year boundary', () => {
+    expect(h.continuousMonths({ '2025-11': 3, '2026-02': 1 })).toEqual([
+      '2025-11',
+      '2025-12',
+      '2026-01',
+      '2026-02',
+    ]);
+  });
+
+  it('spans more than a full year', () => {
+    const out = h.continuousMonths({ '2025-01': 1, '2026-03': 1 });
+    expect(out).toHaveLength(15);
+    expect(out[0]).toBe('2025-01');
+    expect(out[14]).toBe('2026-03');
+    expect(out).toContain('2025-12');
+    expect(out).toContain('2026-01');
+  });
+
+  it('returns a single month unchanged and an empty set as empty', () => {
+    expect(h.continuousMonths({ '2026-07': 5 })).toEqual(['2026-07']);
+    expect(h.continuousMonths({})).toEqual([]);
+  });
+
+  it('sorts unordered input ascending', () => {
+    expect(
+      h.continuousMonths({ '2026-03': 1, '2026-01': 1, '2026-02': 1 }),
+    ).toEqual(['2026-01', '2026-02', '2026-03']);
+  });
+
+  it('does not invent counts — the caller reads absent months as zero', () => {
+    const counts = { '2026-01': 2, '2026-04': 6 };
+    const axis = h.continuousMonths(counts);
+    expect(axis.map((m) => counts[m] ?? 0)).toEqual([2, 0, 0, 6]);
+    // The source object is not mutated.
+    expect(Object.keys(counts).sort()).toEqual(['2026-01', '2026-04']);
+  });
+
+  it('makes the regression measure real elapsed months, not surviving keys', () => {
+    // The defect in one assertion: the same records, compressed vs continuous.
+    const counts = { '2026-01': 2, '2026-02': 4, '2026-05': 6 };
+
+    const compressed = Object.keys(counts).sort();
+    const compressedFit = h.linearRegression(
+      compressed.map((m, i) => [i, counts[m]]),
+    );
+
+    const axis = h.continuousMonths(counts);
+    const continuousFit = h.linearRegression(
+      axis.map((m, i) => [i, counts[m] ?? 0]),
+    );
+
+    expect(compressedFit.slope).toBe(2);
+    expect(continuousFit.slope).toBeCloseTo(0.4, 10);
+    expect(
+      h.forecastNext(compressedFit.slope, compressedFit.intercept, 3),
+    ).toBe(8);
+    expect(
+      h.forecastNext(continuousFit.slope, continuousFit.intercept, 5),
+    ).toBe(3.6);
+  });
+});

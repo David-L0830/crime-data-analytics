@@ -52,6 +52,45 @@ export function monthLabelToRange(monthLabel) {
   };
 }
 
+// The month axis for a time series, made continuous: every month from the
+// first present one to the last, including those with no records at all.
+//
+// Trends and Dashboard used to build the axis from whatever keys countBy
+// happened to produce, and plot them at x = array index. A month with no
+// matching incidents produced no key, so the gap silently closed — February and
+// May were drawn adjacent and equally spaced, and the regression fitted a line
+// through a compressed timeline. On a 2 / 4 / - / - / 6 series that inflated
+// the slope fivefold (2.0 against 0.4) and the forecast from 3.6 to 8. The
+// filtered views where this happens are ordinary use: pick one crime type or
+// one sitio and quiet months disappear.
+//
+// INTERIOR GAPS ONLY. The axis spans the data, not the filter: a Jan-Dec filter
+// over records that only exist in March does not produce nine empty months.
+//
+// Returns keys only, and never fabricates counts — the caller reads an absent
+// month as zero. The input object is not mutated. The month count is computed
+// arithmetically rather than by incrementing until a sentinel matches, so a
+// malformed key cannot spin this into an infinite loop in the browser.
+export function continuousMonths(monthCounts) {
+  const present = Object.keys(monthCounts).sort();
+  if (present.length < 2) return present;
+
+  const [firstYear, firstMonth] = present[0].split('-').map(Number);
+  const [lastYear, lastMonth] = present[present.length - 1]
+    .split('-')
+    .map(Number);
+
+  const span = (lastYear - firstYear) * 12 + (lastMonth - firstMonth);
+  if (!Number.isFinite(span) || span < 0) return present;
+
+  return Array.from({ length: span + 1 }, (_, i) => {
+    const monthsFromYearZero = firstMonth - 1 + i;
+    const year = firstYear + Math.floor(monthsFromYearZero / 12);
+    const month = (monthsFromYearZero % 12) + 1;
+    return `${year}-${String(month).padStart(2, '0')}`;
+  });
+}
+
 // Relative age of a notification, for the bell's dropdown ("2 minutes ago").
 //
 // A notification's value is mostly "how recently did this happen", and an

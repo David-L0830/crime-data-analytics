@@ -18,6 +18,7 @@ import {
   movingAverage,
   linearRegression,
   forecastNext,
+  continuousMonths,
   monthLabelToRange,
 } from '../utils/helpers';
 import {
@@ -228,12 +229,15 @@ export default function Trends() {
   const hoursResult = buildDailyPatternInsight(hourLabels, hours);
 
   const byMonth = countBy(filtered, (r) => r.date.slice(0, 7));
-  const monthKeys = Object.keys(byMonth).sort();
-  const counts = monthKeys.map((m) => byMonth[m]);
+  // Continuous axis: a month with no matching incidents is a real zero, not a
+  // point the chart may skip. Without it the regression below measures
+  // surviving keys instead of elapsed months. See continuousMonths().
+  const monthKeys = continuousMonths(byMonth);
+  const counts = monthKeys.map((m) => byMonth[m] ?? 0);
   const ma = movingAverage(counts, 3);
   const forecastResult = buildCrimeTrendInsight(monthKeys, counts, 'Month');
 
-  const points = monthKeys.map((m, i) => [i, byMonth[m]]);
+  const points = monthKeys.map((m, i) => [i, byMonth[m] ?? 0]);
   const { slope, intercept } = linearRegression(points);
   const regression = monthKeys.map(
     (_, i) => +(slope * i + intercept).toFixed(1),

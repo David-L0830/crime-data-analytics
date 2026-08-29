@@ -18,6 +18,7 @@ import {
   countBy,
   formatDate,
   today,
+  continuousMonths,
   monthLabelToRange,
   SOLVED_STATUSES,
   PENDING_STATUSES,
@@ -256,6 +257,17 @@ export default function Dashboard() {
 
   // ===== Charts =====
   const monthly = countBy(filtered, (r) => r.date.slice(0, 7));
+  // Two different axes, deliberately.
+  //
+  // `trendMonths` is continuous — a month with no incidents is a real zero on a
+  // crime-count trend, and omitting it compressed the timeline (see
+  // continuousMonths()).
+  //
+  // `months` stays the months actually present, because it also labels the
+  // Resolution Rate Trend, and a month with no incidents has no resolution
+  // rate. Zero-filling that series would print "0% resolved" for a month in
+  // which nothing needed resolving, which is worse than leaving the month out.
+  const trendMonths = continuousMonths(monthly);
   const months = Object.keys(monthly).sort();
 
   const byCat = countBy(filtered, 'category');
@@ -277,8 +289,11 @@ export default function Dashboard() {
   // inside the click handler. This lets the exact same insight/kpis feed
   // both the on-screen "View summary" modal (unchanged) AND the new
   // print-only ChartPrintSummary blocks rendered next to each chart.
-  const crimeTrendValues = months.map((m) => monthly[m]);
-  const crimeTrendResult = buildCrimeTrendInsight(months, crimeTrendValues);
+  const crimeTrendValues = trendMonths.map((m) => monthly[m] ?? 0);
+  const crimeTrendResult = buildCrimeTrendInsight(
+    trendMonths,
+    crimeTrendValues,
+  );
 
   const categoryLabels = Object.keys(byCat);
   const categoryValues = Object.values(byCat);
@@ -517,7 +532,7 @@ export default function Dashboard() {
             <ChartCard
               title="Crime Trend (Monthly)"
               type="line"
-              labels={months}
+              labels={trendMonths}
               datasets={[
                 {
                   label: 'Incidents',
@@ -533,7 +548,7 @@ export default function Dashboard() {
               title="Crime Trend (Monthly)"
               rowLabel="Month"
               valueLabel="Incidents"
-              labels={months}
+              labels={trendMonths}
               values={crimeTrendValues}
               insight={crimeTrendResult.insight}
             />
