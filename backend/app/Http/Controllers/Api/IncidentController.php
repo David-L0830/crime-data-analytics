@@ -9,6 +9,7 @@ use App\Http\Resources\IncidentResource;
 use App\Models\AppNotification;
 use App\Models\AuditLog;
 use App\Models\Incident;
+use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -159,6 +160,7 @@ class IncidentController extends Controller
         // that was not actually saved: if the transaction above rolls back,
         // this line is never reached.
         $this->announceNewIncident($created, $request->user());
+        $this->announceHotspotIfCrossed($created);
 
         // fresh() so values the DATABASE supplied are reflected in the 201
         // payload. incidents.status is NOT NULL DEFAULT 'Open', so when the
@@ -287,6 +289,86 @@ class IncidentController extends Controller
             Log::warning('Incident saved but its notification could not be written', [
                 'incident_id' => $incident->id,
                 'case_number' => $incident->case_number,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Emits the "Hotspot Alert" notification when the incident just saved is
+     * the one that turns its sitio into a hotspot.
+     *
+     * Why this exists: before this, no code path in the application ever
+     * created a Hotspot Alert. The only one that existed was a fixed row
+     * written by NotificationSeeder reading "Sitio 4 has exceeded the hotspot
+     * threshold this week" — asserted unconditionally, naming one specific
+     * sitio, and backed by nothing. It was the single entry in that seeder
+     * breaking the seeder's own rule that it skips any notification it cannot
+     * back with an actual row. Same shape as the CN-2025-0032 problem that
+     * announceResolutionIfNewlyResolved() below was written to fix, and fixed
+     * the same way: the message is built from the rows actually counted, so the
+     * bell cannot disagree with the database.
+     *
+     * "Hotspot" is not redefined here. It reuses the definition the system
+     * already had — documented in docs/API_ENDPOINTS.md and implemented by
+     * DashboardController's hotspotCount — all-time, non-archived incidents
+     * grouped per sitio, qualifying at settings.hotspot_threshold.
+     *
+     * Only the CROSSING announces. The count is read AFTER the commit, so the
+     * incident just saved is included; the count before it is therefore one
+     * lower, and comparing both against the threshold isolates the single save
+     * that takes a sitio from below it to meeting it. Without that, every
+     * later incident in a qualifying sitio would announce again — and with a
+     * default threshold of 3 most sitios qualify quickly, so the bell would
+     * turn into noise. A sitio whose count falls back below the threshold
+     * (archiving) and climbs again crosses again, which is why this compares
+     * counts rather than recording that an alert was already sent.
+     *
+     * Expressed as two comparisons rather than the equivalent
+     * `$countAfter === $threshold` because the two-sided form is what the rule
+     * actually says, and it stays correct for a threshold of 0 or less — a
+     * sitio that was never below the threshold never crosses it.
+     */
+    private function announceHotspotIfCrossed(Incident $incident): void
+    {
+        try {
+            if (! $incident->sitio) {
+                return;
+            }
+
+            $threshold = (int) Setting::current()->hotspot_threshold;
+
+            $countAfter = Incident::where('sitio', $incident->sitio)
+                ->where('status', '!=', 'Archived')
+                ->count();
+            $countBefore = $countAfter - 1;
+
+            if (! ($countBefore < $threshold && $countAfter >= $threshold)) {
+                return;
+            }
+
+            AppNotification::create([
+                'title' => 'Hotspot Alert',
+                'message' => sprintf(
+                    '%s has reached %d active incidents, meeting the hotspot threshold of %d.',
+                    $incident->sitio,
+                    $countAfter,
+                    $threshold
+                ),
+                'type' => 'warning',
+                // No audience restriction, matching the New Incident
+                // announcement: a hotspot concerns every role that can open the
+                // module.
+                'audience_roles' => null,
+                'read' => false,
+            ]);
+        } catch (\Throwable $e) {
+            // Same isolation as announceNewIncident(): the incident is already
+            // committed and the caller has been told it saved, so a failure to
+            // announce must not turn a successful save into an error.
+            Log::warning('Incident saved but its hotspot alert could not be written', [
+                'incident_id' => $incident->id,
+                'sitio' => $incident->sitio,
                 'error' => $e->getMessage(),
             ]);
         }
