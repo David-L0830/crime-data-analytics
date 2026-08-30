@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
@@ -36,8 +36,21 @@ export function IncidentViewModal({
   archiving,
 }) {
   const { showToast } = useToast();
-  if (!incident) return null;
-  const r = incident;
+
+  // The shared Modal restores focus to whatever opened it on the
+  // open -> closed transition. Returning null here when `incident` goes
+  // null would UNMOUNT that Modal instead of closing it, so the transition
+  // never happens and focus is dropped to <body>. Verified in a browser: the
+  // trigger button was still in the DOM and still connected, yet focus was
+  // lost — because the effect that restores it had been torn down.
+  //
+  // Holding the last record keeps the Modal mounted across the close, so the
+  // transition runs. Nothing stale is shown: Modal renders null while
+  // `open` is false, so the retained record is never displayed.
+  const lastIncident = useRef(incident);
+  if (incident) lastIncident.current = incident;
+  const r = incident || lastIncident.current;
+  if (!r) return null;
 
   // Single-record export, matching the Field / Value sheet that Criminal
   // Profile and Victim Profile produce - one shared exportWorkbook helper
@@ -935,13 +948,26 @@ export function IncidentEditModal({
     }
   };
 
-  if (!incident) return null;
+  // The shared Modal restores focus to whatever opened it on the
+  // open -> closed transition. Returning null here when `incident` goes
+  // null would UNMOUNT that Modal instead of closing it, so the transition
+  // never happens and focus is dropped to <body>. Verified in a browser: the
+  // trigger button was still in the DOM and still connected, yet focus was
+  // lost — because the effect that restores it had been torn down.
+  //
+  // Holding the last record keeps the Modal mounted across the close, so the
+  // transition runs. Nothing stale is shown: Modal renders null while
+  // `open` is false, so the retained record is never displayed.
+  const lastEdited = useRef(incident);
+  if (incident) lastEdited.current = incident;
+  const shown = incident || lastEdited.current;
+  if (!shown) return null;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={`Edit Incident: ${incident.caseNumber}`}
+      title={`Edit Incident: ${shown.caseNumber}`}
       size="lg"
     >
       <form onSubmit={handleSubmit}>
