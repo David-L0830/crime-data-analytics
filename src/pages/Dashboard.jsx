@@ -13,11 +13,13 @@ import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import Button from '../components/ui/Button';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import {
   filterRecords,
   countBy,
   formatDate,
   today,
+  continuousMonths,
   monthLabelToRange,
   SOLVED_STATUSES,
   PENDING_STATUSES,
@@ -208,33 +210,30 @@ export default function Dashboard() {
         filters: { ...baseFilters, dateFrom: monthStart, dateTo: undefined },
       },
     },
+    // The two sync KPIs below do not link anywhere, unlike every card above
+    // them. They used to open Audit Logs filtered by action SYNC_COMPLETED,
+    // which no code path has ever written — the only rows carrying it came
+    // from the audit seeder that was removed — so the drill-down landed on
+    // "No records found" however large the number on the card was.
+    //
+    // Restoring the link would need a destination that actually holds this
+    // data, and there is none: these two values are a sum of
+    // `records_received` over `sync_logs`, not a count of audit rows, so even
+    // a populated audit list could not add up to the figure shown. KpiCard
+    // renders a plain <div> rather than a <Link> when `to` is absent, so the
+    // cards keep their value, label and hint and simply stop pretending to be
+    // clickable. The figures themselves are unchanged.
     {
       label: 'Today Imported',
       value: getTodayImportedCount(),
       cls: 'accent',
       hint: 'Records received via sync today — tracks sync activity, independent of the date range filter above.',
-      to: '/audit-logs',
-      state: {
-        filters: {
-          action: 'SYNC_COMPLETED',
-          dateFrom: today(),
-          dateTo: today(),
-        },
-      },
     },
     {
       label: 'Month Imported',
       value: getThisMonthImportedCount(),
       cls: 'info',
       hint: 'Records received via sync this calendar month — tracks sync activity, independent of the date range filter above.',
-      to: '/audit-logs',
-      state: {
-        filters: {
-          action: 'SYNC_COMPLETED',
-          dateFrom: monthStart,
-          dateTo: undefined,
-        },
-      },
     },
   ];
 
@@ -256,6 +255,17 @@ export default function Dashboard() {
 
   // ===== Charts =====
   const monthly = countBy(filtered, (r) => r.date.slice(0, 7));
+  // Two different axes, deliberately.
+  //
+  // `trendMonths` is continuous — a month with no incidents is a real zero on a
+  // crime-count trend, and omitting it compressed the timeline (see
+  // continuousMonths()).
+  //
+  // `months` stays the months actually present, because it also labels the
+  // Resolution Rate Trend, and a month with no incidents has no resolution
+  // rate. Zero-filling that series would print "0% resolved" for a month in
+  // which nothing needed resolving, which is worse than leaving the month out.
+  const trendMonths = continuousMonths(monthly);
   const months = Object.keys(monthly).sort();
 
   const byCat = countBy(filtered, 'category');
@@ -277,8 +287,11 @@ export default function Dashboard() {
   // inside the click handler. This lets the exact same insight/kpis feed
   // both the on-screen "View summary" modal (unchanged) AND the new
   // print-only ChartPrintSummary blocks rendered next to each chart.
-  const crimeTrendValues = months.map((m) => monthly[m]);
-  const crimeTrendResult = buildCrimeTrendInsight(months, crimeTrendValues);
+  const crimeTrendValues = trendMonths.map((m) => monthly[m] ?? 0);
+  const crimeTrendResult = buildCrimeTrendInsight(
+    trendMonths,
+    crimeTrendValues,
+  );
 
   const categoryLabels = Object.keys(byCat);
   const categoryValues = Object.values(byCat);
@@ -307,9 +320,10 @@ export default function Dashboard() {
       // `time` is nullable on purpose — incident_time is nullable in the
       // migration and the Time field is optional in IncidentModal, so
       // IncidentResource legitimately returns time: null. Calling
-      // .localeCompare on null throws a TypeError during render, and with no
-      // ErrorBoundary above this page that white-screens the whole app rather
-      // than breaking one card. Coercing to '' keeps the ordering intact and
+      // .localeCompare on null throws a TypeError during render. The
+      // ErrorBoundary in MainLayout now contains such a throw to this page
+      // instead of white-screening the whole app, but containing a crash is
+      // not the same as not crashing: coercing to '' keeps the ordering intact and
       // sorts a missing time last within its own date. `date` needs no such
       // guard: incident_date is NOT NULL in the schema and required by both
       // StoreIncidentRequest and UpdateIncidentRequest.
@@ -393,8 +407,15 @@ export default function Dashboard() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
-    if (ok) showToast('Dashboard data exported to Excel', 'success');
+    if (ok) {
+      showToast('Dashboard data exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('dashboard');
+    }
   };
 
   return (
@@ -516,7 +537,7 @@ export default function Dashboard() {
             <ChartCard
               title="Crime Trend (Monthly)"
               type="line"
-              labels={months}
+              labels={trendMonths}
               datasets={[
                 {
                   label: 'Incidents',
@@ -532,7 +553,7 @@ export default function Dashboard() {
               title="Crime Trend (Monthly)"
               rowLabel="Month"
               valueLabel="Incidents"
-              labels={months}
+              labels={trendMonths}
               values={crimeTrendValues}
               insight={crimeTrendResult.insight}
             />

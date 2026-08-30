@@ -7,6 +7,7 @@ import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import { today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { Icons } from '../components/icons';
 
 // Checkpoint 19, Task 2 (frontend) + Checkpoint 20 (backend): the filter
@@ -30,17 +31,53 @@ import { Icons } from '../components/icons';
 // 'RESTORE'), and undoing an archive is exactly the kind of event an
 // administrator reviews the trail for. Purely additive — no existing action
 // value changes and no historical row is affected.
+// REPORT_GENERATED and SYNC_COMPLETED are retired as filter choices, for the
+// same reason and by the same rule DELETE, CREATE and 'resident' were: no code
+// path writes either one. Printing goes through window.print(), which cannot
+// report whether a report was actually produced, so REPORT_GENERATED is
+// deliberately never written (see AuditLogController); and nothing anywhere
+// emits SYNC_COMPLETED — the sync KPIs on the Dashboard are summed from
+// `sync_logs`, a different table. The only rows that ever carried either value
+// came from the audit seeder that has since been removed, so selecting them
+// could only ever return an empty table.
+//
+// This does not hide historical rows. The filter is opt-in — an unset filter
+// matches everything — so any row already in the database keeps rendering, and
+// ACTION_COLORS still colours both values below.
 const ACTIONS = [
   'LOGIN',
   'LOGOUT',
-  'REPORT_GENERATED',
   'REPORT_EXPORTED',
   'UPDATE',
   'ARCHIVE',
   'RESTORE',
-  'SYNC_COMPLETED',
 ];
-const TARGET_TYPES = ['auth', 'report', 'user', 'resident', 'incident'];
+// Aligned with the target types the backend actually writes. 'resident' is
+// gone: the residents table was dropped and no ResidentController remains, so
+// nothing has emitted that value since — it could only ever match rows the
+// audit seeder fabricated, and that seeder no longer exists.
+//
+// The five added values were already being written and simply had no filter:
+// criminal, victim, crime_type, evidence and settings. Without them an
+// administrator could not narrow the trail to criminal-record or victim
+// activity at all, which is a large part of what the trail is reviewed for.
+//
+// Removing 'resident' from this list does NOT hide historical rows. The filter
+// is opt-in — an unset filter matches everything — so any resident row already
+// in the database keeps rendering in the table, and ACTION_COLORS still colours
+// its action. Same treatment DELETE and CREATE already get above: retired as a
+// filter choice, never erased from the record.
+const TARGET_TYPES = [
+  'auth',
+  'report',
+  'user',
+  'incident',
+  'criminal',
+  'victim',
+  'crime_type',
+  'evidence',
+  'settings',
+];
 
 const ACTION_COLORS = {
   LOGIN: 'var(--accent)',
@@ -153,8 +190,15 @@ export default function AuditLogs() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
-    if (ok) showToast('Audit logs exported to Excel', 'success');
+    if (ok) {
+      showToast('Audit logs exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('audit-logs');
+    }
   };
 
   return (

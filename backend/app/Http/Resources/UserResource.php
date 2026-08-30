@@ -49,10 +49,23 @@ class UserResource extends JsonResource
             // configured (SUPABASE_SERVICE_ROLE_KEY unset) — an admin
             // temporarily not seeing an accurate 2FA badge is preferable
             // to the whole User Management page breaking.
+            // VERIFIED factors only. listFactors() returns every factor
+            // regardless of status — its own docblock says so — so counting
+            // them all reported an ABANDONED enrolment as active protection.
+            // That produced a real contradiction: an administrator saw
+            // "2FA enabled" for an account whose own security panel correctly
+            // said "Not enrolled", because the frontend's
+            // selectActiveTotpFactor filters on status === 'verified'. The
+            // two now agree, and they agree on the stricter reading — a
+            // half-finished enrolment protects nobody and must not be
+            // displayed as though it does.
             'twoFactorEnabled' => $this->supabase_user_id
                 ? (function () {
                     try {
-                        return count(app(SupabaseAdminService::class)->listFactors($this->supabase_user_id)) > 0;
+                        $factors = app(SupabaseAdminService::class)->listFactors($this->supabase_user_id);
+
+                        return collect($factors)
+                            ->contains(fn ($factor) => ($factor['status'] ?? null) === 'verified');
                     } catch (\Throwable $e) {
                         return false;
                     }

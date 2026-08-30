@@ -1,5 +1,30 @@
 # CDARS — Stack-Alignment Task (from Phase4-Feature6-checkpoint prompt)
 
+> **Reconciliation note — 2026-08-30.** This file is a historical log of one
+> earlier session and is kept as written. Four of its statements do not match
+> the repository as it stands, and should not be relied on:
+>
+> - **CI does not use a Postgres service container.** `ci.yml`'s backend job
+>   runs `php artisan test` against the **in-memory SQLite** database configured
+>   in `backend/phpunit.xml`. No database service, and no repository secret, is
+>   involved. See `docs/CI_CD_AND_SECURITY.md`.
+> - **`deploy.yml` does not exist.** The only workflows are `ci.yml` and
+>   `security.yml`. Deployment is driven by Vercel's and Render's own GitHub
+>   integrations watching `main`, so the open item below about filling in a
+>   deploy target does not apply to a file in this repository.
+> - **The thirteen `HANDOFF_*.md` / `CHECKPOINT*.md` files cited throughout the
+>   Supabase Auth migration section below are not in the repository** —
+>   `HANDOFF.md`, `CHECKPOINT.md`, `CHECKPOINT_STATUS.md` and
+>   `HANDOFF_CHECKPOINT_4/5/6/7/7A/14/15/16/17/18.md`. The narrative here is the
+>   surviving record; the cross-references lead nowhere.
+> - The environment limitation recorded below ("no PHP/Composer available
+>   here") no longer holds. PHP 8.3 runs the backend suite — **274 passed
+>   (1008 assertions)** — and both it and the frontend Vitest suite run in CI.
+>
+> For the authoritative description of what CI actually does, read
+> `.github/workflows/ci.yml` and `.github/workflows/security.yml`, or the
+> corrected summary in `docs/CI_CD_AND_SECURITY.md`.
+
 ## Done this session (additive, non-destructive, does not touch working auth)
 - [x] Turborepo: `turbo.json` + root `package.json` workspace (`backend`) +
       thin `backend/package.json` wrapping `artisan` commands as npm scripts

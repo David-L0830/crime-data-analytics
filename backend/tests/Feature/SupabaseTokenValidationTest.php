@@ -132,4 +132,89 @@ class SupabaseTokenValidationTest extends TestCase
         // a session that was never a Supabase session in the first place.
         $response->assertJsonPath('data.authAssuranceLevel', null);
     }
+
+    // === First sign-in of an admin-provisioned account ======================
+    //
+    // mapClaimsToUser() has two paths: an already-linked supabase_user_id, and
+    // an email fallback that links the account the first time it signs in. The
+    // whole suite only ever exercised the first one — every token minted here
+    // and in Tests\TestCase carries `email_verified` at the TOP level, which
+    // short-circuits the `??` chain before the fallback's nested lookup runs.
+    //
+    // Real Supabase tokens do not look like that. They carry `email_verified`
+    // inside `user_metadata`, and JWT::decode returns that nested claim as a
+    // stdClass while decodeToken()'s `(array)` cast is shallow. Reading it as
+    // an array threw "Cannot use object of type stdClass as array", so every
+    // first sign-in returned 500 and no account was ever linked. Observed
+    // against the live app: Supabase issued a token (200) and GET /api/user
+    // then failed (500).
+    //
+    // These two tests pin the fallback itself, so the shape real Supabase
+    // sends is covered rather than only the shape the test helpers happen to
+    // mint.
+
+    /**
+     * Builds a token in the shape Supabase actually issues: no top-level
+     * `email_verified`, the flag nested inside `user_metadata`.
+     *
+     * Written out literally rather than through actingAsSupabaseWithClaims()
+     * for one reason — that helper merges overrides over its defaults, and
+     * array_merge cannot REMOVE the default top-level `email_verified`. The
+     * omission is the whole point of these tests, so the claims are assembled
+     * here, following the same pattern the aal test above already uses.
+     */
+    private function nestedVerifiedToken(bool $verified, string $sub): string
+    {
+        $now = time();
+
+        $claims = [
+            'sub' => $sub,
+            'aud' => 'authenticated',
+            'iss' => rtrim(config('supabase.url'), '/').'/auth/v1',
+            'email' => 'encoder1@example.com',
+            // 'email_verified' intentionally omitted at the top level.
+            'user_metadata' => ['email_verified' => $verified],
+            'aal' => 'aal1',
+            'iat' => $now,
+            'exp' => $now + 3600,
+        ];
+
+        return JWT::encode($claims, config('supabase.jwt_secret'), 'HS256');
+    }
+
+    public function test_nested_verified_email_links_an_account_on_first_sign_in(): void
+    {
+        $user = $this->makeUser(['supabase_user_id' => null]);
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer '.$this->nestedVerifiedToken(true, 'supabase-first-signin-id')
+        )->getJson('/api/user');
+
+        $response->assertOk();
+        $response->assertJsonPath('data.id', (string) $user->id);
+
+        // The account is now linked, so every later request takes the fast path.
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'supabase_user_id' => 'supabase-first-signin-id',
+        ]);
+    }
+
+    public function test_nested_unverified_email_is_rejected_and_links_nothing(): void
+    {
+        $user = $this->makeUser(['supabase_user_id' => null]);
+
+        $this->withHeader(
+            'Authorization',
+            'Bearer '.$this->nestedVerifiedToken(false, 'supabase-unverified-id')
+        )->getJson('/api/user')->assertUnauthorized();
+
+        // The guard must stay closed: an unverified address cannot be used to
+        // claim an existing account, and nothing may be linked on the way out.
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'supabase_user_id' => null,
+        ]);
+    }
 }

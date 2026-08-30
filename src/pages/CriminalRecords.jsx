@@ -11,6 +11,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { CRIMINAL_STATUSES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -107,8 +108,15 @@ export default function CriminalRecords() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
-    if (ok) showToast('Criminal records exported to Excel', 'success');
+    if (ok) {
+      showToast('Criminal records exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('criminal-records');
+    }
   };
 
   // Mirrors VictimRecords.jsx's handleArchive. PUT /criminals/{id}/archive
@@ -199,6 +207,10 @@ export default function CriminalRecords() {
           },
         ]}
         onApply={setFilters}
+        // The search box sits outside the bar, so clearing the filters clears
+        // it too — otherwise the list would stay narrowed by a term the user
+        // was told had been cleared.
+        onClear={() => setSearch('')}
       />
 
       <Card bodyClassName="table-wrap">

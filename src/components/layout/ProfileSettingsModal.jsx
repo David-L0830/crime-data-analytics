@@ -172,20 +172,31 @@ export default function ProfileSettingsModal({ open, onClose }) {
       </div>
 
       <div className="form-group">
-        <label>Full Name</label>
+        <label htmlFor="profile-full-name">Full Name</label>
         <input
+          id="profile-full-name"
           type="text"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
         />
       </div>
       <div className="form-group">
-        <label>Username</label>
-        <input type="text" value={currentUser?.username || ''} disabled />
+        <label htmlFor="profile-username">Username</label>
+        <input
+          id="profile-username"
+          type="text"
+          value={currentUser?.username || ''}
+          disabled
+        />
       </div>
       <div className="form-group">
-        <label>Role</label>
-        <input type="text" value={currentUser?.roleLabel || ''} disabled />
+        <label htmlFor="profile-role">Role</label>
+        <input
+          id="profile-role"
+          type="text"
+          value={currentUser?.roleLabel || ''}
+          disabled
+        />
       </div>
       <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
         Username, email and role aren't editable from here. Contact your

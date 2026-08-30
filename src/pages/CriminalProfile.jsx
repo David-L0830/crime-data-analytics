@@ -12,6 +12,7 @@ import PrintReport, {
 } from '../components/ui/PrintReport';
 import { formatDate, today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { Icons } from '../components/icons';
 
 function computeAge(dob) {
@@ -152,8 +153,15 @@ export default function CriminalProfile() {
       ],
       rows,
       onEmpty: () => showToast('Could not export profile.', 'error'),
+      onError: () => showToast('Could not export profile.', 'error'),
     });
-    if (ok) showToast('Profile exported to Excel', 'success');
+    if (ok) {
+      showToast('Profile exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('criminal-profile');
+    }
   };
 
   const physicalFields = [

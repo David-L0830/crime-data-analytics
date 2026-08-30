@@ -6,9 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreVictimRequest;
 use App\Http\Requests\UpdateVictimRequest;
 use App\Http\Resources\VictimResource;
+use App\Models\AppNotification;
 use App\Models\AuditLog;
+use App\Models\User;
 use App\Models\Victim;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class VictimController extends Controller
 {
@@ -40,18 +44,52 @@ class VictimController extends Controller
     {
         $validated = $request->validated();
         $data = $this->mapToColumns($validated);
-        $data['victim_code'] = 'V-'.str_pad((string) (Victim::max('id') + 1), 4, '0', STR_PAD_LEFT);
 
-        $victim = Victim::create($data);
-        $this->syncCases($victim, $validated);
+        // See mintVictimCode(): the code names this row, so it is derived from
+        // the row's own id after the insert. victim_code is NOT NULL UNIQUE, so
+        // the insert itself carries a collision-proof placeholder that is
+        // replaced a statement later inside the same transaction — nothing
+        // outside can observe it, and a rollback takes it with it.
+        $data['victim_code'] = 'TMP-'.Str::uuid()->toString();
 
-        AuditLog::create([
-            'user_id' => $request->user()?->id,
-            'action' => 'CREATE',
-            'module' => 'criminal-records',
-            'target_type' => 'victim',
-            'description' => "Added victim record {$victim->full_name}",
-            'ip_address' => $request->ip(),
+        // The record, its case links and its audit entry are ONE unit of work,
+        // matching IncidentController::store(). Before this they were three
+        // unwrapped statements, so a failure partway through left a committed
+        // victim record with no audit trail and no case links while the caller
+        // was told the save had failed.
+        $victim = DB::transaction(function () use ($request, $data, $validated) {
+            $victim = Victim::create($data);
+
+            $victim->forceFill([
+                'victim_code' => $this->mintVictimCode($victim->id),
+            ])->save();
+
+            $this->syncCases($victim, $validated);
+
+            AuditLog::create([
+                'user_id' => $request->user()?->id,
+                'action' => 'CREATE',
+                'module' => 'criminal-records',
+                'target_type' => 'victim',
+                'description' => "Added victim record {$victim->full_name}",
+                'ip_address' => $request->ip(),
+            ]);
+
+            return $victim;
+        });
+
+        // Same treatment as a new criminal record - see CriminalController.
+        AppNotification::create([
+            'title' => 'New Victim Record',
+            'message' => "Victim record {$victim->victim_code} ({$victim->full_name}) was added.",
+            'type' => 'info',
+            'read' => false,
+            // Records are an Administrator / BADAC module; Encoder has no
+            // access to it, so this announcement is not addressed to them.
+            'audience_roles' => AppNotification::audienceFor([
+                User::ROLE_BADAC_ADMIN,
+                User::ROLE_BADAC_READONLY,
+            ]),
         ]);
 
         // fresh() before load() for the same reason as the other two
@@ -63,6 +101,40 @@ class VictimController extends Controller
         $victim = $victim->fresh()->load('relatedIncidents.relatedCriminals');
 
         return (new VictimResource($victim))->response()->setStatusCode(201);
+    }
+
+    /**
+     * The human-facing code for a victim record, derived from the row it names.
+     *
+     * This used to be 'V-'.(max(id) + 1), read outside any transaction — a
+     * PREDICTION of the id, made before the row existed, under no lock. Two
+     * simultaneous creates read the same max(id), computed the same code and
+     * the second violated victims_victim_code_unique, returning a 500 and
+     * losing the record; because the failed insert rolls back, max(id) never
+     * advanced and every retry recomputed the same colliding code, leaving the
+     * endpoint wedged on 500.
+     *
+     * Deriving from the row's own id removes the race by construction rather
+     * than by retrying: ids are unique, so no two concurrent transactions can
+     * want the same code. The only collision still possible is with a legacy
+     * row already holding this id's code — static data rather than a
+     * competitor, which is what makes reading it here safe. That case takes the
+     * suffix convention syncEvidence() uses for a repeated evidence reference
+     * (EV-001 -> EV-001-2), so the code still names its row and the save still
+     * succeeds. See IncidentController::mintIncidentCode().
+     */
+    private function mintVictimCode(int $id): string
+    {
+        $base = 'V-'.str_pad((string) $id, 4, '0', STR_PAD_LEFT);
+        $candidate = $base;
+        $suffix = 1;
+
+        while (Victim::where('victim_code', $candidate)->whereKeyNot($id)->exists()) {
+            $suffix++;
+            $candidate = $base.'-'.$suffix;
+        }
+
+        return $candidate;
     }
 
     public function update(UpdateVictimRequest $request, Victim $victim)

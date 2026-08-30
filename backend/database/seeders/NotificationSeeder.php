@@ -30,7 +30,13 @@ class NotificationSeeder extends Seeder
 
         $items = [];
 
-        $items[] = ['title' => 'Hotspot Alert', 'message' => 'Sitio 4 has exceeded the hotspot threshold this week.', 'type' => 'warning'];
+        // The "Hotspot Alert" row that used to sit here — "Sitio 4 has exceeded
+        // the hotspot threshold this week" — was the one entry in this seeder
+        // breaking the rule stated above: it named a specific sitio and
+        // asserted a specific fact, unconditionally, backed by nothing. Hotspot
+        // alerts are now written from real per-sitio counts by
+        // IncidentController::announceHotspotIfCrossed(), so seeding a fabricated
+        // one would only reintroduce a claim the database cannot support.
 
         $newest = Incident::query()->orderByDesc('incident_date')->orderByDesc('id')->first();
         if ($newest) {

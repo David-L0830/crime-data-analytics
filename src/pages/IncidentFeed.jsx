@@ -23,6 +23,7 @@ import {
   PENDING_STATUSES,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { auditLogService } from '../services/auditLogService';
 import { TYPE_CATEGORY_MAP } from '../utils/constants';
 import { Icons } from '../components/icons';
 
@@ -244,8 +245,15 @@ export default function IncidentFeed() {
       ],
       rows: filtered,
       onEmpty: () => showToast('No data to export', 'error'),
+      onError: () => showToast('Could not export report.', 'error'),
     });
-    if (ok) showToast('Incidents exported to Excel', 'success');
+    if (ok) {
+      showToast('Incidents exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('incidents');
+    }
   };
 
   const handleCreate = async (data) => {
@@ -335,6 +343,13 @@ export default function IncidentFeed() {
           ]}
           onApply={setFilters}
           initialValues={filterResetKey === 0 ? filters : {}}
+          // The search box lives outside the bar, so clearing the filters has
+          // to clear it too — otherwise "Clear Filters" would leave the list
+          // still narrowed by a search term the user was told had been cleared.
+          // The notification-arrival reset above is untouched and still uses
+          // filterResetKey; this path does not remount the bar, so the two do
+          // not interfere.
+          onClear={() => setSearch('')}
         />
 
         {/* Print-only section heading, so the printed table is introduced

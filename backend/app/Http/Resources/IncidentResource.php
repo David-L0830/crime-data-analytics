@@ -28,6 +28,15 @@ class IncidentResource extends JsonResource
             'victimGender' => $this->victim_gender,
             'suspectName' => $this->suspect_name,
             'suspectAge' => $this->suspect_age,
+            // Complainant = who reported the crime; victim = who it happened
+            // to. Usually the same person, which is what complainantIsVictim
+            // records; when they differ, the four fields below say who filed
+            // the report and how to reach them.
+            'complainantIsVictim' => (bool) $this->complainant_is_victim,
+            'complainantName' => $this->complainant_name,
+            'complainantRelationship' => $this->complainant_relationship,
+            'complainantContact' => $this->complainant_contact,
+            'complainantAddress' => $this->complainant_address,
             'reportingOfficer' => $this->reporting_officer,
             'investigatingOfficer' => $this->investigating_officer,
             'badgeNumber' => $this->badge_number,
@@ -35,7 +44,20 @@ class IncidentResource extends JsonResource
             'status' => $this->status,
             'priority' => $this->priority,
             'description' => $this->description,
+            // Legacy single-string column. Kept in the payload so nothing
+            // that already reads it breaks; its contents were copied into
+            // evidenceItems by the create_incident_evidence_table migration,
+            // and new saves write evidenceItems only.
             'evidence' => $this->evidence,
+            'evidenceItems' => $this->whenLoaded(
+                'evidenceItems',
+                fn () => $this->evidenceItems->map(fn ($e) => [
+                    'id' => (string) $e->id,
+                    'evidenceId' => $e->evidence_code,
+                    'description' => $e->description,
+                ])->values(),
+                []
+            ),
             'reportedBy' => $this->reported_by ? (string) $this->reported_by : null,
             'synced_at' => optional($this->synced_at)->toIso8601String(),
         ];

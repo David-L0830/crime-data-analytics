@@ -1,4 +1,18 @@
 import logo from '../../assets/images/barangay178-logo.png';
+// The RIGHT-hand seal of the printed letterhead, imported separately from the
+// left-hand barangay seal so the two can differ.
+//
+// Every printable in the system renders this one component (Dashboard, Crime
+// Data Collection, Statistical Analysis, Trends, Criminal Profile, Victim
+// Profile, the incident record modal and the chart summary modal all import
+// PrintReport), so swapping the right-hand seal here changes it in every
+// module at once — there is no per-page letterhead to keep in step.
+//
+// The file is the only thing that decides which image prints; nothing about
+// the header's structure, sizing or layout depends on which image it is.
+// Replacing src/assets/images/caloocan-city-logo.png replaces the right-hand
+// seal everywhere, with no code change.
+import rightSealLogo from '../../assets/images/caloocan-city-logo.png';
 
 // Shared A4 government-document foundation for every printable page in the
 // system. Dashboard, Crime Data Collection, Statistical Analysis, Trends,
@@ -49,11 +63,14 @@ export default function PrintReport({ title, subtitle, meta, children }) {
         <tr>
           <td>
             <div className="print-doc-header-inner">
-              {/* Left and right seals are the same official asset, sized in
-                  mm with height:auto and object-fit:contain so the seal keeps
-                  its own aspect ratio and is never cropped or stretched. The
-                  three-cell row keeps the government identification optically
-                  centred between them. */}
+              {/* Two different seals now: the barangay seal on the LEFT
+                  (unchanged), the city seal on the RIGHT. Both are sized the
+                  same way — width in mm with height:auto and
+                  object-fit:contain (see .print-doc-logo in print.css) — so
+                  each keeps its OWN aspect ratio and is never cropped or
+                  stretched, whatever proportions the two files happen to have.
+                  The three-cell row keeps the government identification
+                  optically centred between them. */}
               <div className="print-doc-header-side">
                 <img
                   src={logo}
@@ -76,9 +93,8 @@ export default function PrintReport({ title, subtitle, meta, children }) {
               </div>
               <div className="print-doc-header-side">
                 <img
-                  src={logo}
-                  alt=""
-                  aria-hidden="true"
+                  src={rightSealLogo}
+                  alt="Official Seal of the City of Caloocan"
                   className="print-doc-logo"
                 />
               </div>
@@ -106,8 +122,8 @@ export default function PrintReport({ title, subtitle, meta, children }) {
           <td>
             <div className="print-doc-footer-inner">
               <span className="print-doc-footer-left">
-                Barangay 178, North Caloocan &middot; Crime Data Analytics
-                &amp; Reporting System
+                Barangay 178, North Caloocan &middot; Crime Data Analytics &amp;
+                Reporting System
               </span>
               <span className="print-doc-footer-right">
                 Generated {generated}
@@ -124,9 +140,7 @@ export default function PrintReport({ title, subtitle, meta, children }) {
                 header. */}
             <div className="print-doc-title-block print-only">
               <h1 className="print-doc-title">{title}</h1>
-              {subtitle && (
-                <div className="print-doc-subtitle">{subtitle}</div>
-              )}
+              {subtitle && <div className="print-doc-subtitle">{subtitle}</div>}
               {meta && meta.length > 0 && (
                 <div className="print-doc-meta">
                   {meta.map((m) => (

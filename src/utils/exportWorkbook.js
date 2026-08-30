@@ -69,7 +69,18 @@ export async function exportWorkbook({
   meta = [],
   columns,
   rows,
+  // Two different events, deliberately two different callbacks.
+  //
+  // onEmpty means "there was nothing to put in the file". onError means "there
+  // was something, and building or saving it failed". Both used to run through
+  // onEmpty, and six of the nine export surfaces word that as "No data to
+  // export" — so an exceljs failure or a write error told the user their data
+  // was empty while the records sat on screen in front of them.
+  //
+  // Both stay optional. A caller that passes neither still gets the same
+  // `false` return and no exception.
   onEmpty,
+  onError,
 }) {
   if (!rows || !rows.length) {
     if (onEmpty) onEmpty();
@@ -198,10 +209,13 @@ export async function exportWorkbook({
     );
     return true;
   } catch {
-    // Surface the failure through the caller's existing onEmpty toast rather
-    // than failing silently, and return false so the call site skips its
-    // "exported successfully" message.
-    if (onEmpty) onEmpty();
+    // A real failure — the rows existed and the workbook could not be built or
+    // saved. Reported as such, and never through onEmpty.
+    //
+    // Still returns false, so the call site skips both its "exported
+    // successfully" toast and its auditLogService.logExport() call: a failed
+    // export must not be recorded as a successful REPORT_EXPORTED.
+    if (onError) onError();
     return false;
   }
 }

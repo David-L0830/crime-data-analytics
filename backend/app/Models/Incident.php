@@ -47,6 +47,11 @@ class Incident extends Model
         'victim_gender',
         'suspect_name',
         'suspect_age',
+        'complainant_is_victim',
+        'complainant_name',
+        'complainant_relationship',
+        'complainant_contact',
+        'complainant_address',
         'reporting_officer',
         'investigating_officer',
         'badge_number',
@@ -65,6 +70,7 @@ class Incident extends Model
             'incident_date' => 'date:Y-m-d',
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
+            'complainant_is_victim' => 'boolean',
             'victim_age' => 'integer',
             'suspect_age' => 'integer',
             'synced_at' => 'datetime',
@@ -95,5 +101,14 @@ class Incident extends Model
     public function victims()
     {
         return $this->belongsToMany(Victim::class, 'incident_victim')->withTimestamps();
+    }
+
+    // Structured evidence items (Evidence ID + Description). Replaces the
+    // single free-text `evidence` column as the place evidence is recorded;
+    // that column is deliberately left in place and its contents were copied
+    // into this table by the create_incident_evidence_table migration.
+    public function evidenceItems()
+    {
+        return $this->hasMany(Evidence::class)->orderBy('evidence_code')->orderBy('id');
     }
 }

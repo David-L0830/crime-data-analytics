@@ -254,7 +254,9 @@ class SupabaseTokenValidator
         // email here is only ever done once Supabase has already confirmed
         // that ownership — never on an unverified claim.
         $email = $claims['email'] ?? null;
-        $emailVerified = $claims['email_verified'] ?? ($claims['user_metadata']['email_verified'] ?? false);
+        $emailVerified = $claims['email_verified']
+    ?? ((array) ($claims['user_metadata'] ?? []))['email_verified']
+    ?? false;
 
         if (! $email || ! $emailVerified) {
             return null;

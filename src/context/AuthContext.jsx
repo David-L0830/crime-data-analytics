@@ -11,9 +11,12 @@ export const AuthContext = createContext(null);
 // Sanctum session cookie, no username/password login() against this
 // backend, and no separate "which provider authenticated this session"
 // bookkeeping — every session is a Supabase session. "Remember me" is
-// gone too: Supabase's own client already persists the session in
-// localStorage across reloads (see supabaseClient.js), so there's nothing
-// left for this app to remember on top of that.
+// gone too, and deliberately so: the Supabase client persists the session in
+// sessionStorage (see supabaseClient.js), which survives a reload but is
+// discarded by the browser when the tab or window is closed. Returning to the
+// application after closing it therefore requires signing in again — that is
+// the intended policy, not a bug, and there is nothing left for this app to
+// "remember" on top of it.
 //
 // Two-factor authentication (Supabase MFA / aal2 step-up) has been removed
 // from the sign-in flow — a successful Supabase authentication (email/

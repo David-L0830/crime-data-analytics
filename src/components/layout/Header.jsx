@@ -5,8 +5,10 @@ import { useTheme } from '../../hooks/useTheme';
 import { useData } from '../../hooks/useData';
 import { useToast } from '../../hooks/useToast';
 import { Icons } from '../icons';
+import { notificationTarget } from '../../utils/notificationRouting';
+import { relativeTime } from '../../utils/helpers';
 
-export default function Header({ onMenuToggle }) {
+export default function Header({ onMenuToggle, bellPulse = false }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -65,45 +67,24 @@ export default function Header({ onMenuToggle }) {
   });
 
   // Every notification is expected to lead somewhere — mark it read, close
-  // the dropdown, then route based on what it's about:
-  //  - Hotspot Alert          -> Trends module, Hotspots panel opened
-  //  - New Incident/Case      -> Incident Feed, pre-filtered to the case
-  //    Resolved/Overdue Case     number mentioned in the message if we can
-  //                              find one (e.g. "Case CN-2025-0032 ..."),
-  //                              otherwise just the feed itself
-  //  - Sync Complete/Backup    -> Settings (Data Backup & Restore section)
-  //    Reminder
-  // Anything we don't recognize still gets read/closed instead of doing
-  // nothing, since a notification that goes nowhere isn't functional.
+  // the dropdown, then route.
+  //
+  // The routing RULES live in utils/notificationRouting so the arrival pop-up
+  // (MainLayout) applies exactly the same ones; clicking a notification in the
+  // panel and clicking it in the pop-up must not land in different places.
+  // A notification with no known destination is still marked read and still
+  // closes the panel, so it is never a dead click.
+  //
+  // Marking read is per-user: it clears the notification for THIS account
+  // only, and the count below is this account's own unread total (see the
+  // notification_reads table on the backend).
   const handleNotificationClick = (n) => {
     markNotificationRead(n.id);
     setDropdownOpen(false);
 
-    if (n.title === 'Hotspot Alert') {
-      navigate('/trends', { state: { openHotspots: true } });
-      return;
-    }
-
-    if (
-      n.title === 'New Incident' ||
-      n.title === 'Case Resolved' ||
-      n.title === 'Overdue Case'
-    ) {
-      // Matches the case-number shape this system issues ("CN-2025-0032")
-      // without pinning the CN prefix: the prefix is data, not a rule, and a
-      // notification naming a differently-prefixed case must still route to
-      // that case rather than silently dropping to an unfiltered feed.
-      const caseMatch = n.message.match(/\b[A-Z]{2,5}-\d{4}-\d+\b/);
-      navigate(
-        '/incident-feed',
-        caseMatch ? { state: { search: caseMatch[0] } } : undefined,
-      );
-      return;
-    }
-
-    if (n.title === 'Sync Complete' || n.title === 'Backup Reminder') {
-      navigate('/settings');
-      return;
+    const target = notificationTarget(n);
+    if (target) {
+      navigate(target.path, target.state ? { state: target.state } : undefined);
     }
   };
 
@@ -127,8 +108,14 @@ export default function Header({ onMenuToggle }) {
       <div className="topbar-actions">
         <div className="notif-bell-wrapper" ref={wrapperRef}>
           <button
-            className="notif-bell-btn"
+            className={`notif-bell-btn ${bellPulse ? 'pulsing' : ''}`}
             title="Notifications"
+            aria-label={
+              unreadNotificationCount
+                ? `Notifications, ${unreadNotificationCount} unread`
+                : 'Notifications'
+            }
+            aria-expanded={dropdownOpen}
             onClick={(e) => {
               e.stopPropagation();
               setDropdownOpen((o) => !o);
@@ -186,8 +173,14 @@ export default function Header({ onMenuToggle }) {
                     <div>
                       <div className="notif-dropdown-title">{n.title}</div>
                       <div className="notif-dropdown-msg">{n.message}</div>
-                      <div className="notif-dropdown-time">
-                        {new Date(n.timestamp).toLocaleString('en-PH')}
+                      {/* Relative age is what makes a notification list
+                          scannable; the exact moment stays available on hover
+                          via `title`, so nothing is lost. */}
+                      <div
+                        className="notif-dropdown-time"
+                        title={new Date(n.timestamp).toLocaleString('en-PH')}
+                      >
+                        {relativeTime(n.timestamp)}
                       </div>
                     </div>
                   </div>

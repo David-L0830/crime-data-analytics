@@ -191,4 +191,90 @@ class IncidentTest extends TestCase
 
         $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'status' => 'Archived']);
     }
+
+    // ===== GET /incidents/map — the privacy contract =====
+    //
+    // These are REGRESSION GUARDS, not a fix. IncidentController::map() already
+    // behaves this way; nothing in the endpoint changes here. They exist because
+    // the contract was entirely unpinned — no test covered this route at all —
+    // while the Crime Mapping page is being switched over to consume it
+    // precisely so that identifying details stop reaching the browser. A
+    // payload this deliberately narrow should not be able to widen unnoticed.
+
+    public function test_the_map_payload_excludes_identifying_details(): void
+    {
+        $this->actingUser();
+
+        Incident::factory()->create([
+            'status' => 'Open',
+            'victim_name' => 'Maria Santos',
+            'victim_age' => 34,
+            'victim_gender' => 'Female',
+            'suspect_name' => 'Juan Dela Cruz',
+            'suspect_age' => 41,
+            'complainant_name' => 'Pedro Reyes',
+            'complainant_contact' => '09171234567',
+            'complainant_address' => '12 Rizal St.',
+            'description' => 'Narrative that must not travel to the map.',
+            'reporting_officer' => 'PO1 Cruz',
+        ]);
+
+        $response = $this->getJson('/api/incidents/map')->assertOk();
+        $row = $response->json()[0];
+
+        // A map pin is a location. Identifying a named individual by a dot on a
+        // screen that can be projected in a barangay hall is the disclosure this
+        // endpoint exists to avoid.
+        foreach ([
+            'victimName', 'victim_name', 'victimAge', 'victimGender',
+            'suspectName', 'suspect_name', 'suspectAge',
+            'complainantName', 'complainant_name', 'complainantContact',
+            'complainantAddress', 'description', 'reportingOfficer',
+        ] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $row);
+        }
+
+        // And the values themselves, in case a field is ever renamed rather
+        // than removed.
+        $encoded = $response->getContent();
+        $this->assertStringNotContainsString('Maria Santos', $encoded);
+        $this->assertStringNotContainsString('Juan Dela Cruz', $encoded);
+        $this->assertStringNotContainsString('Pedro Reyes', $encoded);
+        $this->assertStringNotContainsString('09171234567', $encoded);
+    }
+
+    public function test_the_map_payload_carries_exactly_the_fields_the_map_needs(): void
+    {
+        $this->actingUser();
+        Incident::factory()->create(['status' => 'Open']);
+
+        $row = $this->getJson('/api/incidents/map')->assertOk()->json()[0];
+
+        // Pinned as an exact set: an addition here is a privacy decision and
+        // should have to be made deliberately, in this test, rather than
+        // arriving as a side effect. Note 'location' — the street is exposed
+        // under that name, which is what the map's popup reads.
+        $this->assertSame([
+            'id', 'latitude', 'longitude', 'caseNumber', 'crimeType',
+            'date', 'time', 'location', 'sitio', 'status', 'priority',
+        ], array_keys($row));
+    }
+
+    public function test_the_map_payload_omits_archived_and_uncoordinated_incidents(): void
+    {
+        $this->actingUser();
+
+        Incident::factory()->create(['status' => 'Open']);
+        Incident::factory()->create(['status' => 'Archived']);
+        Incident::factory()->create(['status' => 'Open', 'latitude' => null, 'longitude' => null]);
+
+        // The endpoint filters server-side, so the page receives only plottable,
+        // non-archived incidents.
+        $this->assertCount(1, $this->getJson('/api/incidents/map')->assertOk()->json());
+    }
+
+    public function test_the_map_endpoint_requires_authentication(): void
+    {
+        $this->getJson('/api/incidents/map')->assertUnauthorized();
+    }
 }

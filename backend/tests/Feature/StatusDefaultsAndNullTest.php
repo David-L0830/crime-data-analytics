@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\AppNotification;
+use App\Models\AuditLog;
 use App\Models\Criminal;
 use App\Models\Incident;
 use App\Models\User;
@@ -241,5 +243,120 @@ class StatusDefaultsAndNullTest extends TestCase
             'module' => 'incidents',
             'description' => 'Created incident CN-2025-6001',
         ]);
+    }
+
+    // ===== Defect A, second instance — `priority` =====
+    //
+    // incidents.priority is NOT NULL DEFAULT 'Normal', exactly like
+    // incidents.status, but its rule kept the 'nullable' that was removed from
+    // status above. So explicit null still passed validation, still reached
+    // IncidentController::mapToColumns() (which copies every key present in
+    // the validated array), and still raised SQLSTATE[23000] as a 500. It was
+    // the only NOT NULL DEFAULT column in the schema still validated as
+    // nullable — criminals.status and victims.status were both already safe.
+
+    public function test_explicit_null_priority_on_incident_create_is_422_not_500(): void
+    {
+        $this->actingAsSupabase($this->admin());
+
+        $response = $this->postJson('/api/incidents', $this->incidentPayload(['priority' => null]));
+
+        $response->assertUnprocessable()->assertJsonValidationErrors(['priority']);
+        $this->assertNotSame(500, $response->getStatusCode());
+        $this->assertSame(0, Incident::count());
+    }
+
+    public function test_explicit_null_priority_on_incident_update_is_422_not_500(): void
+    {
+        $this->actingAsSupabase($this->admin());
+        $incident = Incident::factory()->create(['priority' => 'High']);
+
+        $response = $this->putJson("/api/incidents/{$incident->id}", ['priority' => null]);
+
+        $response->assertUnprocessable()->assertJsonValidationErrors(['priority']);
+        $this->assertNotSame(500, $response->getStatusCode());
+        // The stored row is untouched by the rejected request.
+        $this->assertSame('High', $incident->fresh()->priority);
+    }
+
+    public function test_omitted_priority_still_succeeds_and_uses_the_database_default(): void
+    {
+        $this->actingAsSupabase($this->admin());
+
+        // Dropping 'nullable' must not make priority required: Laravel skips
+        // non-implicit rules for an absent key, so the column default applies
+        // exactly as it did before.
+        $response = $this->postJson('/api/incidents', $this->incidentPayload());
+
+        $response->assertCreated()->assertJsonPath('data.priority', 'Normal');
+        $this->assertSame('Normal', Incident::first()->priority);
+    }
+
+    public function test_a_valid_priority_is_still_accepted(): void
+    {
+        $this->actingAsSupabase($this->admin());
+
+        $this->postJson('/api/incidents', $this->incidentPayload(['priority' => 'High']))
+            ->assertCreated()
+            ->assertJsonPath('data.priority', 'High');
+    }
+
+    // ===== Defect C — nullable timestamps must serialise, not explode =====
+    //
+    // audit_logs.created_at and app_notifications.created_at are both nullable
+    // in the schema, but AuditLogResource and NotificationResource were the
+    // only two resources in the application that dereferenced a timestamp
+    // without a guard. Every sibling uses optional() or ?->. One null row
+    // would therefore 500 the WHOLE collection response, taking down the Audit
+    // Logs page and the notification bell rather than degrading a single row.
+    //
+    // The columns are deliberately left nullable — this is a serialisation
+    // fix, not a schema change.
+
+    public function test_audit_log_with_null_created_at_does_not_break_the_endpoint(): void
+    {
+        $admin = $this->admin();
+        $this->actingAsSupabase($admin);
+
+        $log = AuditLog::create([
+            'user_id' => $admin->id,
+            'action' => 'UPDATE',
+            'module' => 'incidents',
+            'target_type' => 'incident',
+            'description' => 'Row with no timestamp',
+        ]);
+        // Timestamps are always set by Eloquent, so the only way to reach the
+        // state the schema permits is to null it explicitly — which is what an
+        // out-of-band insert or an import would produce.
+        AuditLog::withoutTimestamps(fn () => $log->forceFill(['created_at' => null])->save());
+        $this->assertNull($log->fresh()->created_at);
+
+        $this->getJson('/api/audit-logs')
+            ->assertOk()
+            ->assertJsonPath('data.0.timestamp', null)
+            ->assertJsonPath('data.0.details', 'Row with no timestamp');
+    }
+
+    public function test_notification_with_null_created_at_does_not_break_the_endpoint(): void
+    {
+        $this->actingAsSupabase($this->admin());
+
+        $notification = AppNotification::create([
+            'title' => 'Timestampless',
+            'message' => 'Row with no timestamp',
+            'type' => 'info',
+            'read' => false,
+        ]);
+        AppNotification::withoutTimestamps(
+            fn () => $notification->forceFill(['created_at' => null])->save()
+        );
+        $this->assertNull($notification->fresh()->created_at);
+
+        $response = $this->getJson('/api/notifications')->assertOk();
+
+        $row = collect($response->json('data'))
+            ->firstWhere('title', 'Timestampless');
+        $this->assertNotNull($row, 'The timestampless notification must still be returned.');
+        $this->assertNull($row['timestamp']);
     }
 }

@@ -1,12 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import { formatDate, formatTime, today } from '../../utils/helpers';
 import { exportWorkbook } from '../../utils/exportWorkbook';
+import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
+
+// The complainant is whoever filed the report. Usually that is the victim
+// themselves, which is what complainantIsVictim records; when it is not, the
+// separate person's name is what should be shown.
+function complainantSummary(r) {
+  if (r.complainantIsVictim !== false) {
+    return r.victimName ? `${r.victimName} (same as victim)` : 'Same as victim';
+  }
+  return r.complainantName || '';
+}
+
+// Evidence is a list of { evidenceId, description } records. Flattened to one
+// line per item for the single-cell contexts (a spreadsheet row) that cannot
+// hold a list.
+function evidenceSummary(r) {
+  const items = r.evidenceItems || [];
+  if (!items.length) return '';
+  return items.map((e) => `${e.evidenceId}: ${e.description}`).join('\n');
+}
 
 export function IncidentViewModal({
   incident,
@@ -16,8 +36,21 @@ export function IncidentViewModal({
   archiving,
 }) {
   const { showToast } = useToast();
-  if (!incident) return null;
-  const r = incident;
+
+  // The shared Modal restores focus to whatever opened it on the
+  // open -> closed transition. Returning null here when `incident` goes
+  // null would UNMOUNT that Modal instead of closing it, so the transition
+  // never happens and focus is dropped to <body>. Verified in a browser: the
+  // trigger button was still in the DOM and still connected, yet focus was
+  // lost — because the effect that restores it had been torn down.
+  //
+  // Holding the last record keeps the Modal mounted across the close, so the
+  // transition runs. Nothing stale is shown: Modal renders null while
+  // `open` is false, so the retained record is never displayed.
+  const lastIncident = useRef(incident);
+  if (incident) lastIncident.current = incident;
+  const r = incident || lastIncident.current;
+  if (!r) return null;
 
   // Single-record export, matching the Field / Value sheet that Criminal
   // Profile and Victim Profile produce - one shared exportWorkbook helper
@@ -51,8 +84,21 @@ export function IncidentViewModal({
       ['Investigating Officer', r.investigatingOfficer],
       ['Badge Number', r.badgeNumber],
       ['Unit', r.unit],
+      ['Complainant', complainantSummary(r)],
+      [
+        'Complainant Relationship to Victim',
+        r.complainantIsVictim ? 'Same person' : r.complainantRelationship,
+      ],
+      [
+        'Complainant Contact Number',
+        r.complainantIsVictim ? '' : r.complainantContact,
+      ],
+      [
+        'Complainant Address',
+        r.complainantIsVictim ? '' : r.complainantAddress,
+      ],
       ['Description', r.description],
-      ['Evidence', r.evidence],
+      ['Evidence', evidenceSummary(r)],
     ].map(([field, value]) => ({
       field,
       value:
@@ -72,8 +118,15 @@ export function IncidentViewModal({
       ],
       rows,
       onEmpty: () => showToast('Could not export incident.', 'error'),
+      onError: () => showToast('Could not export incident.', 'error'),
     });
-    if (ok) showToast('Incident exported to Excel', 'success');
+    if (ok) {
+      showToast('Incident exported to Excel', 'success');
+      // Recorded only on success, so the audit trail never claims an
+      // export that did not happen. Not awaited: a completed download
+      // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('incident-record');
+    }
   };
 
   return (
@@ -174,6 +227,34 @@ export function IncidentViewModal({
             style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
           />
           <div>
+            <strong>Complainant:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantName || '—'
+              : 'Same as victim'}
+          </div>
+          <div>
+            <strong>Relationship to Victim:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantRelationship || '—'
+              : '—'}
+          </div>
+          <div>
+            <strong>Complainant Contact:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantContact || '—'
+              : '—'}
+          </div>
+          <div>
+            <strong>Complainant Address:</strong>{' '}
+            {r.complainantIsVictim === false
+              ? r.complainantAddress || '—'
+              : '—'}
+          </div>
+          <div
+            className="full"
+            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+          />
+          <div>
             <strong>Suspect Name:</strong> {r.suspectName || '—'}
           </div>
           <div>
@@ -204,7 +285,20 @@ export function IncidentViewModal({
             <strong>Description:</strong> {r.description || '—'}
           </div>
           <div className="full">
-            <strong>Evidence:</strong> {r.evidence || '—'}
+            <strong>Evidence:</strong>{' '}
+            {r.evidenceItems && r.evidenceItems.length ? (
+              <ul className="evidence-view-list">
+                {r.evidenceItems.map((e) => (
+                  <li key={e.id || e.evidenceId}>
+                    <strong>{e.evidenceId}</strong> — {e.description}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              /* Falls back to the legacy single-string column for any record
+                 whose evidence has not been migrated into structured items. */
+              r.evidence || '—'
+            )}
           </div>
           <div className="full">
             <strong>Synced At:</strong>{' '}
@@ -237,7 +331,16 @@ const emptyForm = {
   badgeNumber: '',
   unit: '',
   description: '',
-  evidence: '',
+  // Defaults to "the complainant is the victim" because that is the ordinary
+  // case; the separate-complainant fields only appear when it is unticked.
+  complainantIsVictim: true,
+  complainantName: '',
+  complainantRelationship: '',
+  complainantContact: '',
+  complainantAddress: '',
+  // One blank row so the fields are visible rather than hidden behind an "add"
+  // button; a row left entirely blank is discarded on save.
+  evidenceItems: [{ evidenceId: '', description: '' }],
 };
 
 // Shared form body for both create and edit — keeps the two modals visually
@@ -247,20 +350,71 @@ const emptyForm = {
 function IncidentFormFields({
   form,
   set,
+  setValue,
   crimeTypes,
   categories,
   sitios,
   statuses,
 }) {
+  // These fields are rendered twice in this file — once inside
+  // IncidentCreateModal and once inside IncidentEditModal — and IncidentFeed
+  // holds `creating` and `editing` as independent state, so nothing
+  // structurally stops both from being mounted at the same moment. A
+  // hand-written id prefix would then be emitted twice and every label would
+  // point at whichever copy of the control the browser found first. useId()
+  // gives each instance its own prefix, so the two cannot collide however the
+  // page is driven.
+  const uid = useId();
+
+  const evidenceItems = form.evidenceItems?.length
+    ? form.evidenceItems
+    : [{ evidenceId: '', description: '' }];
+
+  const setEvidence = (index, key) => (e) => {
+    const value = e.target.value;
+    setValue(
+      'evidenceItems',
+      evidenceItems.map((item, i) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
+    );
+  };
+
+  const addEvidenceRow = () =>
+    setValue('evidenceItems', [
+      ...evidenceItems,
+      { evidenceId: '', description: '' },
+    ]);
+
+  const removeEvidenceRow = (index) =>
+    setValue(
+      'evidenceItems',
+      // Never leave zero rows — an empty list with no visible field would look
+      // like the section had disappeared. The last row is cleared instead.
+      evidenceItems.length > 1
+        ? evidenceItems.filter((_, i) => i !== index)
+        : [{ evidenceId: '', description: '' }],
+    );
+
   return (
     <div className="form-grid">
       <div className="form-group">
-        <label>Case Number *</label>
-        <input value={form.caseNumber} onChange={set('caseNumber')} required />
+        <label htmlFor={`${uid}-case-number`}>Case Number *</label>
+        <input
+          id={`${uid}-case-number`}
+          value={form.caseNumber}
+          onChange={set('caseNumber')}
+          required
+        />
       </div>
       <div className="form-group">
-        <label>Crime Type *</label>
-        <select value={form.crimeType} onChange={set('crimeType')} required>
+        <label htmlFor={`${uid}-crime-type`}>Crime Type *</label>
+        <select
+          id={`${uid}-crime-type`}
+          value={form.crimeType}
+          onChange={set('crimeType')}
+          required
+        >
           <option value="">Select…</option>
           {crimeTypes.map((t) => (
             <option key={t} value={t}>
@@ -270,8 +424,12 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Category</label>
-        <select value={form.category} onChange={set('category')}>
+        <label htmlFor={`${uid}-category`}>Category</label>
+        <select
+          id={`${uid}-category`}
+          value={form.category}
+          onChange={set('category')}
+        >
           <option value="">Select…</option>
           {categories.map((c) => (
             <option key={c} value={c}>
@@ -281,8 +439,12 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Status</label>
-        <select value={form.status} onChange={set('status')}>
+        <label htmlFor={`${uid}-status`}>Status</label>
+        <select
+          id={`${uid}-status`}
+          value={form.status}
+          onChange={set('status')}
+        >
           <option value="">Select…</option>
           {statuses.map((s) => (
             <option key={s} value={s}>
@@ -292,16 +454,32 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Date *</label>
-        <input type="date" value={form.date} onChange={set('date')} required />
+        <label htmlFor={`${uid}-date`}>Date *</label>
+        <input
+          id={`${uid}-date`}
+          type="date"
+          value={form.date}
+          onChange={set('date')}
+          required
+        />
       </div>
       <div className="form-group">
-        <label>Time</label>
-        <input type="time" value={form.time} onChange={set('time')} />
+        <label htmlFor={`${uid}-time`}>Time</label>
+        <input
+          id={`${uid}-time`}
+          type="time"
+          value={form.time}
+          onChange={set('time')}
+        />
       </div>
       <div className="form-group">
-        <label>Sitio *</label>
-        <select value={form.sitio} onChange={set('sitio')} required>
+        <label htmlFor={`${uid}-sitio`}>Sitio *</label>
+        <select
+          id={`${uid}-sitio`}
+          value={form.sitio}
+          onChange={set('sitio')}
+          required
+        >
           <option value="">Select…</option>
           {sitios.map((s) => (
             <option key={s} value={s}>
@@ -311,12 +489,17 @@ function IncidentFormFields({
         </select>
       </div>
       <div className="form-group">
-        <label>Location / Street</label>
-        <input value={form.street} onChange={set('street')} />
+        <label htmlFor={`${uid}-street`}>Location / Street</label>
+        <input
+          id={`${uid}-street`}
+          value={form.street}
+          onChange={set('street')}
+        />
       </div>
       <div className="form-group">
-        <label>Latitude</label>
+        <label htmlFor={`${uid}-latitude`}>Latitude</label>
         <input
+          id={`${uid}-latitude`}
           type="number"
           step="any"
           value={form.latitude}
@@ -324,8 +507,9 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Longitude</label>
+        <label htmlFor={`${uid}-longitude`}>Longitude</label>
         <input
+          id={`${uid}-longitude`}
           type="number"
           step="any"
           value={form.longitude}
@@ -333,12 +517,17 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Victim Name</label>
-        <input value={form.victimName} onChange={set('victimName')} />
+        <label htmlFor={`${uid}-victim-name`}>Victim Name</label>
+        <input
+          id={`${uid}-victim-name`}
+          value={form.victimName}
+          onChange={set('victimName')}
+        />
       </div>
       <div className="form-group">
-        <label>Victim Age</label>
+        <label htmlFor={`${uid}-victim-age`}>Victim Age</label>
         <input
+          id={`${uid}-victim-age`}
           type="number"
           min="0"
           value={form.victimAge}
@@ -346,20 +535,29 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Victim Gender</label>
-        <select value={form.victimGender} onChange={set('victimGender')}>
+        <label htmlFor={`${uid}-victim-gender`}>Victim Gender</label>
+        <select
+          id={`${uid}-victim-gender`}
+          value={form.victimGender}
+          onChange={set('victimGender')}
+        >
           <option value="">—</option>
           <option value="Male">Male</option>
           <option value="Female">Female</option>
         </select>
       </div>
       <div className="form-group">
-        <label>Suspect Name</label>
-        <input value={form.suspectName} onChange={set('suspectName')} />
+        <label htmlFor={`${uid}-suspect-name`}>Suspect Name</label>
+        <input
+          id={`${uid}-suspect-name`}
+          value={form.suspectName}
+          onChange={set('suspectName')}
+        />
       </div>
       <div className="form-group">
-        <label>Suspect Age</label>
+        <label htmlFor={`${uid}-suspect-age`}>Suspect Age</label>
         <input
+          id={`${uid}-suspect-age`}
           type="number"
           min="0"
           value={form.suspectAge}
@@ -367,38 +565,161 @@ function IncidentFormFields({
         />
       </div>
       <div className="form-group">
-        <label>Reporting Officer</label>
+        <label htmlFor={`${uid}-reporting-officer`}>Reporting Officer</label>
         <input
+          id={`${uid}-reporting-officer`}
           value={form.reportingOfficer}
           onChange={set('reportingOfficer')}
         />
       </div>
       <div className="form-group">
-        <label>Investigating Officer</label>
+        <label htmlFor={`${uid}-investigating-officer`}>
+          Investigating Officer
+        </label>
         <input
+          id={`${uid}-investigating-officer`}
           value={form.investigatingOfficer}
           onChange={set('investigatingOfficer')}
         />
       </div>
       <div className="form-group">
-        <label>Badge Number</label>
-        <input value={form.badgeNumber} onChange={set('badgeNumber')} />
+        <label htmlFor={`${uid}-badge-number`}>Badge Number</label>
+        <input
+          id={`${uid}-badge-number`}
+          value={form.badgeNumber}
+          onChange={set('badgeNumber')}
+        />
       </div>
       <div className="form-group">
-        <label>Unit</label>
-        <input value={form.unit} onChange={set('unit')} />
+        <label htmlFor={`${uid}-unit`}>Unit</label>
+        <input id={`${uid}-unit`} value={form.unit} onChange={set('unit')} />
       </div>
+      {/* Complainant — who actually filed the report. Kept immediately after
+          the victim fields because the question it answers ("was it this
+          person who reported it?") is about them. */}
       <div className="form-group full">
-        <label>Description</label>
+        <label className="form-check">
+          <input
+            type="checkbox"
+            checked={form.complainantIsVictim !== false}
+            onChange={(e) => setValue('complainantIsVictim', e.target.checked)}
+          />
+          <span>Is the complainant the same person as the victim?</span>
+        </label>
+        <p className="form-hint">
+          Untick when someone else filed the report — for example when the
+          victim is hospitalised, a minor, or otherwise unable to report.
+        </p>
+      </div>
+
+      {form.complainantIsVictim === false && (
+        <>
+          <div className="form-group">
+            <label htmlFor={`${uid}-complainant-name`}>
+              Complainant Full Name *
+            </label>
+            <input
+              id={`${uid}-complainant-name`}
+              value={form.complainantName}
+              onChange={set('complainantName')}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor={`${uid}-complainant-relationship`}>
+              Relationship to Victim
+            </label>
+            <input
+              id={`${uid}-complainant-relationship`}
+              value={form.complainantRelationship}
+              onChange={set('complainantRelationship')}
+              placeholder="e.g. Mother"
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor={`${uid}-complainant-contact`}>
+              Complainant Contact Number
+            </label>
+            <input
+              id={`${uid}-complainant-contact`}
+              value={form.complainantContact}
+              onChange={set('complainantContact')}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor={`${uid}-complainant-address`}>
+              Complainant Address
+            </label>
+            <input
+              id={`${uid}-complainant-address`}
+              value={form.complainantAddress}
+              onChange={set('complainantAddress')}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="form-group full">
+        <label htmlFor={`${uid}-description`}>Description</label>
         <textarea
+          id={`${uid}-description`}
           rows={3}
           value={form.description}
           onChange={set('description')}
         />
       </div>
+
+      {/* Evidence — a repeatable Evidence ID + Description, replacing the
+          single free-text box this used to be. Leaving the ID blank is fine:
+          the server numbers the item (EV-001, EV-002, ...) so every piece of
+          evidence has a reference that can be cited. */}
       <div className="form-group full">
-        <label>Evidence</label>
-        <input value={form.evidence} onChange={set('evidence')} />
+        {/* A heading for the block, not a label for one control: the number
+            of rows varies, so there is no single input for `htmlFor` to point
+            at. The container is named as a group instead, and each row's
+            inputs keep the aria-labels they already carried. */}
+        <label id={`${uid}-evidence`}>Evidence</label>
+        <div
+          className="evidence-rows"
+          role="group"
+          aria-labelledby={`${uid}-evidence`}
+        >
+          {evidenceItems.map((item, index) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <div className="evidence-row" key={index}>
+              <input
+                className="evidence-row-id"
+                value={item.evidenceId}
+                onChange={setEvidence(index, 'evidenceId')}
+                placeholder="EV-001"
+                aria-label={`Evidence ID ${index + 1}`}
+              />
+              <input
+                className="evidence-row-desc"
+                value={item.description}
+                onChange={setEvidence(index, 'description')}
+                placeholder="e.g. CCTV footage from the entrance of the residence"
+                aria-label={`Evidence description ${index + 1}`}
+              />
+              <button
+                type="button"
+                className="evidence-row-remove"
+                onClick={() => removeEvidenceRow(index)}
+                aria-label={`Remove evidence item ${index + 1}`}
+                title="Remove this evidence item"
+              >
+                <Icons.Close size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={addEvidenceRow}
+        >
+          <Icons.Plus size={14} strokeWidth={2} /> Add Evidence Item
+        </Button>
       </div>
     </div>
   );
@@ -443,6 +764,10 @@ export function IncidentCreateModal({
     });
   };
 
+  // Companion to `set` above for the fields that are not <input value> ->
+  // string: the "complainant is the victim" checkbox, and the evidence list.
+  const setValue = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
@@ -453,6 +778,12 @@ export function IncidentCreateModal({
       latitude: form.latitude ? parseFloat(form.latitude) : null,
       longitude: form.longitude ? parseFloat(form.longitude) : null,
       status: form.status || 'Open',
+      // Blank rows are dropped here as well as server-side, so a record saved
+      // with the default empty row does not travel with a meaningless item.
+      evidenceItems: (form.evidenceItems || []).filter(
+        (item) =>
+          item.evidenceId.trim() !== '' || item.description.trim() !== '',
+      ),
     };
     const validationErrors = validate(data);
     if (validationErrors.length) {
@@ -482,6 +813,7 @@ export function IncidentCreateModal({
         <IncidentFormFields
           form={form}
           set={set}
+          setValue={setValue}
           crimeTypes={crimeTypes}
           categories={categories}
           sitios={sitios}
@@ -541,7 +873,30 @@ export function IncidentEditModal({
         badgeNumber: incident.badgeNumber || '',
         unit: incident.unit || '',
         description: incident.description || '',
-        evidence: incident.evidence || '',
+        // `!== false` rather than a plain truthiness check: an incident saved
+        // before this feature has no value at all, and the correct reading of
+        // such a record is that it names one victim and no separate
+        // complainant.
+        complainantIsVictim: incident.complainantIsVictim !== false,
+        complainantName: incident.complainantName || '',
+        complainantRelationship: incident.complainantRelationship || '',
+        complainantContact: incident.complainantContact || '',
+        complainantAddress: incident.complainantAddress || '',
+        evidenceItems:
+          incident.evidenceItems && incident.evidenceItems.length
+            ? incident.evidenceItems.map((e) => ({
+                evidenceId: e.evidenceId || '',
+                description: e.description || '',
+              }))
+            : // A record whose evidence is still the legacy free-text string
+              // opens with that text as the first item's description, so
+              // editing preserves it instead of quietly discarding it.
+              [
+                {
+                  evidenceId: incident.evidence ? 'EV-001' : '',
+                  description: incident.evidence || '',
+                },
+              ],
       });
       setErrors([]);
       setSubmitting(false);
@@ -558,6 +913,10 @@ export function IncidentEditModal({
     });
   };
 
+  // Companion to `set` above for the fields that are not <input value> ->
+  // string: the "complainant is the victim" checkbox, and the evidence list.
+  const setValue = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
@@ -569,6 +928,12 @@ export function IncidentEditModal({
       longitude: form.longitude
         ? parseFloat(form.longitude)
         : incident.longitude,
+      // Blank rows are dropped here as well as server-side, so a record saved
+      // with the default empty row does not travel with a meaningless item.
+      evidenceItems: (form.evidenceItems || []).filter(
+        (item) =>
+          item.evidenceId.trim() !== '' || item.description.trim() !== '',
+      ),
     };
     const validationErrors = validate(data, incident?.id);
     if (validationErrors.length) {
@@ -583,13 +948,26 @@ export function IncidentEditModal({
     }
   };
 
-  if (!incident) return null;
+  // The shared Modal restores focus to whatever opened it on the
+  // open -> closed transition. Returning null here when `incident` goes
+  // null would UNMOUNT that Modal instead of closing it, so the transition
+  // never happens and focus is dropped to <body>. Verified in a browser: the
+  // trigger button was still in the DOM and still connected, yet focus was
+  // lost — because the effect that restores it had been torn down.
+  //
+  // Holding the last record keeps the Modal mounted across the close, so the
+  // transition runs. Nothing stale is shown: Modal renders null while
+  // `open` is false, so the retained record is never displayed.
+  const lastEdited = useRef(incident);
+  if (incident) lastEdited.current = incident;
+  const shown = incident || lastEdited.current;
+  if (!shown) return null;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={`Edit Incident: ${incident.caseNumber}`}
+      title={`Edit Incident: ${shown.caseNumber}`}
       size="lg"
     >
       <form onSubmit={handleSubmit}>
@@ -605,6 +983,7 @@ export function IncidentEditModal({
         <IncidentFormFields
           form={form}
           set={set}
+          setValue={setValue}
           crimeTypes={crimeTypes}
           categories={categories}
           sitios={sitios}

@@ -91,10 +91,15 @@ class StatusValidationTest extends TestCase
                 ->assertJsonPath('data.status', $status);
         }
 
-        // Update the LAST API-created record rather than a factory one:
-        // CriminalFactory mints its own 'CR-000N' code from a sequence, while
-        // CriminalController::store() derives one from max(id)+1, so mixing the
-        // two in a single test collides on criminals_criminal_code_unique.
+        // Update the LAST API-created record rather than a factory one, so this
+        // test exercises the same rows the POSTs above created.
+        //
+        // This used to be load-bearing: CriminalController::store() derived the
+        // code from max(id)+1, which collided with CriminalFactory's own
+        // 'CR-000N' sequence and blew up on criminals_criminal_code_unique.
+        // Codes are now derived from the row's own id and fall back to a suffix
+        // when one is already taken (see mintCriminalCode()), so mixing factory
+        // and API records no longer collides.
         $criminal = Criminal::orderByDesc('id')->first();
         foreach (Criminal::STATUSES as $status) {
             $this->putJson("/api/criminals/{$criminal->id}", ['status' => $status])
