@@ -304,6 +304,63 @@ class UserController extends Controller
         return new UserResource($user);
     }
 
+    /**
+     * POST /api/users/{user}/two-factor/require  { "required": true|false }
+     *
+     * Administrator control over whether an account MUST use a second factor.
+     * Admin-only, enforced by `role:badac_admin` on the route rather than here
+     * (see routes/api.php) - the same boundary every other action on someone
+     * else's account already sits behind.
+     *
+     * What this deliberately is NOT: a way to enrol somebody else. Requiring a
+     * factor and possessing one are different acts, and only the second
+     * involves a secret. All this writes is a boolean on the Supabase identity
+     * (see SupabaseAdminService::setMfaRequired); the account holder still
+     * scans their own QR code in their own browser, and no administrator ever
+     * sees the TOTP secret, the QR code, or a code derived from them. Nor does
+     * it let an administrator get past somebody else's challenge - the flag
+     * only ever adds an obligation to that account's own sessions.
+     *
+     * Turning the requirement OFF is the same endpoint with required=false. It
+     * does not remove an enrolled factor: somebody who has already set up an
+     * authenticator keeps it, and keeps being challenged for it, because the
+     * factor itself is an obligation independent of this flag. Removing a
+     * factor is disableTwoFactor() below.
+     */
+    public function requireTwoFactor(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
+    {
+        $validated = $request->validate([
+            'required' => ['required', 'boolean'],
+        ]);
+
+        if (! $user->supabase_user_id) {
+            return response()->json([
+                'message' => 'This account has not signed in with Supabase yet, so a two-factor requirement cannot be set for it.',
+            ], 422);
+        }
+
+        $required = (bool) $validated['required'];
+
+        try {
+            $supabaseAdmin->setMfaRequired($user->supabase_user_id, $required);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        AuditLog::create([
+            'user_id' => $request->user()?->id,
+            'action' => 'UPDATE',
+            'module' => 'users',
+            'target_type' => 'user',
+            'description' => $required
+                ? "Required two-factor authentication for {$user->username}"
+                : "Removed the two-factor authentication requirement for {$user->username}",
+            'ip_address' => $request->ip(),
+        ]);
+
+        return new UserResource($user);
+    }
+
     // POST /api/users/{user}/two-factor/disable
     // Final auth migration — Laravel TOTP is retired; Supabase MFA is now
     // the only second factor. Reachable only via the same role:badac_admin
@@ -336,6 +393,31 @@ class UserController extends Controller
         if ($removed === 0) {
             return response()->json(['message' => 'Could not remove this account\'s MFA factor(s) right now. Please try again.'], 502);
         }
+
+        // Login-time MFA enforcement reads a CACHED "has a verified factor"
+        // answer on every protected request (EnsureSupabaseAal2 ->
+        // SupabaseAdminService::hasVerifiedFactor). Without this line the
+        // account whose factor was just removed would keep being told a second
+        // factor is required for up to a full cache TTL -- which is exactly the
+        // lost-device lockout this administrator action exists to end. It also
+        // makes the twoFactorEnabled badge in the response below current,
+        // rather than a stale read of the value we just made wrong.
+        // Clearing an account's second factor must leave it genuinely without
+        // one, so any administrator-imposed requirement is lifted at the same
+        // time. Leaving the flag set would force the person straight back into
+        // enrolment on their very next sign-in, which is the opposite of what
+        // this break-glass action is for - they have just lost their device.
+        // Requiring it again afterwards is one deliberate click away.
+        try {
+            $supabaseAdmin->setMfaRequired($user->supabase_user_id, false);
+        } catch (RuntimeException $e) {
+            // The factors are already gone, which is the part that unblocks
+            // the person. Reporting failure now would misdescribe what
+            // happened; the requirement flag is reconciled on the next
+            // deliberate change, and the cache is dropped below either way.
+        }
+
+        $supabaseAdmin->forgetFactorStatus($user->supabase_user_id);
 
         AuditLog::create([
             'user_id' => $request->user()?->id,

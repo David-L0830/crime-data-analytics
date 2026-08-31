@@ -39,27 +39,47 @@ use Illuminate\Support\Facades\Route;
 // Illuminate\Auth\AuthenticationException handling, before any controller
 // runs.
 //
-// Two-factor authentication (Supabase MFA / aal2 step-up) has been removed
-// from this application — both in the login UI (src/pages/Login.jsx) and
-// here on the backend. The 'supabase.mfa' (EnsureSupabaseAal2) middleware
-// is no longer attached to any route below; a valid Supabase access token
-// is all that's required to authenticate (aal1 is sufficient). The
-// EnsureSupabaseAal2 class itself is left in the codebase in case MFA is
-// reintroduced later, but nothing here references it anymore.
+// Two-factor authentication IS enforced here. Every protected route below
+// carries 'supabase.mfa' (App\Http\Middleware\EnsureSupabaseAal2) in
+// addition to 'auth:supabase', with exactly two exceptions called out at
+// their own registrations: GET /user and POST /logout.
+//
+// 'supabase.mfa' is adaptive, not a blanket aal2 demand — an account with no
+// verified authenticator is unaffected and still reaches everything at aal1,
+// while an account that HAS enrolled one cannot touch any of these routes
+// until its session has actually completed the TOTP challenge. Read that
+// middleware's own comment for the full rule, including why it fails closed
+// when the enrolment status cannot be established. The decision is made from
+// the cryptographically verified `aal` claim, never from anything the client
+// sends or stores.
+//
+// The two exemptions are deliberate and are the minimum the sign-in flow
+// needs. GET /user answers "who am I, and do I still owe a second factor"
+// (UserResource exposes authAssuranceLevel and mfaRequired) — that is what
+// the frontend reads to decide whether to show the challenge screen, so
+// gating it behind the challenge would make the challenge unreachable. It
+// discloses the caller's OWN profile and nothing else. POST /logout only
+// writes the audit row for a sign-out; refusing to let a half-authenticated
+// session sign out would strand it.
+//
 // 'role:' (EnsureRole) is unchanged — it is Authorization, a separate
 // concern from Authentication, and continues to enforce the existing
-// BADAC Administrator / Encoder / Badac (read-only) boundaries.
+// BADAC Administrator / Encoder / Badac (read-only) boundaries. MFA is
+// layered on top of it and replaces none of it.
+// GET /user — NO 'supabase.mfa'. See the exemption note above: this is the
+// endpoint the login flow reads to discover that a second factor is still
+// owed, so it must answer at aal1.
 Route::middleware('auth:supabase')->get('/user', [AuthController::class, 'user']);
 
-Route::middleware('auth:supabase')->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
     Route::put('/me', [ProfileController::class, 'update']);
     Route::post('/me/avatar', [ProfileController::class, 'avatar']);
 });
 
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])
     ->get('/dashboard', [DashboardController::class, 'index']);
 
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
     Route::get('/analytics', [AnalyticsController::class, 'index']);
     Route::get('/analytics/crime-types', [AnalyticsController::class, 'crimeTypes']);
     Route::get('/analytics/monthly', [AnalyticsController::class, 'monthly']);
@@ -73,24 +93,24 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
 // GET /settings — read-only, admin-only business configuration. Badac
 // (read-only) is intentionally excluded — see GET /sync-logs below for the
 // same "Badac has no Settings access" note.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])
     ->get('/settings', [SettingController::class, 'show']);
 
 // GET /notifications — shared by every role (Encoder still needs to see
 // their own incident notifications in the topbar).
-Route::middleware('auth:supabase')->get('/notifications', [NotificationController::class, 'index']);
+Route::middleware(['auth:supabase', 'supabase.mfa'])->get('/notifications', [NotificationController::class, 'index']);
 
 // GET /crime-types — readable by EVERY authenticated role, unlike /settings.
 // This is not administrative configuration in the way thresholds are: it is
 // the vocabulary the incident form, the FilterBar and the Crime Mapping legend
 // are built out of, and BADAC (read-only) uses all three. The colour travels
 // with the name because the map legend is meaningless without it.
-Route::middleware('auth:supabase')->get('/crime-types', [CrimeTypeController::class, 'index']);
+Route::middleware(['auth:supabase', 'supabase.mfa'])->get('/crime-types', [CrimeTypeController::class, 'index']);
 
 // POST/PUT /crime-types — Administrator only, and enforced HERE rather than by
 // hiding System Settings in the UI. A non-admin who calls this endpoint
 // directly gets a 403 from the role: middleware before the controller runs.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/crime-types', [CrimeTypeController::class, 'store']);
     Route::put('/crime-types/{crimeType}', [CrimeTypeController::class, 'update']);
 });
@@ -100,13 +120,13 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(func
 // for Encoder is enforced inside IncidentController on the write side.
 // GET /incidents/map is registered before GET /incidents/{incident} so
 // Laravel doesn't greedily match "map" as a route-model-binding id.
-Route::middleware(['auth:supabase'])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
     Route::get('/incidents/map', [IncidentController::class, 'map']);
     Route::get('/incidents', [IncidentController::class, 'index']);
     Route::get('/incidents/{incident}', [IncidentController::class, 'show']);
 });
 
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
     Route::get('/criminals', [CriminalController::class, 'index']);
     Route::get('/criminals/{criminal}', [CriminalController::class, 'show']);
 
@@ -121,7 +141,7 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
 // intentionally revoked per the "BADAC users must not have Audit Logs
 // access" requirement. Audit-log records/logging themselves are untouched —
 // this only narrows who may call GET /audit-logs.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])
     ->get('/audit-logs', [AuditLogController::class, 'index']);
 
 // POST /report-export-audit — records that a report was exported, the way
@@ -134,12 +154,12 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
 // restricting the write to administrators would silently drop exactly the
 // events an administrator reviews the trail for. Writing an entry about
 // yourself is not the same permission as reading everyone's.
-Route::middleware(['auth:supabase'])
+Route::middleware(['auth:supabase', 'supabase.mfa'])
     ->post('/report-export-audit', [AuditLogController::class, 'reportExported']);
 
 // GET /sync-logs, GET /users, GET /users/{user} — admin-only. Badac
 // (read-only) has no User Management, Settings, or Audit Logs access.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::get('/sync-logs', [SyncLogController::class, 'index']);
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/{user}', [UserController::class, 'show']);
@@ -152,10 +172,19 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(func
 // two-factor/disable still calls Supabase's Admin API to remove any
 // factor(s) a target account enrolled before this app removed MFA — see
 // UserController::disableTwoFactor() and App\Services\SupabaseAdminService.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update']);
     Route::put('/users/{user}/status', [UserController::class, 'updateStatus']);
     Route::post('/users/{user}/two-factor/disable', [UserController::class, 'disableTwoFactor']);
+
+    // POST /users/{user}/two-factor/require - administrator control over
+    // whether an account MUST use a second factor, independent of whether it
+    // has enrolled one yet. Same admin-only group as every other action on
+    // someone else's account, so RBAC is unchanged. It writes a boolean and
+    // nothing else: enrolment stays self-service, and no administrator ever
+    // sees another account's TOTP secret or QR code. See
+    // UserController::requireTwoFactor().
+    Route::post('/users/{user}/two-factor/require', [UserController::class, 'requireTwoFactor']);
 
     // POST /users — Account Administration. Administrator-provisioned
     // account creation, in the same admin-only group as every other
@@ -189,7 +218,7 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(func
 
 // PUT /settings — admin-only business configuration mutation, same
 // treatment as GET /settings.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])
     ->put('/settings', [SettingController::class, 'update']);
 
 // Incidents — write side. Not role-restricted at the route level for
@@ -197,7 +226,7 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])
 // enforces per-record ownership (reported_by) for Encoder internally on
 // update(). Archive is kept out of this group only so it can carry its own
 // explanatory comment — it allows the same two roles, see the route below.
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])->group(function () {
     Route::post('/incidents', [IncidentController::class, 'store']);
     Route::put('/incidents/{incident}', [IncidentController::class, 'update']);
 });
@@ -206,19 +235,21 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
 // reach this route. Per-record ownership (Encoder may only archive an
 // incident they personally encoded) is enforced inside
 // IncidentController::archive() — the same pattern used by update().
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/archive', [IncidentController::class, 'archive']);
 
 // PUT /incidents/{incident}/restore — the inverse of archive() above,
-// deliberately registered with the identical role set (badac_admin + encoder)
-// so "whoever may archive may restore" holds by construction, matching the
+// deliberately registered with the identical middleware stack as that route:
+// the same role set (badac_admin + encoder) AND the same 'supabase.mfa' gate,
+// so "whoever may archive may restore, under the same assurance level" holds
+// by construction. It matches the
 // PUT /criminals/{criminal}/restore / PUT /victims/{victim}/restore pattern
 // below. Per-record ownership (Encoder may only restore an incident they
 // personally encoded) is enforced inside IncidentController::restore().
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/restore', [IncidentController::class, 'restore']);
 
-Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/criminals', [CriminalController::class, 'store']);
     Route::put('/criminals/{criminal}', [CriminalController::class, 'update']);
     Route::put('/criminals/{criminal}/archive', [CriminalController::class, 'archive']);
@@ -239,11 +270,14 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(func
 
 // PUT /notifications/read-all, PUT /notifications/{notification}/read —
 // shared by both roles; AppNotification has no per-user ownership column.
-Route::middleware('auth:supabase')->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
     Route::put('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     Route::put('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
 });
 
 // POST /logout — session-lifecycle action. No `role:` middleware — every
-// role logs out the same way.
+// role logs out the same way — and no 'supabase.mfa' either: a session that
+// has not completed its second factor must still be able to end itself, and
+// abandoning the challenge screen is exactly that (see
+// AuthContext.cancelMfaChallenge).
 Route::middleware('auth:supabase')->post('/logout', [AuthController::class, 'logout']);

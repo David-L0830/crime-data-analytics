@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useState } from 'react';
 import { ROLES, PERMISSIONS } from '../utils/constants';
 import { authService } from '../services/authService';
+import { supabaseMfaService } from '../services/supabaseMfaService';
 import { ApiError } from '../services/api';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
@@ -18,20 +19,45 @@ export const AuthContext = createContext(null);
 // the intended policy, not a bug, and there is nothing left for this app to
 // "remember" on top of it.
 //
-// Two-factor authentication (Supabase MFA / aal2 step-up) has been removed
-// from the sign-in flow — a successful Supabase authentication (email/
-// password, Google, or an already-persisted session on mount) now always
-// resolves straight to a signed-in user. A user MAY still have a verified
-// Supabase TOTP factor from before this change (see
-// components/settings/TwoFactorSelfService.jsx, which still lets someone
-// optionally manage one), but nothing in this app checks its `aal` claim
-// anymore — the backend no longer requires aal2 on any route either (see
-// backend/routes/api.php).
+// TWO-FACTOR AUTHENTICATION IS ENFORCED AT SIGN-IN.
 //
-// On mount, the only question is "does a Supabase session already exist"
-// (supabase.auth.getSession()) — if so, resolve it into a local user via
-// finishSupabaseLogin, same as every other place a Supabase access token
-// gets turned into a local user (email/password login, Google OAuth).
+// Authenticating a password is not the same as being signed in. Every path
+// that produces a Supabase session — email/password, Google, and an
+// already-persisted session found on mount — funnels through
+// resolveSupabaseSession() below, which decides between two outcomes:
+//
+//   * the session is good enough        -> currentUser is set, the app opens
+//   * a second factor is still owed     -> currentUser stays NULL and
+//                                          pendingMfa is set, which is what
+//                                          makes Login.jsx render the TOTP
+//                                          challenge instead of the app
+//
+// currentUser staying null is the whole mechanism: ProtectedRoute already
+// redirects a null currentUser to /login, so nothing about routing, RBAC or
+// any page had to change to make a half-authenticated session unable to reach
+// the application.
+//
+// WHAT THIS IS NOT: it is not "a React variable says MFA is on". Two
+// independent checks have to agree before the app opens, and neither of them
+// is a boolean this app invented:
+//
+//   1. supabase-js's own getAuthenticatorAssuranceLevel(), read from the
+//      session's signed JWT. Cheap, and it is what avoids a pointless round
+//      trip for the common case.
+//   2. The backend's answer on GET /user (`mfaRequired`), computed from the
+//      cryptographically verified `aal` claim and Supabase's own record of
+//      the account's factors. The SERVER WINS: if it says a factor is owed,
+//      the challenge is shown even when check 1 said otherwise.
+//
+// And neither check is load-bearing on its own, because the real gate is
+// server-side and unconditional: every protected route requires a completed
+// second factor for an enrolled account (EnsureSupabaseAal2 — see
+// backend/routes/api.php). Tampering with anything in this file gets an
+// attacker a rendered shell that can load no data.
+//
+// pendingMfa lives in React state and nowhere else — never sessionStorage,
+// never localStorage. It holds a factor id, which is not a secret and not the
+// TOTP secret; the secret never leaves Supabase and the authenticator app.
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
@@ -59,14 +85,106 @@ export function AuthProvider({ children }) {
     [avatarVersion],
   );
 
-  // Shared by loginWithEmail, the Google onAuthStateChange listener below,
-  // AND the mount-time resync effect right after this — every place a
-  // Supabase access token gets resolved into a local user converges here.
-  const finishSupabaseLogin = useCallback(async (accessToken) => {
-    const user = await authService.currentUserViaSupabaseToken(accessToken);
-    setCurrentUser(user);
-    return { success: true, user };
+  // Set when a Supabase session exists but still owes a second factor:
+  // { factorId }. Login.jsx renders the TOTP challenge whenever this is
+  // non-null. React state only — deliberately never persisted, so closing the
+  // tab mid-challenge leaves nothing behind.
+  const [pendingMfa, setPendingMfa] = useState(null);
+  // Set when an administrator has required a second factor of this account
+  // and it has not enrolled one yet. There is nothing to challenge, so the
+  // only way forward is enrolment — Login.jsx renders the QR/secret step.
+  // currentUser stays null throughout, exactly as it does for a challenge,
+  // so nothing protected renders either way.
+  const [pendingMfaEnrollment, setPendingMfaEnrollment] = useState(false);
+
+  // Does this session still owe a TOTP challenge?
+  //
+  // Returns the verified TOTP factor to challenge, or null for "nothing owed".
+  //
+  // WHY THIS DOES NOT USE getAuthenticatorAssuranceLevel()'s `nextLevel`
+  // --------------------------------------------------------------------
+  // That would be the obvious call, and Supabase's own example uses it, but
+  // called without a JWT argument it performs NO NETWORK REQUEST: it derives
+  // `nextLevel` from `session.user.factors` on the session object sitting in
+  // storage. Whether the sign-in response populated that array is not
+  // something this app controls, and if it did not, `nextLevel` comes back
+  // 'aal1' for somebody who is demonstrably enrolled — a silent, total failure
+  // of the gate that looks identical to "this user has no MFA".
+  //
+  // The two halves are therefore taken from the two places that can actually
+  // be trusted for them:
+  //
+  //   * currentLevel — decoded from the session's access token. This is the
+  //     signed `aal` claim, the same value the backend verifies, so it needs
+  //     no network call to be authoritative.
+  //   * whether a verified factor exists — listFactors(), which goes through
+  //     getUser() and really does ask Supabase. Slower, and worth it: this is
+  //     the half that decides whether anybody is challenged at all.
+  //
+  // Throws if either half cannot be established. Callers treat that as "cannot
+  // safely sign this person in", never as "no MFA needed" — reading an
+  // unanswerable question as a negative is how a second factor silently stops
+  // applying.
+  const totpFactorOwedBySession = useCallback(async () => {
+    const { currentLevel } = await supabaseMfaService.getAssuranceLevel();
+
+    // Already stepped up. Nothing to ask for, and no reason to spend a round
+    // trip finding that out.
+    if (currentLevel === 'aal2') return null;
+
+    const factors = await supabaseMfaService.listFactors();
+
+    // null here means "no verified factor", i.e. genuinely not enrolled — the
+    // ordinary case for most accounts, and not an error.
+    return supabaseMfaService.selectActiveTotpFactor(factors);
   }, []);
+
+  // THE single place a Supabase access token becomes either a signed-in user
+  // or a pending challenge. Every entry point converges here: email/password
+  // login, the Google OAuth return, and the mount-time session resync.
+  //
+  // Order matters. The client-side assurance check runs first because it is
+  // nearly free and short-circuits the common enrolled-user case without a
+  // round trip. GET /user is then still consulted, and its `mfaRequired`
+  // overrides a client-side "all clear" — see this file's header for why the
+  // server is the one that decides.
+  const resolveSupabaseSession = useCallback(
+    async (accessToken) => {
+      const factor = await totpFactorOwedBySession();
+      if (factor) {
+        setCurrentUser(null);
+        setPendingMfaEnrollment(false);
+        setPendingMfa({ factorId: factor.id });
+        return { success: true, mfaRequired: true };
+      }
+
+      const user = await authService.currentUserViaSupabaseToken(accessToken);
+
+      if (user.mfaRequired) {
+        // A second factor is owed, and the authoritative listFactors() lookup
+        // above found none to challenge — so this account has been REQUIRED to
+        // use MFA by an administrator and has not enrolled yet. It is not
+        // signed in: it is put through enrolment first, and reaches aal2 by
+        // verifying the factor it creates.
+        //
+        // The backend also reports mfaRequired when it could not determine the
+        // account's status at all, and routing that here is deliberate rather
+        // than a conflation. Enrolment talks to the same Supabase that just
+        // could not be reached, so it fails too and nobody gets in — the
+        // fail-closed outcome — whereas admitting them would not.
+        setCurrentUser(null);
+        setPendingMfa(null);
+        setPendingMfaEnrollment(true);
+        return { success: true, mfaEnrollmentRequired: true };
+      }
+
+      setPendingMfa(null);
+      setPendingMfaEnrollment(false);
+      setCurrentUser(user);
+      return { success: true, user };
+    },
+    [totpFactorOwedBySession],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -80,10 +198,15 @@ export function AuthProvider({ children }) {
         const { data } = await supabase.auth.getSession();
         const accessToken = data.session?.access_token;
         if (accessToken && !cancelled) {
-          await finishSupabaseLogin(accessToken);
+          // Restoring a persisted session takes exactly the same route as a
+          // fresh sign-in, which is what stops a reload from being a way
+          // around the challenge: the stored session is aal1 until the TOTP
+          // code is verified, and resolveSupabaseSession will say so again.
+          await resolveSupabaseSession(accessToken);
         }
       } catch {
-        /* Supabase session invalid/expired or no matching Laravel user — stay logged out */
+        /* Supabase session invalid/expired, no matching Laravel user, or the
+           assurance level could not be established — stay logged out */
       } finally {
         if (!cancelled) setInitializing(false);
       }
@@ -108,6 +231,21 @@ export function AuthProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      // Any Supabase sign-out, from anywhere, clears a pending challenge.
+      //
+      // Not redundant with the three places that already clear it themselves:
+      // ResetPassword.jsx ends its recovery session directly through
+      // supabase-js and never touches AuthContext, so without this a person
+      // who reset their password would land on /login looking at a TOTP
+      // challenge for a factor id belonging to a session that no longer
+      // exists — a form that cannot succeed and gives no clue why.
+      if (event === 'SIGNED_OUT') {
+        setPendingMfa(null);
+        setPendingMfaEnrollment(false);
+        setCurrentUser(null);
+        return;
+      }
+
       if (
         event !== 'SIGNED_IN' ||
         session?.user?.app_metadata?.provider !== 'google'
@@ -117,7 +255,9 @@ export function AuthProvider({ children }) {
       const accessToken = session.access_token;
       if (!accessToken) return;
 
-      finishSupabaseLogin(accessToken)
+      // Same gate as email/password: a Google sign-in that lands on an
+      // MFA-enrolled account is NOT finished, it is halfway.
+      resolveSupabaseSession(accessToken)
         .then(() => {
           setAuthInitError('');
         })
@@ -128,9 +268,11 @@ export function AuthProvider({ children }) {
           // app doesn't know.
           await supabase.auth.signOut().catch(() => {});
           setAuthInitError(
-            err instanceof ApiError && err.status === 401
-              ? 'No BADAC Analytics account is linked to that Google account. Contact your Administrator.'
-              : 'Unable to sign in right now. Please try again.',
+            err?.code === 'mfa_factor_missing'
+              ? err.message
+              : err instanceof ApiError && err.status === 401
+                ? 'No BADAC Analytics account is linked to that Google account. Contact your Administrator.'
+                : 'Unable to sign in right now. Please try again.',
           );
         });
     });
@@ -176,9 +318,11 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        // Resolves straight to { success, user } — MFA step-up is no longer
-        // part of this flow.
-        return await finishSupabaseLogin(accessToken);
+        // Resolves to EITHER { success, user } (signed in) or
+        // { success, mfaRequired } (a TOTP challenge is owed and pendingMfa
+        // is now set). A `success` here does not on its own mean the person
+        // is in — Login.jsx branches on mfaRequired.
+        return await resolveSupabaseSession(accessToken);
       } catch (err) {
         // Supabase authenticated the person, but no Laravel account is
         // linked (SupabaseTokenValidator never auto-creates one). Don't
@@ -186,13 +330,15 @@ export function AuthProvider({ children }) {
         // isn't authorized in this application.
         await supabase.auth.signOut().catch(() => {});
         const message =
-          err instanceof ApiError && err.status === 401
-            ? 'This email is not registered in BADAC Analytics. Contact your Administrator.'
-            : 'Unable to sign in right now. Please try again.';
+          err?.code === 'mfa_factor_missing'
+            ? err.message
+            : err instanceof ApiError && err.status === 401
+              ? 'This email is not registered in BADAC Analytics. Contact your Administrator.'
+              : 'Unable to sign in right now. Please try again.';
         return { success: false, error: message };
       }
     },
-    [finishSupabaseLogin],
+    [resolveSupabaseSession],
   );
 
   const loginWithGoogle = useCallback(async () => {
@@ -224,6 +370,103 @@ export function AuthProvider({ children }) {
     return { success: true, redirecting: true };
   }, []);
 
+  // Completes the step-up challenge shown by Login.jsx.
+  //
+  // challengeAndVerify() is Supabase's own combined challenge + verify call —
+  // it is Supabase, not this app, that checks the code, and on success
+  // supabase-js swaps the session for an aal2 one. The TOTP secret is never
+  // seen, stored or transmitted here.
+  //
+  // Verification is then confirmed against the BACKEND before anyone is let
+  // in: GET /user must come back with authAssuranceLevel 'aal2' and no
+  // outstanding mfaRequired. That check reads the server's view of a
+  // cryptographically verified JWT claim, so a client that lied about the
+  // first step still does not get a user object out of this function.
+  const verifyMfaChallenge = useCallback(
+    async (code, factorIdOverride) => {
+      const factorId = factorIdOverride ?? pendingMfa?.factorId;
+      if (!factorId) {
+        return {
+          success: false,
+          error: 'This verification session has expired. Please sign in again.',
+        };
+      }
+
+      try {
+        await supabaseMfaService.challengeAndVerify(
+          factorId,
+          String(code).trim(),
+        );
+
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) {
+          return {
+            success: false,
+            error:
+              'Your session ended during verification. Please sign in again.',
+          };
+        }
+
+        const user = await authService.currentUserViaSupabaseToken(accessToken);
+        if (user.authAssuranceLevel !== 'aal2' || user.mfaRequired) {
+          return {
+            success: false,
+            error: 'Verification did not complete. Please try again.',
+          };
+        }
+
+        setPendingMfa(null);
+        setPendingMfaEnrollment(false);
+        setCurrentUser(user);
+        return { success: true, user };
+      } catch (err) {
+        // Supabase distinguishes a wrong code from an expired challenge, and
+        // both are things the person can act on, so its own message is kept
+        // where there is one. Anything else stays generic.
+        return {
+          success: false,
+          error:
+            err?.message ||
+            'That code is invalid or has expired. Please try again.',
+        };
+      }
+    },
+    [pendingMfa],
+  );
+
+  // Begins TOTP enrolment for an account an administrator has required MFA
+  // of. Returns what the screen needs to draw — { id, totp: { qr_code, secret,
+  // uri } } — straight from Supabase.
+  //
+  // Runs at aal1 on purpose, and Supabase permits exactly that for an account
+  // with no verified factor: it is the only way such a session can ever reach
+  // aal2, since there is nothing yet to challenge. The secret is created by
+  // Supabase and shown only to the person enrolling; it never reaches this
+  // application's backend, and no administrator can see it.
+  //
+  // Clears an abandoned unverified factor from an earlier attempt first, the
+  // same housekeeping the self-service panel does.
+  const startMfaEnrollment = useCallback(async () => {
+    const factors = await supabaseMfaService.listFactors();
+    const stale = (factors?.all ?? []).find((f) => f.status === 'unverified');
+    if (stale) await supabaseMfaService.unenroll(stale.id).catch(() => {});
+
+    return supabaseMfaService.enroll();
+  }, []);
+
+  // Abandoning the challenge. This must actually END the Supabase session
+  // rather than only clearing React state: an aal1 session left alive would
+  // be picked up again by the mount-time resync on the next page load. The
+  // POST /logout audit write is deliberately skipped — no sign-in ever
+  // completed, so there is no session to record the end of.
+  const cancelMfaChallenge = useCallback(async () => {
+    await supabase.auth.signOut().catch(() => {});
+    setPendingMfa(null);
+    setPendingMfaEnrollment(false);
+    setCurrentUser(null);
+  }, []);
+
   const logout = useCallback(async () => {
     // Best-effort audit-log write while the token is still valid, then end
     // the Supabase session — the actual sign-out.
@@ -234,6 +477,8 @@ export function AuthProvider({ children }) {
     } finally {
       await supabase.auth.signOut().catch(() => {});
       setCurrentUser(null);
+      setPendingMfa(null);
+      setPendingMfaEnrollment(false);
       setAuthInitError('');
     }
   }, []);
@@ -255,6 +500,8 @@ export function AuthProvider({ children }) {
     } finally {
       await supabase.auth.signOut().catch(() => {});
       setCurrentUser(null);
+      setPendingMfa(null);
+      setPendingMfaEnrollment(false);
       setAuthInitError(message);
     }
   }, []);
@@ -292,6 +539,16 @@ export function AuthProvider({ children }) {
     initializing,
     loginWithEmail,
     loginWithGoogle,
+    // Non-null means a verified authenticator factor exists for this session
+    // and its code has not been entered yet. currentUser is null while this
+    // is set, so nothing protected renders.
+    pendingMfa,
+    // True when MFA is required of this account but nothing is enrolled yet,
+    // so the way forward is enrolment rather than a challenge.
+    pendingMfaEnrollment,
+    startMfaEnrollment,
+    verifyMfaChallenge,
+    cancelMfaChallenge,
     authInitError,
     logout,
     signOutDueToSessionIssue,

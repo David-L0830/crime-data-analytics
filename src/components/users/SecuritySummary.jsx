@@ -79,14 +79,16 @@ export default function SecuritySummary({ users }) {
         </ul>
       )}
 
-      {/* Stated once, here, rather than implied by a green tick somewhere:
-          enrolling a factor and being challenged for it at sign-in are two
-          different things, and only the first is true today. */}
+      {/* Stated once, here, rather than implied by a green tick somewhere.
+          The note used to exist to disclose that enrolment was NOT enforced at
+          sign-in; it now discloses the opposite, and the reason an
+          administrator needs it is unchanged — an account listed without a
+          factor is protected by its password alone. */}
       <p className="security-alert-note">
-        Enrolment status is read from Supabase. Note that this application does
-        not currently challenge for a second factor during sign-in, so an
-        enrolled factor protects the account only where Supabase itself requires
-        it.
+        Enrolment status is read from Supabase. An account with a verified
+        authenticator must enter a code from it at every sign-in; an account
+        without one is protected by its password alone. Enrolment is
+        self-service and cannot be performed on someone else&apos;s behalf.
       </p>
     </Card>
   );

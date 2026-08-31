@@ -66,10 +66,16 @@ export const supabaseMfaService = {
     if (error) throw error;
   },
 
-  // UI-routing helper only (see file header). { currentLevel, nextLevel }:
-  // nextLevel !== currentLevel means a verified factor exists and this
-  // session hasn't completed it yet — that's the signal AuthContext uses
-  // to show a step-up challenge instead of treating login as finished.
+  // Returns { currentLevel, nextLevel, currentAuthenticationMethods }.
+  //
+  // AuthContext uses `currentLevel` ONLY, and that restriction is deliberate.
+  // currentLevel is decoded from the session's access token, so it reflects
+  // the same signed `aal` claim the backend verifies. `nextLevel` is derived
+  // locally from `session.user.factors` on the stored session object with no
+  // network call, so it reports 'aal1' for an enrolled account whenever that
+  // array was not populated — which silently disables the login challenge.
+  // Whether a verified factor exists is asked of listFactors() above instead,
+  // which really does query Supabase. See AuthContext.totpFactorOwedBySession.
   getAssuranceLevel: async () => {
     const { data, error } =
       await supabase.auth.mfa.getAuthenticatorAssuranceLevel();

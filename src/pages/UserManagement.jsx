@@ -240,6 +240,22 @@ export default function UserManagement() {
         );
       }
 
+      if (type === 'two-factor-require') {
+        replaceUser(await userService.setTwoFactorRequired(user.id, true));
+        showToast(
+          'Two-factor authentication is now required for this account.',
+          'success',
+        );
+      }
+
+      if (type === 'two-factor-cancel') {
+        replaceUser(await userService.setTwoFactorRequired(user.id, false));
+        showToast(
+          'Two-factor authentication is no longer required for this account.',
+          'success',
+        );
+      }
+
       if (type === 'password-reset') {
         // Same helper the automatic post-creation send uses, so the manual
         // retry path and the automatic one cannot diverge. Supabase sends the
@@ -306,16 +322,33 @@ export default function UserManagement() {
             icon: <Icons.Mail size={14} strokeWidth={2} />,
             onSelect: () => openConfirm('password-reset', user),
           },
-          {
-            key: 'two-factor',
-            label: 'Manage 2FA',
-            icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-            disabled: !user.twoFactorEnabled,
-            title: user.twoFactorEnabled
-              ? undefined
-              : 'This account has no enrolled factor to clear. Enrolment is done by the account holder.',
-            onSelect: () => openConfirm('two-factor', user),
-          },
+          // Three states, one slot. An account is either enrolled (the
+          // factor can be cleared), required-but-not-yet-enrolled (the
+          // requirement can be lifted), or neither (a requirement can be
+          // imposed). Requiring is NOT enrolling: it sets a flag on the
+          // Supabase identity and nothing else — the account holder still
+          // scans their own QR code, and no administrator ever sees the
+          // secret. See UserController::requireTwoFactor.
+          user.twoFactorEnabled
+            ? {
+                key: 'two-factor',
+                label: 'Clear 2FA',
+                icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                onSelect: () => openConfirm('two-factor', user),
+              }
+            : user.mfaRequiredByAdmin
+              ? {
+                  key: 'two-factor-cancel',
+                  label: 'Cancel 2FA Requirement',
+                  icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                  onSelect: () => openConfirm('two-factor-cancel', user),
+                }
+              : {
+                  key: 'two-factor-require',
+                  label: 'Require 2FA',
+                  icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                  onSelect: () => openConfirm('two-factor-require', user),
+                },
           {
             key: 'status',
             separatorBefore: true,
@@ -566,6 +599,55 @@ export default function UserManagement() {
           Supabase sends the email and the person sets their own password. No
           password is created, viewed, or stored by this system, and nothing
           about the account changes until they complete the reset.
+        </p>
+      </ConfirmActionModal>
+
+      <ConfirmActionModal
+        open={confirm?.type === 'two-factor-require'}
+        title="Require Two-Factor Authentication"
+        confirmLabel="Require 2FA"
+        busyLabel="Applying…"
+        busy={confirmBusy}
+        error={confirmError}
+        onConfirm={runConfirm}
+        onClose={closeConfirm}
+      >
+        <p className="confirm-lead">
+          Require an authenticator app at every sign-in for:
+        </p>
+        <div className="confirm-subject">
+          <strong>{confirm?.user?.fullName}</strong>
+          <span>Username: {confirm?.user?.username}</span>
+        </div>
+        <p className="confirm-note">
+          They will be asked to set up an authenticator the next time they sign
+          in, and cannot reach any part of the system until they have. They scan
+          the QR code themselves on their own device — you will never see their
+          secret, their QR code, or any code it produces, and this does not let
+          you sign in as them.
+        </p>
+      </ConfirmActionModal>
+
+      <ConfirmActionModal
+        open={confirm?.type === 'two-factor-cancel'}
+        title="Cancel Two-Factor Requirement"
+        confirmLabel="Cancel Requirement"
+        busyLabel="Applying…"
+        variant="danger"
+        busy={confirmBusy}
+        error={confirmError}
+        onConfirm={runConfirm}
+        onClose={closeConfirm}
+      >
+        <p className="confirm-lead">Stop requiring an authenticator app for:</p>
+        <div className="confirm-subject">
+          <strong>{confirm?.user?.fullName}</strong>
+          <span>Username: {confirm?.user?.username}</span>
+        </div>
+        <p className="confirm-note">
+          This account has not finished setting up an authenticator yet.
+          Cancelling lets them sign in with their password alone again. They can
+          still choose to enrol one themselves at any time.
         </p>
       </ConfirmActionModal>
 
