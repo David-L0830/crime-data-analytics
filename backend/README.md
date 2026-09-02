@@ -164,18 +164,18 @@ ownership checks described above.
 backend/
 ├── app/
 │   ├── Http/
-│   │   ├── Controllers/Api/       13 controllers (see §8)
+│   │   ├── Controllers/Api/       15 controllers (see §8), incl. CrimeTypeController
 │   │   ├── Middleware/
 │   │   │   ├── EnsureRole.php            role: middleware — RBAC
-│   │   │   ├── EnsureSupabaseAal2.php    MFA/aal2 gate — registered but NOT used (see below)
+│   │   │   ├── EnsureSupabaseAal2.php    MFA/aal2 gate — enforced on every protected route except GET /user, POST /logout (see below)
 │   │   │   └── LogAuditAction.php        alias registered but NOT attached to any route
-│   │   ├── Requests/              7 FormRequests (Store/Update Incident, Criminal, Victim, User)
-│   │   └── Resources/             6 API Resources (Incident, Criminal, Victim, User, AuditLog, Notification)
-│   ├── Models/                    User, Incident, Criminal, Victim, AuditLog, AppNotification, Setting, SyncLog
+│   │   ├── Requests/              8 FormRequests (Store/Update Incident, Criminal, Victim, User)
+│   │   └── Resources/             7 API Resources (Incident, Criminal, Victim, User, AuditLog, Notification, CrimeType)
+│   ├── Models/                    User, Incident, Criminal, Victim, AuditLog, AppNotification, Setting, SyncLog, CrimeType, Evidence, NotificationRead
 │   ├── Providers/AppServiceProvider.php   registers the 'supabase' guard; forces HTTPS in production
 │   └── Services/
 │       ├── SupabaseTokenValidator.php     JWT verification + user resolution
-│       ├── SupabaseAdminService.php       Supabase Admin API (MFA factor removal only)
+│       ├── SupabaseAdminService.php       Supabase Admin API — MFA factor status/removal, admin-imposed MFA requirement
 │       └── MetabaseEmbedService.php       signs Metabase embed JWTs
 ├── bootstrap/app.php              routing, /up health route, middleware aliases, JSON exceptions
 ├── config/                        app, auth, cache, cors, database, filesystems, logging,
@@ -190,21 +190,25 @@ backend/
 │   ├── nginx.conf                 vhost used by the docker-compose network
 │   └── php-fpm-pool.conf          moves php-fpm to 127.0.0.1:9001
 ├── routes/
-│   ├── api.php                    all 38 API routes
+│   ├── api.php                    all 49 API routes
 │   ├── web.php                    GET / service banner only
 │   └── console.php
-├── tests/Feature/                 7 feature test classes
+├── tests/Feature/                 feature test classes (see §12)
 ├── Dockerfile                     nginx + php-fpm production image
 └── phpunit.xml                    in-memory SQLite test environment
 ```
 
-**Two classes exist but are not wired to any route**, and are documented here
-so nobody assumes otherwise:
+**One middleware class is wired everywhere; one is registered but unused:**
 
-- `EnsureSupabaseAal2` (`supabase.mfa`) — MFA/`aal2` step-up was **removed**
-  from this application. The alias is still registered in `bootstrap/app.php`
-  and the class is retained in case MFA is reintroduced, but **no route uses
-  it**. A valid Supabase access token (`aal1`) is sufficient everywhere.
+- `EnsureSupabaseAal2` (`supabase.mfa`) — **MFA/`aal2` step-up is enforced.**
+  This middleware is attached to every protected route in `routes/api.php`
+  except `GET /user` and `POST /logout` (both must stay reachable at `aal1`
+  — see the comment on those two routes). Enforcement is adaptive: an
+  account with no verified TOTP factor and no administrator-imposed
+  requirement is unaffected at `aal1`; `aal2` is demanded only once the
+  account has enrolled a factor or an administrator has required one via
+  `POST /users/{user}/two-factor/require`. See §7 and the class's own
+  comment for the full rule, including its fail-closed behaviour.
 - `LogAuditAction` (`audit.log`) — the alias is registered, but audit entries
   are written directly inside the controllers rather than by this middleware.
 
@@ -375,8 +379,38 @@ The token is never merely decoded and trusted.
    `is_active = false` → unauthenticated.
 
 The token's `aal` claim is stored on the request as `supabase_aal` (defaulting
-to `aal1` when absent) and surfaced through `UserResource`, but **no route
-requires `aal2`** — MFA step-up has been removed.
+to `aal1` when absent) and surfaced through `UserResource`. **`aal2` is
+required by every protected route except `GET /user` and `POST /logout`,
+adaptively** — see the MFA subsection below.
+
+### Multi-factor authentication (MFA)
+
+MFA is Supabase TOTP, enforced server-side by `EnsureSupabaseAal2`
+(`supabase.mfa`) and self-service on the frontend
+(`src/components/settings/TwoFactorSelfService.jsx`, rendered on
+`/user-management`). An account is required to complete a second factor
+when it has a **verified** Supabase TOTP factor enrolled, **or** an
+administrator has flagged it via `POST /users/{user}/two-factor/require`
+— whichever comes first. An account with neither is unaffected and signs
+in at `aal1` as before.
+
+| Endpoint | Role | Purpose |
+|---|---|---|
+| `POST /users/{user}/two-factor/require` | admin | Set (`required: true`) or clear (`required: false`) an administrator-imposed MFA obligation. Does not enroll a factor — the account holder still scans their own QR code. |
+| `POST /users/{user}/two-factor/disable` | admin | Break-glass: remove a target account's enrolled Supabase MFA factor(s) (lost device/recovery codes) and clear any admin-imposed requirement on it. |
+
+`GET /user` (and the `data` row for the caller's own account in
+`GET /users`) exposes `twoFactorEnabled` (verified factor enrolled),
+`mfaRequired` (does *this session* still owe a second factor — `null` for
+any account other than the caller's own), `mfaRequiredByAdmin` (has an
+administrator required one), and `authAssuranceLevel` (`aal1`/`aal2`, read
+from the verified JWT). `SupabaseAdminService` caches the enrolment/
+requirement lookup for `mfa_status_cache_ttl` (60s, `config/supabase.php`)
+and invalidates it explicitly when an admin disables an account's MFA.
+
+See `AUTH_MIGRATION_STATUS.md` for the full history and rationale, and
+`backend/tests/Feature/MfaEnforcementTest.php` for the enforcement test
+coverage.
 
 ### Roles
 
@@ -397,7 +431,7 @@ Defined as constants on `App\Models\User`:
 | Create / update / archive incidents | ✅ | ✅ *(own records only)* | ❌ |
 | Dashboard, analytics, Metabase embed URLs | ✅ | ❌ | ✅ |
 | Read criminals and victims | ✅ | ❌ | ✅ |
-| Create / update / archive criminals and victims | ✅ | ❌ | ❌ |
+| Create / update / archive / restore criminals and victims | ✅ | ❌ | ❌ |
 | Settings (read and write) | ✅ | ❌ | ❌ |
 | User management, audit logs, sync logs | ✅ | ❌ | ❌ |
 
@@ -418,6 +452,15 @@ No route performs a physical `DELETE` on an incident, criminal or victim.
 All three expose `PUT .../archive`, which changes `status` rather than
 removing the row.
 
+**Criminal and victim records can also be restored.** `PUT
+/criminals/{criminal}/restore` and `PUT /victims/{victim}/restore`
+(admin-only) reverse an archive by reading the row's own `previous_status`
+column — written by the archive endpoints — back onto `status`. The value is
+read only from that column, never inferred from `audit_logs` (which records
+no per-row status and no `target_id`), so the restored status is exact or
+the restore is refused (`422`) rather than guessed. Incidents have no restore
+endpoint; only criminals and victims do.
+
 ---
 
 ## 8. API Endpoints
@@ -427,7 +470,7 @@ removing the row.
 bodies, response shapes, status codes and worked examples. The summary below
 is a routing index; it is not a substitute for that document.
 
-The application exposes **38 API routes**, plus `GET /` and `GET /up`. This
+The application exposes **49 API routes**, plus `GET /` and `GET /up`. This
 table was generated from `php artisan route:list` and cross-checked against
 `docs/API_ENDPOINTS.md`.
 
@@ -460,11 +503,13 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | POST | `/api/criminals` | admin | Create a criminal record |
 | PUT | `/api/criminals/{criminal}` | admin | Update a criminal record |
 | PUT | `/api/criminals/{criminal}/archive` | admin | Archive a criminal record |
+| PUT | `/api/criminals/{criminal}/restore` | admin | Restore an archived criminal record to its pre-archive status |
 | GET | `/api/victims` | admin, readonly | List victims |
 | GET | `/api/victims/{victim}` | admin, readonly | Victim profile |
 | POST | `/api/victims` | admin | Create a victim record |
 | PUT | `/api/victims/{victim}` | admin | Update a victim record |
 | PUT | `/api/victims/{victim}/archive` | admin | Archive a victim record |
+| PUT | `/api/victims/{victim}/restore` | admin | Restore an archived victim record to its pre-archive status |
 | GET | `/api/notifications` | any | Notification list |
 | PUT | `/api/notifications/{notification}/read` | any | Mark one as read |
 | PUT | `/api/notifications/read-all` | any | Mark all as read |
@@ -475,6 +520,7 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | PUT | `/api/users/{user}` | admin | Update an account (`role` is not mass-assignable) |
 | PUT | `/api/users/{user}/status` | admin | Activate/deactivate (self-lockout guarded) |
 | POST | `/api/users/{user}/two-factor/disable` | admin | Force-remove the target's Supabase MFA factors |
+| POST | `/api/users/{user}/two-factor/require` | admin | Require (or stop requiring) MFA of the target account |
 | GET | `/api/audit-logs` | admin | Audit trail |
 | GET | `/api/sync-logs` | admin | Synchronization log |
 
@@ -747,19 +793,25 @@ project.
 php artisan test          # or: ./vendor/bin/phpunit
 ```
 
-**Current result: 74 passed (140 assertions).**
+**Current result: 303 passed (1081 assertions).**
 
-Seven feature test classes under `tests/Feature/`:
+Feature test classes under `tests/Feature/`, including:
 
 | Test class | Covers |
 |---|---|
 | `BadacReadonlyTest` | Read-only role boundaries |
 | `CriminalRecordTest` | Criminal CRUD and archiving |
 | `IncidentTest` | Incident CRUD, ownership, map payload |
+| `MfaEnforcementTest` | Adaptive `supabase.mfa` enforcement, the two route exemptions, fail-closed lookups |
 | `NotificationTest` | Notification list and read flags |
+| `RestoreTest` | Archive → restore round-trips for criminals and victims, `previous_status` handling, and fallback behaviour when it is missing or unrecognised |
 | `SupabaseTokenValidationTest` | JWT verification and user resolution |
-| `UserManagementTest` | Account administration |
+| `UserManagementTest` | Account administration, MFA require/disable |
 | `VictimTest` | Victim records and case relationships |
+
+This list is illustrative, not exhaustive — the suite also covers crime
+types, evidence, and other areas added since this table was last regenerated;
+run `php artisan test` for the authoritative, current set.
 
 ### Test environment
 
@@ -910,11 +962,14 @@ php artisan view:clear
   secret in plaintext. It is git-ignored — keep it that way, and never run
   `config:cache` on a bind-mounted working tree.
 - **Never expose the Supabase service-role key.** `SUPABASE_SERVICE_ROLE_KEY`
-  bypasses row-level security and can administer any account. It is used by
-  exactly one code path — `SupabaseAdminService`, for admin-forced MFA factor
-  removal — and must never appear in a `VITE_*` variable, the frontend bundle,
-  an API response, or a log line. It is a different value from
-  `SUPABASE_JWT_SECRET`.
+  bypasses row-level security and can administer any account. It is used
+  exclusively by `App\Services\SupabaseAdminService`, which now backs several
+  MFA-related code paths beyond the original admin-forced factor removal —
+  checking whether an account has a verified factor (read on every
+  `supabase.mfa`-protected request), setting/clearing an administrator-imposed
+  MFA requirement, and listing/deleting a target account's factors. It must
+  never appear in a `VITE_*` variable, the frontend bundle, an API response,
+  or a log line. It is a different value from `SUPABASE_JWT_SECRET`.
 - **Never expose the Metabase embedding secret.**
   `METABASE_EMBEDDING_SECRET_KEY` signs every embed token; anyone holding it
   can mint a URL for any dashboard. It stays server-side only.
