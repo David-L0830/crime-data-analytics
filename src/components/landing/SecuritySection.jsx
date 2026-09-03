@@ -4,10 +4,10 @@ const SECURITY_POINTS = [
   {
     icon: Icons.Lock,
     title: 'Authenticated Access',
-    // "optional two-factor verification" implied sign-in verifies a second
-    // factor. It does not. Enrolling an authenticator is genuinely available,
-    // so that is what this now says.
-    desc: 'Every session requires sign-in, with optional authenticator enrolment.',
+    // Two-factor is per-account and opt-in, but for an account that has
+    // opted in it is genuinely required at sign-in — hence "optional ...
+    // enforced ... for accounts that enrol" rather than either extreme.
+    desc: 'Every session requires sign-in, with optional two-factor authentication enforced at login for accounts that enrol.',
   },
   {
     icon: Icons.Users,

@@ -2,7 +2,7 @@
 
 The official API reference for **Crime Data Analytics / BADAC CDARS** — the Laravel 12 backend serving the React frontend for Barangay 178, North Caloocan.
 
-Generated from the current source code and verified against `php artisan route:list` (45 routes) and the live production API.
+Generated from the current source code and verified against `php artisan route:list` (49 API routes, plus `GET /` and `GET /up`) and the live production API.
 
 | | |
 |---|---|
@@ -50,7 +50,7 @@ Generated from the current source code and verified against `php artisan route:l
 
 ## Endpoint Summary Table
 
-Populated from `php artisan route:list`. **47 API routes**, plus two application routes.
+Populated from `php artisan route:list`. **49 API routes**, plus two application routes.
 
 | Method | Endpoint | Authentication | Purpose |
 |---|---|---|---|
@@ -77,11 +77,13 @@ Populated from `php artisan route:list`. **47 API routes**, plus two application
 | POST | `/api/criminals` | admin | Create a criminal record |
 | PUT | `/api/criminals/{criminal}` | admin | Update a criminal record |
 | PUT | `/api/criminals/{criminal}/archive` | admin | Archive a criminal record |
+| PUT | `/api/criminals/{criminal}/restore` | admin | Restore an archived criminal record |
 | GET | `/api/victims` | admin, readonly | List victims |
 | GET | `/api/victims/{victim}` | admin, readonly | Single victim |
 | POST | `/api/victims` | admin | Create a victim |
 | PUT | `/api/victims/{victim}` | admin | Update a victim |
 | PUT | `/api/victims/{victim}/archive` | admin | Archive a victim |
+| PUT | `/api/victims/{victim}/restore` | admin | Restore an archived victim |
 | GET | `/api/notifications` | Authenticated | List notifications |
 | PUT | `/api/notifications/read-all` | Authenticated | Mark all as read |
 | PUT | `/api/notifications/{notification}/read` | Authenticated | Mark one as read |
@@ -98,6 +100,7 @@ Populated from `php artisan route:list`. **47 API routes**, plus two application
 | GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
 | POST | `/api/users/{user}/password-reset-audit` | admin | Record that a reset email was sent |
 | POST | `/api/users/{user}/two-factor/disable` | admin | Remove another user's MFA factors |
+| POST | `/api/users/{user}/two-factor/require` | admin | Require (or stop requiring) MFA of another account |
 | GET | `/api/role-permissions` | admin | Role/module access, read from route middleware |
 | GET | `/api/audit-logs` | admin | Recent audit trail (max 200) |
 | POST | `/api/report-export-audit` | Authenticated | Record that a report was exported |
@@ -165,6 +168,8 @@ Enforced by the `role:` middleware (`App\Http\Middleware\EnsureRole`).
 Throughout this document, "admin" = `badac_admin`, "readonly" = `badac_readonly`, "encoder" = `encoder`.
 
 **Additional record-level rule.** On `PUT /api/incidents/{incident}` and `PUT /api/incidents/{incident}/archive`, an **encoder may only modify incidents they personally created** (`reported_by`). Administrators are unrestricted.
+
+**MFA is layered on top of roles, not a replacement for them.** Every route in this document that requires authentication also carries `App\Http\Middleware\EnsureSupabaseAal2` (`supabase.mfa`), with exactly two exceptions: `GET /api/user` and `POST /api/logout`. This is adaptive — it only demands a completed TOTP second factor (`aal2`) from an account that has enrolled a verified factor or that an administrator has flagged with `POST /api/users/{user}/two-factor/require`; every other account is unaffected. A request whose account owes a second factor but has not completed it receives `401` with `{"mfaRequired": true, "message": "This action requires a completed second-factor sign-in."}`, distinguishable from an ordinary `401` so the frontend can route to the step-up challenge. See [Authentication / User](#authentication--user) and [Administration](#administration).
 
 ---
 
@@ -251,12 +256,16 @@ curl -i https://crime-data-analytics-backend.onrender.com/up
     "avatar": "E",
     "avatarUrl": null,
     "twoFactorEnabled": false,
+    "mfaRequired": false,
+    "mfaRequiredByAdmin": false,
     "authAssuranceLevel": "aal1"
   }
 }
 ```
 
-`authAssuranceLevel` reflects the token's `aal` claim — `aal1` for password-only, `aal2` once a second factor is completed.
+`authAssuranceLevel` reflects the token's `aal` claim — `aal1` for password-only, `aal2` once a second factor is completed. `twoFactorEnabled` is true only for a **verified** enrolled TOTP factor. `mfaRequired` is the caller's own session's outstanding obligation — true when the account has a verified factor or an admin-imposed requirement, and the session has not yet completed `aal2`; the frontend's login flow reads this field to decide whether to show the TOTP challenge screen. `mfaRequiredByAdmin` is true only when an administrator has explicitly required a second factor of this account via `POST /api/users/{user}/two-factor/require`.
+
+**This route deliberately does not require `supabase.mfa`** — an account that still owes a second factor must be able to reach it to discover that fact.
 
 **Status codes** — `200`, `401`
 
@@ -365,6 +374,11 @@ The core resource. `IncidentResource` returns **camelCase** keys, while database
       "victimGender": "Female",
       "suspectName": "Example Suspect",
       "suspectAge": 25,
+      "complainantIsVictim": true,
+      "complainantName": null,
+      "complainantRelationship": null,
+      "complainantContact": null,
+      "complainantAddress": null,
       "reportingOfficer": "Officer Example",
       "investigatingOfficer": "Officer Example",
       "badgeNumber": "12345",
@@ -373,12 +387,17 @@ The core resource. `IncidentResource` returns **camelCase** keys, while database
       "priority": "Medium",
       "description": "Example description.",
       "evidence": "Example evidence reference",
+      "evidenceItems": [
+        { "id": "1", "evidenceId": "EV-001", "description": "Example evidence reference" }
+      ],
       "reportedBy": "1",
       "synced_at": "2025-03-14T09:00:00+00:00"
     }
   ]
 }
 ```
+
+`evidence` is the legacy free-text column, retained for backward compatibility. New evidence is recorded as structured `evidenceItems` (an `evidence_code` + `description` pair per item, from the `incident_evidence` table), which every incident read endpoint eager-loads; it is technically `[]` if the relation is ever accessed unloaded. `complainantIsVictim` distinguishes the person who filed the report from the victim; the four `complainant*` fields are populated only when it is `false`.
 
 **Status codes** — `200`, `401`
 
@@ -443,6 +462,11 @@ The core resource. `IncidentResource` returns **camelCase** keys, while database
 | `victimGender` | string | no | `max:20` |
 | `suspectName` | string | no | `max:150` |
 | `suspectAge` | integer | no | `0`–`120` |
+| `complainantIsVictim` | boolean | no | defaults `true` |
+| `complainantName` | string | no | `max:150` — required in practice when `complainantIsVictim` is `false` |
+| `complainantRelationship` | string | no | `max:100`, e.g. "Parent", "Neighbor" |
+| `complainantContact` | string | no | `max:50` |
+| `complainantAddress` | string | no | `max:255` |
 | `reportingOfficer` | string | no | `max:100` |
 | `investigatingOfficer` | string | no | `max:100` |
 | `badgeNumber` | string | no | `max:50` |
@@ -450,7 +474,8 @@ The core resource. `IncidentResource` returns **camelCase** keys, while database
 | `status` | string | no | `max:50` |
 | `priority` | string | no | `max:50` |
 | `description` | string | no | — |
-| `evidence` | string | no | `max:255` |
+| `evidence` | string | no | `max:255` — legacy free-text field |
+| `evidenceItems` | array | no | max 50 items; each `{ evidenceId?: string(max:50), description?: string(max:2000) }`. When present, **replaces** the incident's entire evidence list (existing `incident_evidence` rows are deleted and re-created from this array) — omit the field entirely to leave existing evidence untouched. |
 
 **Response** — `201 Created`, the new `IncidentResource`.
 
@@ -683,11 +708,21 @@ A `503` means `METABASE_SITE_URL`, the embedding secret, or the dashboard ID is 
 
 ### PUT `/api/criminals/{criminal}/archive`
 
-**Purpose** — sets `status = 'Archived'`. The row is not deleted.
+**Purpose** — sets `status = 'Archived'`, after first saving the current `status` into `previous_status` so it can be restored later. The row is not deleted.
 
 **Authentication** — **admin** only.
 
 **Status codes** — `200`, `401`, `403`, `404`
+
+### PUT `/api/criminals/{criminal}/restore`
+
+**Purpose** — reverses an archive. Sets `status` back to the value saved in `previous_status` at archive time (falling back to a safe default if that value is missing or unrecognised, e.g. a record archived before this column existed). The value is read only from the row itself — never inferred from `audit_logs`, which records no per-row status.
+
+**Authentication** — **admin** only.
+
+**Response** — `200 OK`, the restored criminal record.
+
+**Status codes** — `200`, `401`, `403`, `404`, `422` (record is not currently archived)
 
 ---
 
@@ -713,7 +748,13 @@ A `503` means `METABASE_SITE_URL`, the embedding secret, or the dashboard ID is 
 
 ### PUT `/api/victims/{victim}/archive`
 
-**Purpose** — sets `status = 'Archived'`; the row is retained.
+**Purpose** — sets `status = 'Archived'`, first saving the current `status` into `previous_status`; the row is retained.
+
+**Authentication** — **admin** only.
+
+### PUT `/api/victims/{victim}/restore`
+
+**Purpose** — mirrors `PUT /api/criminals/{criminal}/restore` exactly: restores `status` from `previous_status`, same admin-only access, same refusal to consult the audit trail, same safe fallback when `previous_status` is missing or unrecognised.
 
 **Authentication** — **admin** only.
 
@@ -960,6 +1001,8 @@ link, or password passes through this backend.
 
 **Purpose** — the break-glass action removing another user's Supabase MFA factors ("lost my phone"). Requires `SUPABASE_SERVICE_ROLE_KEY` on the backend.
 
+**Authentication** — **admin**.
+
 **Status codes**
 
 | Code | Condition |
@@ -967,6 +1010,30 @@ link, or password passes through this backend.
 | `200` | Factors removed |
 | `422` | The account has never signed in via Supabase, or has no MFA enabled |
 | `502` | Supabase could not be reached, or the service-role key is not configured |
+
+Also clears any administrator-imposed MFA requirement on the target account (see below) and invalidates the cached enrolment-status lookup, so the account is not told a factor is still owed for the rest of the cache window.
+
+### POST `/api/users/{user}/two-factor/require`
+
+**Purpose** — an administrator requires (or stops requiring) a second factor of a target account, independent of whether that account has enrolled one yet. This sets an obligation only: it never enrolls a factor on the account's behalf, and no administrator ever sees another account's TOTP secret or QR code. Turning the requirement off does **not** remove an already-enrolled factor — that is `POST /api/users/{user}/two-factor/disable` above.
+
+**Authentication** — **admin**.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `required` | boolean | **yes** |
+
+**Response** — `200 OK`, the target's `UserResource` (`mfaRequiredByAdmin` reflects the new value). Writes an `UPDATE` audit row.
+
+**Status codes**
+
+| Code | Condition |
+|---|---|
+| `200` | Requirement set or cleared |
+| `422` | The account has never signed in via Supabase, so there is no Supabase identity to flag |
+| `502` | Supabase could not be reached |
 
 ### GET `/api/role-permissions`
 
@@ -1251,12 +1318,12 @@ Supabase PostgreSQL          Supabase PostgreSQL          Supabase PostgreSQL
 
 | Endpoint group | Tables read / written |
 |---|---|
-| `/api/incidents/*` | `incidents` (read/write); writes `audit_logs` on create, update, archive |
+| `/api/incidents/*` | `incidents`, `incident_evidence` (read/write); writes `audit_logs` on create, update, archive |
 | `/api/analytics/*` | `incidents` (read, archived excluded) |
 | `/api/dashboard` | `incidents`, `criminals`, `sync_logs`, `settings` (read) |
-| `/api/criminals/*` | `criminals`, plus related incidents; writes `audit_logs` |
-| `/api/victims/*` | `victims`, `incident_victim` pivot; writes `audit_logs` |
-| `/api/users/*`, `/api/me` | `users` (read/write); writes `audit_logs` |
+| `/api/criminals/*` | `criminals`, plus related incidents; writes `audit_logs`; archive/restore read and write `previous_status` |
+| `/api/victims/*` | `victims`, `incident_victim` pivot; writes `audit_logs`; archive/restore read and write `previous_status` |
+| `/api/users/*`, `/api/me` | `users` (read/write); writes `audit_logs`. MFA endpoints do not touch `users` for the MFA state itself — that lives in Supabase Auth, reached via the Admin API. |
 | `/api/settings` | `settings` (read/write); writes `audit_logs` |
 | `/api/audit-logs` | `audit_logs` (read, with the related user) |
 | `/api/sync-logs` | `sync_logs` (read) |
@@ -1264,7 +1331,7 @@ Supabase PostgreSQL          Supabase PostgreSQL          Supabase PostgreSQL
 | `/api/crime-types` | `crime_types` (read/write); writes `audit_logs` |
 | `/api/embed/metabase/*` | **No database access** — signs a URL only |
 
-**Archiving, not deleting.** Incidents, criminals, and victims are archived by setting `status = 'Archived'`. Rows are retained for audit purposes and excluded from statistics.
+**Archiving, and restoring.** Incidents, criminals, and victims are archived by setting `status = 'Archived'`; rows are retained for audit purposes and excluded from statistics. Criminals and victims can also be **restored** — the archive endpoints save the prior `status` into a `previous_status` column, and the restore endpoints read it back. Incidents have no restore endpoint.
 
 ---
 
@@ -1364,7 +1431,7 @@ curl -i "https://crime-data-analytics-backend.onrender.com/api/user" \
 curl -s -o /dev/null -w "%{http_code}\n" https://crime-data-analytics-backend.onrender.com/up
 ```
 
-**Automated test suite** — 74 tests, in-memory SQLite:
+**Automated test suite** — 303 tests, in-memory SQLite:
 
 ```bash
 cd backend

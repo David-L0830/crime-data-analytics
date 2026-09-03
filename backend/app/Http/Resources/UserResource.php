@@ -59,18 +59,46 @@ class UserResource extends JsonResource
             // two now agree, and they agree on the stricter reading — a
             // half-finished enrolment protects nobody and must not be
             // displayed as though it does.
-            'twoFactorEnabled' => $this->supabase_user_id
-                ? (function () {
-                    try {
-                        $factors = app(SupabaseAdminService::class)->listFactors($this->supabase_user_id);
-
-                        return collect($factors)
-                            ->contains(fn ($factor) => ($factor['status'] ?? null) === 'verified');
-                    } catch (\Throwable $e) {
-                        return false;
-                    }
-                })()
-                : false,
+            //
+            // Now reads through SupabaseAdminService::hasVerifiedFactor(),
+            // which applies the same verified-only rule and, unlike the
+            // previous inline listFactors() call, caches it — so an
+            // administrator opening User Management no longer costs one
+            // Admin API round trip per account per render, and this agrees by
+            // construction with the enforcement decision EnsureSupabaseAal2
+            // makes from the very same cached answer.
+            //
+            // Still fails SOFT to false here, deliberately, and that is not a
+            // contradiction of the middleware's fail-closed stance: this is a
+            // badge in a list, not an authorization decision. An administrator
+            // briefly seeing an inaccurate badge is preferable to the whole
+            // User Management page erroring out, whereas silently admitting an
+            // unverified session is not.
+            'twoFactorEnabled' => $this->twoFactorEnabled(),
+            // Does THIS request's session still owe a second factor?
+            //
+            // The server-authoritative answer to the question the login flow
+            // asks. src/context/AuthContext.jsx also asks supabase-js the same
+            // thing client-side (getAuthenticatorAssuranceLevel) to avoid a
+            // needless round trip, but this field is what it treats as final:
+            // a client-side check is a UI convenience, and a step-up gate must
+            // not rest on one.
+            //
+            // Null for anyone but the caller themselves. Assurance level is a
+            // property of the current session, so the question is meaningless
+            // for the other rows of an administrator's user list — reporting
+            // anything there would invite it being read as "this person needs
+            // to do MFA", which is not what it would mean.
+            'mfaRequired' => $this->mfaRequiredForSelf($request),
+            // Whether an ADMINISTRATOR has required a second factor of this
+            // account, as opposed to whether the account has enrolled one.
+            // Distinct from twoFactorEnabled above and shown alongside it,
+            // because the two together are what an administrator needs to
+            // tell apart the three states the User Management row menu acts
+            // on: not required and not enrolled, required but not yet
+            // enrolled, and enrolled. Fails soft to false like the badge
+            // beside it - it labels a menu item and gates nothing.
+            'mfaRequiredByAdmin' => $this->mfaRequiredByAdmin(),
             // Checkpoint 6 — Supabase MFA coexistence. Only present (non-
             // null) when this request was authenticated via the 'supabase'
             // guard — see SupabaseTokenValidator::resolveUser(), the only
@@ -87,5 +115,83 @@ class UserResource extends JsonResource
             // this response says.
             'authAssuranceLevel' => $request->attributes->get('supabase_aal'),
         ];
+    }
+
+    /**
+     * Whether Supabase holds a VERIFIED MFA factor for this account.
+     *
+     * Verified only — an abandoned, unverified enrolment protects nobody and
+     * must not be displayed as though it does. See the commit that introduced
+     * this rule for the production case where it mattered.
+     */
+    protected function twoFactorEnabled(): bool
+    {
+        if (! $this->supabase_user_id) {
+            return false;
+        }
+
+        try {
+            return app(SupabaseAdminService::class)->hasVerifiedFactor($this->supabase_user_id);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether an administrator has required a second factor of this account.
+     * Reads the same single cached lookup twoFactorEnabled() does, so showing
+     * both costs one Admin API call rather than two.
+     */
+    protected function mfaRequiredByAdmin(): bool
+    {
+        if (! $this->supabase_user_id) {
+            return false;
+        }
+
+        try {
+            return app(SupabaseAdminService::class)->mfaRequiredByAdmin($this->supabase_user_id);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * True when the request's own session is authenticated below the level its
+     * account requires; null when this resource is not the caller's own record
+     * (see the field comment above).
+     *
+     * FAILS CLOSED, unlike twoFactorEnabled() directly above it, and the two
+     * must not be collapsed back together however similar they look. That
+     * method answers a question for a badge and may shrug; this one is the
+     * signal the login flow gates on, so an unanswerable lookup has to mean
+     * "assume a factor is owed", not "assume there is none". Reusing the
+     * fail-soft helper here made GET /user report mfaRequired: false whenever
+     * Supabase could not be reached -- telling the frontend to let somebody
+     * straight in at the exact moment the backend had lost the ability to
+     * check. This mirrors EnsureSupabaseAal2, which denies the same request
+     * for the same reason, so the two layers now agree in the failure case as
+     * well as the ordinary one.
+     */
+    protected function mfaRequiredForSelf(Request $request): ?bool
+    {
+        $aal = $request->attributes->get('supabase_aal');
+
+        if ($aal === null || $request->user()?->id !== $this->id) {
+            return null;
+        }
+
+        if ($aal === 'aal2') {
+            return false;
+        }
+
+        if (! $this->supabase_user_id) {
+            return false;
+        }
+
+        try {
+            return app(SupabaseAdminService::class)->requiresAal2($this->supabase_user_id);
+        } catch (\Throwable $e) {
+            return true;
+        }
     }
 }

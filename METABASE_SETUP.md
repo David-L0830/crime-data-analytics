@@ -38,9 +38,9 @@ the lists below (from your spec) are a starting point, not a requirement:
 
 | Our key             | Suggested title    | Suggested contents |
 |---------------------|---------------------|---------------------|
-| `crime-dashboard`   | Crime Dashboard      | Total Incidents, Resolved/Pending, Crime by Type, Crime by Sitio, Monthly Trend, Incident Status |
-| `crime-analytics`   | Crime Analytics      | Crime Distribution, Crime by Gender, Crime by Age Group, Crime by Sitio, Crime Status, Type Comparison |
-| `crime-trends`      | Crime Trends         | Monthly/Yearly Trends, Trends by Category, Trends by Location, Daily/Hourly patterns |
+| `crime`             | Crime Dashboard      | Total Incidents, Resolved/Pending, Crime by Type, Crime by Sitio, Monthly Trend, Incident Status |
+| `analytics`         | Crime Analytics      | Crime Distribution, Crime by Gender, Crime by Age Group, Crime by Sitio, Crime Status, Type Comparison |
+| `trends`            | Crime Trends         | Monthly/Yearly Trends, Trends by Category, Trends by Location, Daily/Hourly patterns |
 
 Build these questions against your **actual** Supabase schema (whatever
 table/columns hold `crimeType`, `sitio`, `status`, `category`, `victimGender`,
@@ -116,7 +116,7 @@ written anywhere by this change — the values above are blank in both files.
    # GET|HEAD  api/embed/metabase/{dashboardKey}  Api\MetabaseEmbedController@show
    ```
    Then, once `.env` is filled in, hit the endpoint directly (with a valid
-   Supabase session cookie/token) and confirm it returns
+   Supabase Bearer token) and confirm it returns
    `{ "url": "https://.../embed/dashboard/...#..." }` — a `503` means an
    env var is still missing (the site URL, the secret, or that dashboard's ID),
    and a `404` with `{"message":"Unknown dashboard."}` means the key in the path

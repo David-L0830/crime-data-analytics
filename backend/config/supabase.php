@@ -38,4 +38,22 @@ return [
     // How long to cache the fetched JWKS key set before re-fetching.
     'jwks_cache_ttl' => 3600,
 
+    // How long to cache "does this account have a VERIFIED MFA factor?"
+    // (see SupabaseAdminService::hasVerifiedFactor, read on every protected
+    // request by the EnsureSupabaseAal2 middleware).
+    //
+    // The number is a staleness budget, not a performance knob. Too long and
+    // an account whose factor was just removed stays locked out of an aal1
+    // session for that whole window; too short and every request pays a round
+    // trip to Supabase's Admin API. Sixty seconds collapses the burst of
+    // parallel requests a single page load fires into one lookup while keeping
+    // the worst-case lockout under a minute. Explicit invalidation covers the
+    // one case this application can actually observe -- an administrator
+    // clearing someone's factors (see UserController::disableTwoFactor).
+    //
+    // Note an already-aal2 session never reaches this lookup at all: the
+    // middleware short-circuits before it. The cost is paid only by sessions
+    // that have NOT completed a second factor.
+    'mfa_status_cache_ttl' => 60,
+
 ];

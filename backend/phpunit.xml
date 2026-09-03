@@ -33,5 +33,11 @@
              endpoint (see SupabaseMfaTest). Not real credentials. -->
         <env name="SUPABASE_URL" value="https://test-project.supabase.co"/>
         <env name="SUPABASE_JWT_SECRET" value="test-only-shared-secret-not-a-real-credential"/>
+        <!-- Not a real credential. MFA enforcement (EnsureSupabaseAal2)
+             refuses to evaluate without a service-role key, so its tests
+             need one present; every test that reaches the Admin API fakes
+             the HTTP call itself (see MfaEnforcementTest), so this value is
+             never sent anywhere. -->
+        <env name="SUPABASE_SERVICE_ROLE_KEY" value="test-only-service-role-key-not-a-real-credential"/>
     </php>
 </phpunit>

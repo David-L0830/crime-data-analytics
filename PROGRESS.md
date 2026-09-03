@@ -17,6 +17,13 @@
 > **are still open**: no session since has had a browser available, so the login
 > page, collapsed sidebar, profile menu, KPI tooltips, avatar upload and section
 > layout remain verified by code review and a successful build only.
+>
+> **Also stale:** row 1 of the task table below reads _"no route enforces
+> AAL2, `EnsureSupabaseAal2` is unwired (kept intentionally for possible
+> future use)"_. That was accurate when written but no longer is. The current
+> implementation enforces adaptive AAL2/MFA on every protected route except
+> the two documented exemptions (`GET /api/user`, `POST /api/logout`) — see
+> `AUTH_MIGRATION_STATUS.md` for the current, authoritative description.
 
 ## Task-by-task status
 

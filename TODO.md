@@ -24,6 +24,12 @@
 > For the authoritative description of what CI actually does, read
 > `.github/workflows/ci.yml` and `.github/workflows/security.yml`, or the
 > corrected summary in `docs/CI_CD_AND_SECURITY.md`.
+>
+> **Also stale as of 2026-08-31:** the "NOT done" item below reading
+> _"Feature #4 (TOTP 2FA) ... still pending"_. TOTP MFA has since been built
+> and is enforced (adaptive `aal2` step-up, self-service enrollment, and an
+> administrator-required-MFA flag independent of enrollment) — see
+> `AUTH_MIGRATION_STATUS.md` for the current, authoritative description.
 
 ## Done this session (additive, non-destructive, does not touch working auth)
 - [x] Turborepo: `turbo.json` + root `package.json` workspace (`backend`) +

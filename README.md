@@ -60,12 +60,14 @@ Both layers are driven by the **same React FilterBar**. The React filter state i
 
 - Incident recording, mapping, and audit logging
 - Role-based access control (Administrator / Encoder / BADAC read-only)
+- Adaptive multi-factor authentication (Supabase TOTP) — self-service enrollment for any account, plus administrator-imposed MFA requirements independent of enrollment
+- Archive and restore for criminal and victim records, plus archive for incidents
 - Crime Reporting Dashboard with 10 KPI cards and 4 tables computed in React
 - Embedded Metabase dashboards for Crime, Statistical Analysis, and Trend Detection
 - One shared filter bar per module driving both React and Metabase content
 - Server-signed JWT embedding — the Metabase secret never reaches the browser
 - Light and dark application themes
-- Print/PDF export with a self-describing "filters applied" summary
+- Print/PDF export with a self-describing "filters applied" summary, plus Excel workbook export for records and audit logs
 
 ---
 
@@ -166,6 +168,34 @@ Supabase Auth is the **only** authentication system. Laravel has no login route,
 
 The legacy shared-secret verification path (`SUPABASE_JWT_SECRET`) is intentionally left **empty**. The legacy secret was revoked during the migration to JWKS; leaving the variable blank disables the fallback entirely, which is the desired state.
 
+### Multi-factor authentication (MFA)
+
+MFA is **adaptive**, not mandatory for every account. An account is required
+to complete a Supabase TOTP second factor only when it has enrolled a
+**verified** factor, or when an administrator has flagged it with **Require
+2FA**, whichever applies first — an account with neither continues to sign in
+normally.
+
+- **Self-service enrollment.** Any signed-in user can enroll, confirm, and
+  remove their own TOTP factor from the **User Management** page (backed by
+  `supabase.auth.mfa.*` client-side calls).
+- **Login step-up challenge.** If the account still owes a second factor,
+  `Login.jsx` shows a TOTP challenge screen after the password/Google step
+  instead of completing sign-in.
+- **Administrator control.** From the same **User Management** row menu, an
+  administrator can require a second factor of any account that has not
+  enrolled one (`POST /api/users/{user}/two-factor/require`) — this sets an
+  obligation only, never enrolls a factor or reveals a secret — or, as a
+  break-glass action for a lost device, remove a target account's enrolled
+  factor(s) entirely (`POST /api/users/{user}/two-factor/disable`).
+- **Server-side enforcement.** Every protected API route except `GET
+  /api/user` and `POST /api/logout` carries `App\Http\Middleware\EnsureSupabaseAal2`,
+  which checks the verified `aal` claim on the request's own Supabase JWT —
+  never anything client-supplied — and fails closed (denies the request)
+  if it cannot determine whether a factor is owed.
+
+See `AUTH_MIGRATION_STATUS.md` for the full history and rationale.
+
 ---
 
 ## Database
@@ -176,13 +206,17 @@ The legacy shared-secret verification path (`SUPABASE_JWT_SECRET`) is intentiona
 
 | Table | Role |
 |---|---|
-| `incidents` | The core record. One row per reported crime incident. Holds `incident_code`, `case_number`, `crime_type`, `category`, `incident_date`, `incident_time`, location (`street`, `sitio`, `latitude`, `longitude`), victim and suspect fields, officer/unit fields, `status`, `priority`, `description`, `evidence`, and `synced_at`. Every KPI, table, and Metabase chart reads from here. |
+| `incidents` | The core record. One row per reported crime incident. Holds `incident_code`, `case_number`, `crime_type`, `category`, `incident_date`, `incident_time`, location (`street`, `sitio`, `latitude`, `longitude`), victim and suspect fields, complainant fields (`complainant_is_victim`, `complainant_name`, `complainant_relationship`, `complainant_contact`, `complainant_address` — for when the person filing the report is not the victim, e.g. hospitalised or a minor), officer/unit fields, `status`, `priority`, `description`, `evidence` (legacy free-text, retained), and `synced_at`. Every KPI, table, and Metabase chart reads from here. |
+| `incident_evidence` | Structured, repeatable evidence per incident (`evidence_code`, `description`), replacing the single free-text `incidents.evidence` string for new records. `evidence_code` is unique per incident, not globally. |
+| `crime_types` | The configurable crime-type vocabulary: `name`, `color` (hex, auto-assigned from a curated palette if omitted), `is_active`. Drives the incident form, every crime-type filter, and the Crime Mapping legend/marker colours. |
 | `sync_logs` | An audit trail of data-import runs. Columns: `status`, `records_received`, `source`, `created_at`. Feeds the "Today Imported" / "Month Imported" KPI cards. |
 | `settings` | A single configuration row for the barangay: `barangay`, `population`, `threshold`, `hotspot_threshold`, `categories`. `population` is the denominator for the Crime Rate / 1K KPI. |
 
-Supporting tables include `users`, `criminals`, `victims`, `incident_victim`, `audit_logs`, `app_notifications`, plus Laravel's own `sessions`, `cache`, and `jobs`.
+Supporting tables include `users`, `criminals`, `victims`, `incident_victim`, `audit_logs`, `app_notifications`, `notification_reads`, plus Laravel's own `sessions`, `cache`, and `jobs`.
 
-**Archiving, not deleting.** Records are archived by setting `status = 'Archived'` rather than being removed. Every statistic excludes archived rows.
+**Archiving, and restoring.** Incidents, criminals, and victims are archived by setting `status = 'Archived'` rather than being removed, and every statistic excludes archived rows. Criminals and victims can additionally be **restored**: archiving writes the row's prior value to a `previous_status` column, and `PUT /criminals/{id}/restore` / `PUT /victims/{id}/restore` (admin-only) read that column back onto `status`, so the restored value is exact rather than inferred from the audit trail. Incidents have no restore endpoint.
+
+**Row-level security.** All tables in the `public` schema have RLS enabled (enforced by migration for `crime_types`, `incident_evidence`, and `notification_reads` — the three most recently added tables, which briefly shipped without it — and configured directly in Supabase for the rest), with no permissive policies. Laravel connects as the table-owning `postgres` role, which PostgreSQL exempts from RLS by default, so the API's own access is unaffected; the purpose is to close the tables to Supabase's PostgREST surface, which the browser-visible publishable key would otherwise expose for direct read/write.
 
 ### Manual backup (`pg_dump`)
 
@@ -587,7 +621,7 @@ Useful commands:
 php artisan route:list --path=up   # confirm the health route
 php artisan config:clear           # after editing .env
 php artisan view:clear             # clear compiled Blade caches
-php artisan test                   # 74 tests, in-memory SQLite
+php artisan test                   # 303 tests, in-memory SQLite
 ```
 
 > If `.env` changes seem to have no effect, a stale configuration cache is the usual cause. Run `php artisan config:clear`.
@@ -637,6 +671,8 @@ Run through this before a demo. Starred items are worth re-checking on the day.
 - [ ] ★ Login succeeds with a real account
 - [ ] Supabase returns 200 on the token request
 - [ ] `GET /api/user` returns the user after authentication
+- [ ] An account with a verified MFA factor (or one an administrator has flagged **Require 2FA**) is challenged for TOTP before sign-in completes
+- [ ] An account with neither signs in normally, with no MFA prompt
 - [ ] No CORS errors in the browser console
 - [ ] CORS preflight from the production Vercel origin returns the **matching** `Access-Control-Allow-Origin`
 
@@ -820,8 +856,8 @@ The backend verifies access tokens against the project's **JWKS** endpoint using
 ├── backend/                    Laravel 12 API
 │   ├── app/
 │   │   ├── Http/Controllers/Api/   including MetabaseEmbedController
-│   │   ├── Http/Middleware/        EnsureRole, EnsureSupabaseAal2, audit log
-│   │   └── Services/               MetabaseEmbedService, SupabaseTokenValidator
+│   │   ├── Http/Middleware/        EnsureRole, EnsureSupabaseAal2 (MFA step-up), audit log
+│   │   └── Services/               MetabaseEmbedService, SupabaseTokenValidator, SupabaseAdminService
 │   ├── config/                 cors.php, metabase.php, supabase.php, …
 │   ├── docker/                 nginx template, php-fpm pool, entrypoint.sh
 │   ├── routes/api.php          all API routes

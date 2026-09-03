@@ -215,10 +215,16 @@ export function DataProvider({ children }) {
       // is not something an error banner alone can recover from: the person
       // needs to be sent back through a real login, not left staring at a
       // dashboard that will 401 on every request. See MainLayout.jsx /
-      // api.js for how each case is now distinguished. (mfa_required is
-      // checked too for backward compatibility with any cached/older API
-      // response shape, but the backend no longer issues it - two-factor
-      // authentication has been removed from this app; see AuthContext.jsx.)
+      // api.js for how each case is now distinguished.
+      //
+      // mfa_required is a real, currently-issued response again: the backend
+      // returns it when an MFA-enrolled account's session is still only aal1
+      // (see EnsureSupabaseAal2). Reaching it from here should be rare, since
+      // AuthContext will not set currentUser for such a session in the first
+      // place, so arriving here means the session's assurance level dropped
+      // mid-visit. Signing out is the right response either way: the login
+      // screen is where the TOTP challenge lives, so this routes the person
+      // to it rather than leaving them on a page that can load nothing.
       const authFailure = results.find(
         (r) =>
           r.status === 'rejected' &&

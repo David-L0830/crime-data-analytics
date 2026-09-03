@@ -29,10 +29,9 @@ const FEATURES = [
   {
     icon: Icons.ShieldCheck,
     title: 'Secure Access',
-    // "two-factor login" was inaccurate — sign-in performs no second-factor
-    // challenge. Authenticator enrolment is real and available; enforcement
-    // at login is not implemented, so this no longer claims it.
-    desc: 'Protect sensitive records with verified sign-in, server-enforced role-based access control, and a full audit trail.',
+    // Claims only what is enforced. Two-factor is optional per account, so
+    // this says "optional" rather than implying every sign-in is challenged.
+    desc: 'Protect sensitive records with verified sign-in, optional two-factor authentication, server-enforced role-based access control, and a full audit trail.',
   },
 ];
 

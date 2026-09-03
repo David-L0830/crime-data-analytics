@@ -5,9 +5,12 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Incident;
 use App\Models\User;
+use App\Services\SupabaseAdminService;
 use Firebase\JWT\JWT;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -865,9 +868,22 @@ class UserManagementTest extends TestCase
             return Http::response(['factors' => $factors], 200);
         });
 
-        $read = fn () => $this->getJson("/api/users/{$target->id}")
-            ->assertOk()
-            ->json('data.twoFactorEnabled');
+        // The enrolment answer is cached per account (see
+        // SupabaseAdminService::hasVerifiedFactor — the middleware that
+        // enforces MFA reads the same cached value on every protected
+        // request). This test changes a single account's factors four times
+        // within one second, which nothing in the application does, so it has
+        // to drop that cache between scenarios or it would assert the first
+        // answer four times over. Forgetting it here is not a workaround for
+        // the caching: it is the same invalidation the one real code path that
+        // mutates factors performs (UserController::disableTwoFactor).
+        $read = function () use ($target) {
+            app(SupabaseAdminService::class)->forgetFactorStatus($target->supabase_user_id);
+
+            return $this->getJson("/api/users/{$target->id}")
+                ->assertOk()
+                ->json('data.twoFactorEnabled');
+        };
 
         // Enrolment started and abandoned — must NOT read as protected.
         $factors = [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'unverified']];
@@ -887,5 +903,190 @@ class UserManagementTest extends TestCase
         // No factors at all.
         $factors = [];
         $this->assertFalse($read(), 'No factors must not report as two-factor enabled.');
+    }
+    // --- Administrator control over another account's MFA -------------------
+
+    private function targetWithSupabaseId(): User
+    {
+        return User::factory()->create([
+            'role' => User::ROLE_ENCODER,
+            'supabase_user_id' => '11111111-2222-3333-4444-555555555555',
+        ]);
+    }
+
+    /**
+     * An administrator can require a second factor of another account.
+     *
+     * The assertion that matters most is what is SENT: a single boolean on the
+     * Supabase identity's app_metadata, merged onto what was already there.
+     * Requiring a factor and possessing one are different acts, and only the
+     * second involves a secret -- if this request ever started carrying
+     * factor, secret or QR material, the feature would have turned into
+     * "administrator enrols on your behalf", which it must never be.
+     */
+    public function test_admin_can_require_two_factor_for_another_account(): void
+    {
+        $this->actingAdmin();
+        config(['supabase.service_role_key' => 'test-only-service-role-key']);
+        $target = $this->targetWithSupabaseId();
+
+        Http::fake([
+            '*/auth/v1/admin/users/*' => Http::response([
+                'factors' => [],
+                'app_metadata' => ['provider' => 'email', 'providers' => ['email']],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/users/{$target->id}/two-factor/require", ['required' => true])
+            ->assertOk();
+
+        Http::assertSent(function ($request) {
+            if ($request->method() !== 'PUT') {
+                return false;
+            }
+
+            $body = $request->data();
+
+            return ($body['app_metadata']['mfa_required'] ?? null) === true
+                // Read-modify-write: the keys Supabase maintains must survive.
+                && ($body['app_metadata']['provider'] ?? null) === 'email'
+                // Nothing resembling a credential is ever sent.
+                && ! isset($body['factors'], $body['password'], $body['totp']);
+        });
+
+        $this->assertDatabaseHas('audit_logs', [
+            'module' => 'users',
+            'description' => "Required two-factor authentication for {$target->username}",
+        ]);
+    }
+
+    public function test_admin_can_lift_a_two_factor_requirement(): void
+    {
+        $this->actingAdmin();
+        config(['supabase.service_role_key' => 'test-only-service-role-key']);
+        $target = $this->targetWithSupabaseId();
+
+        Http::fake([
+            '*/auth/v1/admin/users/*' => Http::response([
+                'factors' => [],
+                'app_metadata' => ['mfa_required' => true],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/users/{$target->id}/two-factor/require", ['required' => false])
+            ->assertOk();
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && ($request->data()['app_metadata']['mfa_required'] ?? null) === false);
+    }
+
+    /**
+     * RBAC is unchanged: only an administrator may touch someone else's MFA.
+     *
+     * Both non-admin roles are checked, and against BOTH endpoints, because
+     * this is the boundary that decides whether an Encoder could force a
+     * second factor onto an administrator -- or quietly lift one off
+     * themselves. It is enforced by `role:badac_admin` on the route, so it
+     * holds before the controller runs at all.
+     */
+    public function test_non_admins_cannot_manage_another_accounts_two_factor(): void
+    {
+        $target = $this->targetWithSupabaseId();
+
+        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+            $actor = User::factory()->create([
+                'role' => $role,
+                'supabase_user_id' => 'sb-actor-'.$role,
+            ]);
+
+            $this->actingAsSupabase($actor);
+
+            $this->postJson("/api/users/{$target->id}/two-factor/require", ['required' => true])
+                ->assertForbidden();
+
+            $this->postJson("/api/users/{$target->id}/two-factor/disable")
+                ->assertForbidden();
+
+            Http::assertNothingSent();
+            Auth::forgetGuards();
+        }
+    }
+
+    // Clearing an enrolled account's factor must leave it genuinely without an
+    // obligation -- factor removed AND requirement lifted. Leaving the flag set
+    // would march the person straight back into enrolment on their next sign
+    // in, which is the opposite of what this break-glass action is for.
+    public function test_clearing_two_factor_also_lifts_the_requirement(): void
+    {
+        $this->actingAdmin();
+        config(['supabase.service_role_key' => 'test-only-service-role-key']);
+        $target = $this->targetWithSupabaseId();
+
+        Http::fake([
+            '*/auth/v1/admin/users/*/factors/*' => Http::response([], 200),
+            '*/auth/v1/admin/users/*' => Http::response([
+                'factors' => [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'verified']],
+                'app_metadata' => ['mfa_required' => true],
+            ], 200),
+        ]);
+
+        $this->postJson("/api/users/{$target->id}/two-factor/disable")->assertOk();
+
+        Http::assertSent(fn ($request) => $request->method() === 'DELETE'
+            && str_contains($request->url(), '/factors/factor-1'));
+
+        Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && ($request->data()['app_metadata']['mfa_required'] ?? null) === false);
+    }
+
+    /**
+     * Clearing MFA must drop the cached obligation immediately.
+     *
+     * The cache remembers obligations for a minute, so without an explicit
+     * invalidation the account would keep being told a second factor is
+     * required for up to that long after the factor stopped existing -- which
+     * is exactly the lockout this action exists to end. Asserted by reading
+     * the cache key rather than by timing anything.
+     */
+    public function test_clearing_two_factor_invalidates_the_cached_obligation(): void
+    {
+        $this->actingAdmin();
+        config(['supabase.service_role_key' => 'test-only-service-role-key']);
+        $target = $this->targetWithSupabaseId();
+
+        $key = 'supabase:mfa-verified-factor:'.sha1($target->supabase_user_id);
+
+        // Supabase is modelled statefully rather than as a fixed response: the
+        // factor really stops existing once it is deleted. A fake that kept
+        // returning the factor afterwards would be re-cached the moment the
+        // endpoint serialized its UserResource, and this test would fail while
+        // describing something that cannot happen in production.
+        $cleared = false;
+        Http::fake([
+            '*/auth/v1/admin/users/*/factors/*' => function () use (&$cleared) {
+                $cleared = true;
+
+                return Http::response([], 200);
+            },
+            '*/auth/v1/admin/users/*' => function () use (&$cleared) {
+                return Http::response([
+                    'factors' => $cleared
+                        ? []
+                        : [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'verified']],
+                    'app_metadata' => ['mfa_required' => ! $cleared],
+                ], 200);
+            },
+        ]);
+
+        // Warm it the way an ordinary request would.
+        app(SupabaseAdminService::class)->requiresAal2($target->supabase_user_id);
+        $this->assertNotNull(Cache::get($key), 'Precondition: the obligation should be cached.');
+
+        $this->postJson("/api/users/{$target->id}/two-factor/disable")->assertOk();
+
+        $this->assertNull(
+            Cache::get($key),
+            'Clearing MFA must leave no cached obligation behind.'
+        );
     }
 }

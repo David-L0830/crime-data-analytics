@@ -178,9 +178,10 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           Require 2FA
         </label>
         <p className="form-hint">
-          Not available. Two-factor enrolment is done by the account holder in
-          Supabase, and this application does not enforce a second factor at
-          sign-in, so it cannot be required from here.
+          Not available. Two-factor authentication IS enforced at sign-in once
+          enrolled, but enrolling means scanning a QR code with a device only
+          the account holder has, so it can only be done by them from their own
+          security panel — never provisioned from here.
         </p>
       </div>
 

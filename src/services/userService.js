@@ -39,6 +39,18 @@ export const userService = {
       token ? { token } : undefined,
     ),
 
+  // Administrator control over whether an account MUST use a second factor,
+  // independent of whether it has enrolled one yet (see
+  // UserController::requireTwoFactor). Sets a boolean and nothing else — this
+  // is not, and must not become, a way to enrol somebody else: the account
+  // holder still scans their own QR code, and no secret is ever returned here.
+  setTwoFactorRequired: (id, required, token) =>
+    api.post(
+      `/users/${id}/two-factor/require`,
+      { required },
+      token ? { token } : undefined,
+    ),
+
   // Account Administration — administrator-provisioned account creation.
   //
   // The payload carries no password and never could: creating the Supabase
