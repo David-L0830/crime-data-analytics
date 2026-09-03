@@ -13,6 +13,7 @@ import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import Button from '../components/ui/Button';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
 import {
   filterRecords,
@@ -378,42 +379,63 @@ export default function Dashboard() {
     `Status: ${filters['dash-status'] || 'All'}`,
   ].join(' · ');
 
-  // Real .xlsx via the shared exportWorkbook helper. The columns below are an
-  // explicit, ordered projection of the same filtered records the page is
-  // showing: no value is altered, nothing is invented, and the internal
-  // id/synced_at plumbing is simply not a reporting field.
+  // ONE projection, shared by the .xlsx and the .csv below, so the two files
+  // can never drift apart: same columns, same order, same labels, same rows.
+  //
+  // The columns are an explicit, ordered projection of the same filtered
+  // records the page is showing: no value is altered, nothing is invented, and
+  // the internal id/synced_at plumbing is simply not a reporting field.
+  const exportSpec = () => ({
+    sheetName: 'Crime Records',
+    title: 'Crime Reporting Dashboard Report',
+    subtitle: 'Crime Data Analytics & Reporting System',
+    meta: [`Filters: ${filterSummary}`],
+    columns: [
+      { header: 'Case Number', key: 'caseNumber', width: 16 },
+      { header: 'Date', key: 'date', type: 'date', width: 14 },
+      { header: 'Time', key: 'time', width: 10, align: 'center' },
+      { header: 'Crime Type', key: 'crimeType', width: 20 },
+      { header: 'Category', key: 'category', width: 16 },
+      { header: 'Sitio', key: 'sitio', width: 14 },
+      { header: 'Street / Location', key: 'street', width: 28, wrap: true },
+      { header: 'Status', key: 'status', width: 18, align: 'center' },
+      { header: 'Priority', key: 'priority', width: 12, align: 'center' },
+      { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
+      { header: 'Investigating Officer', key: 'investigatingOfficer', width: 22 },
+      { header: 'Victim', key: 'victimName', width: 22 },
+      { header: 'Suspect', key: 'suspectName', width: 22 },
+      { header: 'Description', key: 'description', width: 40, wrap: true },
+    ],
+    rows: filtered,
+    onEmpty: () => showToast('No data to export', 'error'),
+    onError: () => showToast('Could not export report.', 'error'),
+  });
+
   const handleExportExcel = async () => {
     const ok = await exportWorkbook({
       filename: `brgy178_dashboard_${today()}.xlsx`,
-      sheetName: 'Crime Records',
-      title: 'Crime Reporting Dashboard Report',
-      subtitle: 'Crime Data Analytics & Reporting System',
-      meta: [`Filters: ${filterSummary}`],
-      columns: [
-        { header: 'Case Number', key: 'caseNumber', width: 16 },
-        { header: 'Date', key: 'date', type: 'date', width: 14 },
-        { header: 'Time', key: 'time', width: 10, align: 'center' },
-        { header: 'Crime Type', key: 'crimeType', width: 20 },
-        { header: 'Category', key: 'category', width: 16 },
-        { header: 'Sitio', key: 'sitio', width: 14 },
-        { header: 'Street / Location', key: 'street', width: 28, wrap: true },
-        { header: 'Status', key: 'status', width: 18, align: 'center' },
-        { header: 'Priority', key: 'priority', width: 12, align: 'center' },
-        { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
-        { header: 'Investigating Officer', key: 'investigatingOfficer', width: 22 },
-        { header: 'Victim', key: 'victimName', width: 22 },
-        { header: 'Suspect', key: 'suspectName', width: 22 },
-        { header: 'Description', key: 'description', width: 40, wrap: true },
-      ],
-      rows: filtered,
-      onEmpty: () => showToast('No data to export', 'error'),
-      onError: () => showToast('Could not export report.', 'error'),
+      ...exportSpec(),
     });
     if (ok) {
       showToast('Dashboard data exported to Excel', 'success');
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('dashboard');
+    }
+  };
+
+  // Same projection, same filtered rows, comma-separated. Synchronous because
+  // exportCsv needs no dynamic import — see the note there.
+  const handleExportCsv = () => {
+    const ok = exportCsv({
+      filename: `brgy178_dashboard_${today()}.csv`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Dashboard data exported to CSV', 'success');
+      // Same report key as the workbook above: the audit trail records WHICH
+      // report left the system, which is the question it exists to answer.
       auditLogService.logExport('dashboard');
     }
   };
@@ -779,6 +801,9 @@ export default function Dashboard() {
       <div className="export-bar">
         <Button variant="secondary" onClick={handleExportExcel}>
           <Icons.Download size={15} strokeWidth={2} /> Export Excel
+        </Button>
+        <Button variant="secondary" onClick={handleExportCsv}>
+          <Icons.Download size={15} strokeWidth={2} /> Export CSV
         </Button>
         <Button variant="secondary" onClick={() => window.print()}>
           <Icons.Printer size={15} strokeWidth={2} /> Print Report

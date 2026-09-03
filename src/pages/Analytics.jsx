@@ -27,6 +27,7 @@ import {
   continuousMonths,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
 // CRIME_TYPES is NOT imported here: the Crime Type filter below reads the
 // configured, enabled vocabulary from useData() instead, so a crime type an
@@ -282,47 +283,68 @@ export default function Analytics() {
     { key: 'total', label: 'Total' },
   ];
 
-  // Real .xlsx via the shared exportWorkbook helper, replacing an "Export
-  // Excel" button that actually wrote a .csv. The columns below are an
-  // explicit, ordered projection of the same `filtered` records the
-  // on-screen analysis is computed from. No value is altered and nothing is
-  // invented.
+  // ONE projection, shared by the .xlsx and the .csv below, so the two files
+  // can never drift apart: same columns, same order, same labels, same rows.
+  //
+  // The columns are an explicit, ordered projection of the same `filtered`
+  // records the on-screen analysis is computed from. No value is altered and
+  // nothing is invented. (The Excel button here once wrote a .csv; the two
+  // formats are now genuinely separate buttons producing their own file.)
+  const exportSpec = () => ({
+    sheetName: 'Statistical Analysis',
+    title: 'Statistical Analysis Report',
+    subtitle: 'Crime Data Analytics & Reporting System',
+    meta: [`Filters: ${filterSummary}`],
+    columns: [
+      { header: 'Case Number', key: 'caseNumber', width: 16 },
+      { header: 'Date', key: 'date', type: 'date', width: 14 },
+      { header: 'Time', key: 'time', width: 10, align: 'center' },
+      { header: 'Crime Type', key: 'crimeType', width: 20 },
+      { header: 'Category', key: 'category', width: 18 },
+      { header: 'Sitio', key: 'sitio', width: 14 },
+      { header: 'Street / Location', key: 'street', width: 28, wrap: true },
+      { header: 'Status', key: 'status', width: 18, align: 'center' },
+      { header: 'Victim', key: 'victimName', width: 22 },
+      { header: 'Victim Age', key: 'victimAge', type: 'number', width: 11 },
+      {
+        header: 'Victim Gender',
+        key: 'victimGender',
+        width: 13,
+        align: 'center',
+      },
+      { header: 'Suspect', key: 'suspectName', width: 22 },
+      { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
+    ],
+    rows: filtered,
+    onEmpty: () => showToast('No data to export', 'error'),
+    onError: () => showToast('Could not export report.', 'error'),
+  });
+
   const handleExportExcel = async () => {
     const ok = await exportWorkbook({
       filename: `brgy178_analytics_${today()}.xlsx`,
-      sheetName: 'Statistical Analysis',
-      title: 'Statistical Analysis Report',
-      subtitle: 'Crime Data Analytics & Reporting System',
-      meta: [`Filters: ${filterSummary}`],
-      columns: [
-        { header: 'Case Number', key: 'caseNumber', width: 16 },
-        { header: 'Date', key: 'date', type: 'date', width: 14 },
-        { header: 'Time', key: 'time', width: 10, align: 'center' },
-        { header: 'Crime Type', key: 'crimeType', width: 20 },
-        { header: 'Category', key: 'category', width: 18 },
-        { header: 'Sitio', key: 'sitio', width: 14 },
-        { header: 'Street / Location', key: 'street', width: 28, wrap: true },
-        { header: 'Status', key: 'status', width: 18, align: 'center' },
-        { header: 'Victim', key: 'victimName', width: 22 },
-        { header: 'Victim Age', key: 'victimAge', type: 'number', width: 11 },
-        {
-          header: 'Victim Gender',
-          key: 'victimGender',
-          width: 13,
-          align: 'center',
-        },
-        { header: 'Suspect', key: 'suspectName', width: 22 },
-        { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
-      ],
-      rows: filtered,
-      onEmpty: () => showToast('No data to export', 'error'),
-      onError: () => showToast('Could not export report.', 'error'),
+      ...exportSpec(),
     });
     if (ok) {
       showToast('Statistical analysis exported to Excel', 'success');
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('analytics');
+    }
+  };
+
+  // Same projection, same filtered rows, comma-separated. Synchronous because
+  // exportCsv needs no dynamic import — see the note there.
+  const handleExportCsv = () => {
+    const ok = exportCsv({
+      filename: `brgy178_analytics_${today()}.csv`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Statistical analysis exported to CSV', 'success');
+      // Same report key as the workbook above: the audit trail records WHICH
+      // report left the system, which is the question it exists to answer.
       auditLogService.logExport('analytics');
     }
   };
@@ -624,6 +646,9 @@ export default function Analytics() {
         </Button>
         <Button variant="secondary" onClick={handleExportExcel}>
           <Icons.Download size={15} strokeWidth={2} /> Export Excel
+        </Button>
+        <Button variant="secondary" onClick={handleExportCsv}>
+          <Icons.Download size={15} strokeWidth={2} /> Export CSV
         </Button>
       </div>
     </section>

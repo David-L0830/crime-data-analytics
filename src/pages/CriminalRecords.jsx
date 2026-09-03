@@ -11,6 +11,7 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
 import { CRIMINAL_STATUSES } from '../utils/constants';
 import { Icons } from '../components/icons';
@@ -53,12 +54,14 @@ export default function CriminalRecords() {
     });
   }, [criminals, filters, debouncedSearch]);
 
-  // Real .xlsx through the same shared exportWorkbook helper the Dashboard,
-  // Statistical Analysis and Crime Data Collection reports use, so every
-  // export in the system is formatted by one implementation rather than each
-  // module growing its own.
+  // ONE projection, shared by the .xlsx and the .csv below, so the two files
+  // can never drift apart: same columns, same order, same labels, same rows.
+  // Both go through the shared helpers the Dashboard, Statistical Analysis and
+  // Crime Data Collection reports use, so every export in the system is
+  // formatted by one implementation per format rather than each module growing
+  // its own.
   //
-  // This replaces a raw CSV of the API objects. That export was driven by the
+  // An older CSV here dumped the API objects. That export was driven by the
   // keys of the first row, so it carried the internal database id, photoUrl
   // and relatedIncidentId, and — because relatedIncidents and caseHistory are
   // arrays of objects — two columns of JSON that no spreadsheet can read. The
@@ -66,55 +69,74 @@ export default function CriminalRecords() {
   // records the list is showing: related cases become a readable comma list,
   // and previousStatus stays out because it is restore plumbing rather than
   // reportable data. No record value is altered.
+  const exportSpec = () => ({
+    sheetName: 'Criminal Records',
+    title: 'Criminal Records Report',
+    subtitle: 'Crime Data Analytics & Reporting System',
+    meta: [
+      `Status: ${filters['crim-status'] || 'All'}`,
+      `Gender: ${filters['crim-gender'] || 'All'}`,
+      `Search: ${debouncedSearch || 'None'}`,
+    ],
+    columns: [
+      { header: 'Criminal ID', key: 'criminalId', width: 14 },
+      { header: 'Full Name', key: 'fullName', width: 26 },
+      { header: 'Alias', key: 'alias', width: 18 },
+      { header: 'Gender', key: 'gender', width: 10, align: 'center' },
+      { header: 'Date of Birth', key: 'dateOfBirth', type: 'date', width: 14 },
+      { header: 'Civil Status', key: 'civilStatus', width: 14 },
+      { header: 'Nationality', key: 'nationality', width: 14 },
+      { header: 'Contact Number', key: 'contactNumber', width: 16 },
+      { header: 'Sitio', key: 'sitio', width: 14 },
+      { header: 'Address', key: 'address', width: 32, wrap: true },
+      { header: 'Status', key: 'status', width: 14, align: 'center' },
+      {
+        header: 'Charges',
+        key: 'charges',
+        width: 28,
+        wrap: true,
+        value: (r) => (r.charges || []).join(', '),
+      },
+      {
+        header: 'Related Cases',
+        key: 'relatedCases',
+        width: 28,
+        wrap: true,
+        value: (r) =>
+          (r.relatedIncidents || []).map((i) => i.caseNumber).join(', '),
+      },
+      { header: 'Notes', key: 'notes', width: 40, wrap: true },
+    ],
+    rows: filtered,
+    onEmpty: () => showToast('No data to export', 'error'),
+    onError: () => showToast('Could not export report.', 'error'),
+  });
+
   const handleExportExcel = async () => {
     const ok = await exportWorkbook({
       filename: `criminal_records_${today()}.xlsx`,
-      sheetName: 'Criminal Records',
-      title: 'Criminal Records Report',
-      subtitle: 'Crime Data Analytics & Reporting System',
-      meta: [
-        `Status: ${filters['crim-status'] || 'All'}`,
-        `Gender: ${filters['crim-gender'] || 'All'}`,
-        `Search: ${debouncedSearch || 'None'}`,
-      ],
-      columns: [
-        { header: 'Criminal ID', key: 'criminalId', width: 14 },
-        { header: 'Full Name', key: 'fullName', width: 26 },
-        { header: 'Alias', key: 'alias', width: 18 },
-        { header: 'Gender', key: 'gender', width: 10, align: 'center' },
-        { header: 'Date of Birth', key: 'dateOfBirth', type: 'date', width: 14 },
-        { header: 'Civil Status', key: 'civilStatus', width: 14 },
-        { header: 'Nationality', key: 'nationality', width: 14 },
-        { header: 'Contact Number', key: 'contactNumber', width: 16 },
-        { header: 'Sitio', key: 'sitio', width: 14 },
-        { header: 'Address', key: 'address', width: 32, wrap: true },
-        { header: 'Status', key: 'status', width: 14, align: 'center' },
-        {
-          header: 'Charges',
-          key: 'charges',
-          width: 28,
-          wrap: true,
-          value: (r) => (r.charges || []).join(', '),
-        },
-        {
-          header: 'Related Cases',
-          key: 'relatedCases',
-          width: 28,
-          wrap: true,
-          value: (r) =>
-            (r.relatedIncidents || []).map((i) => i.caseNumber).join(', '),
-        },
-        { header: 'Notes', key: 'notes', width: 40, wrap: true },
-      ],
-      rows: filtered,
-      onEmpty: () => showToast('No data to export', 'error'),
-      onError: () => showToast('Could not export report.', 'error'),
+      ...exportSpec(),
     });
     if (ok) {
       showToast('Criminal records exported to Excel', 'success');
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('criminal-records');
+    }
+  };
+
+  // Same projection, same filtered rows, comma-separated. Synchronous because
+  // exportCsv needs no dynamic import — see the note there.
+  const handleExportCsv = () => {
+    const ok = exportCsv({
+      filename: `criminal_records_${today()}.csv`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Criminal records exported to CSV', 'success');
+      // Same report key as the workbook above: the audit trail records WHICH
+      // report left the system, which is the question it exists to answer.
       auditLogService.logExport('criminal-records');
     }
   };
@@ -187,6 +209,9 @@ export default function CriminalRecords() {
         <div className="toolbar-actions">
           <Button variant="secondary" onClick={handleExportExcel}>
             <Icons.Download size={15} strokeWidth={2} /> Export Excel
+          </Button>
+          <Button variant="secondary" onClick={handleExportCsv}>
+            <Icons.Download size={15} strokeWidth={2} /> Export CSV
           </Button>
         </div>
       </div>

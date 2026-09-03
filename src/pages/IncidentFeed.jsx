@@ -24,6 +24,7 @@ import {
   PENDING_STATUSES,
 } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
 import { TYPE_CATEGORY_MAP } from '../utils/constants';
 import { Icons } from '../components/icons';
@@ -238,61 +239,83 @@ export default function IncidentFeed() {
     `Search: ${debouncedSearch || 'None'}`,
   ].join(' \u00B7 ');
 
-  // Real .xlsx through the shared exportWorkbook helper, replacing a raw CSV
-  // dump that carried internal plumbing (id, reportedBy, synced_at,
-  // latitude/longitude) and wrote dates as text Excel would not sort. The
-  // columns below are an explicit, ordered projection of the SAME `filtered`
+  // ONE projection, shared by the .xlsx and the .csv below, so the two files
+  // can never drift apart: same columns, same order, same labels, same rows.
+  //
+  // The columns are an explicit, ordered projection of the SAME `filtered`
   // records the table above is showing - search and every active filter
-  // already applied. No underlying record value is altered.
+  // already applied. Internal plumbing (id, reportedBy, synced_at,
+  // latitude/longitude) is simply not a reporting field, and no underlying
+  // record value is altered.
+  const exportSpec = () => ({
+    sheetName: 'Crime Data Collection',
+    title: 'Crime Data Collection Report',
+    subtitle: 'Crime Data Analytics & Reporting System',
+    meta: [`Filters: ${filterSummary}`],
+    columns: [
+      { header: 'Case Number', key: 'caseNumber', width: 16 },
+      { header: 'Date', key: 'date', type: 'date', width: 14 },
+      {
+        header: 'Time',
+        key: 'time',
+        width: 10,
+        align: 'center',
+        value: (r) => formatTime(r.time),
+      },
+      { header: 'Crime Type', key: 'crimeType', width: 20 },
+      { header: 'Category', key: 'category', width: 18 },
+      { header: 'Sitio', key: 'sitio', width: 14 },
+      { header: 'Street / Location', key: 'street', width: 28, wrap: true },
+      { header: 'Status', key: 'status', width: 18, align: 'center' },
+      { header: 'Priority', key: 'priority', width: 12, align: 'center' },
+      { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
+      {
+        header: 'Investigating Officer',
+        key: 'investigatingOfficer',
+        width: 22,
+      },
+      { header: 'Victim', key: 'victimName', width: 22 },
+      { header: 'Victim Age', key: 'victimAge', type: 'number', width: 11 },
+      {
+        header: 'Victim Gender',
+        key: 'victimGender',
+        width: 13,
+        align: 'center',
+      },
+      { header: 'Suspect', key: 'suspectName', width: 22 },
+      { header: 'Description', key: 'description', width: 40, wrap: true },
+    ],
+    rows: filtered,
+    onEmpty: () => showToast('No data to export', 'error'),
+    onError: () => showToast('Could not export report.', 'error'),
+  });
+
   const handleExportExcel = async () => {
     const ok = await exportWorkbook({
       filename: `incidents_${today()}.xlsx`,
-      sheetName: 'Crime Data Collection',
-      title: 'Crime Data Collection Report',
-      subtitle: 'Crime Data Analytics & Reporting System',
-      meta: [`Filters: ${filterSummary}`],
-      columns: [
-        { header: 'Case Number', key: 'caseNumber', width: 16 },
-        { header: 'Date', key: 'date', type: 'date', width: 14 },
-        {
-          header: 'Time',
-          key: 'time',
-          width: 10,
-          align: 'center',
-          value: (r) => formatTime(r.time),
-        },
-        { header: 'Crime Type', key: 'crimeType', width: 20 },
-        { header: 'Category', key: 'category', width: 18 },
-        { header: 'Sitio', key: 'sitio', width: 14 },
-        { header: 'Street / Location', key: 'street', width: 28, wrap: true },
-        { header: 'Status', key: 'status', width: 18, align: 'center' },
-        { header: 'Priority', key: 'priority', width: 12, align: 'center' },
-        { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
-        {
-          header: 'Investigating Officer',
-          key: 'investigatingOfficer',
-          width: 22,
-        },
-        { header: 'Victim', key: 'victimName', width: 22 },
-        { header: 'Victim Age', key: 'victimAge', type: 'number', width: 11 },
-        {
-          header: 'Victim Gender',
-          key: 'victimGender',
-          width: 13,
-          align: 'center',
-        },
-        { header: 'Suspect', key: 'suspectName', width: 22 },
-        { header: 'Description', key: 'description', width: 40, wrap: true },
-      ],
-      rows: filtered,
-      onEmpty: () => showToast('No data to export', 'error'),
-      onError: () => showToast('Could not export report.', 'error'),
+      ...exportSpec(),
     });
     if (ok) {
       showToast('Incidents exported to Excel', 'success');
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('incidents');
+    }
+  };
+
+  // Same projection, same `filtered` rows, comma-separated. Synchronous
+  // because exportCsv needs no dynamic import — see the note there.
+  const handleExportCsv = () => {
+    const ok = exportCsv({
+      filename: `incidents_${today()}.csv`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Incidents exported to CSV', 'success');
+      // Same report key as the workbook above: the audit trail records WHICH
+      // report left the system, which is the question it exists to answer.
+      // AuditLogController::REPORTS is the server-side whitelist it must match.
       auditLogService.logExport('incidents');
     }
   };
@@ -345,6 +368,9 @@ export default function IncidentFeed() {
                 record. */}
             <Button variant="secondary" onClick={handleExportExcel}>
               <Icons.Download size={15} strokeWidth={2} /> Export Excel
+            </Button>
+            <Button variant="secondary" onClick={handleExportCsv}>
+              <Icons.Download size={15} strokeWidth={2} /> Export CSV
             </Button>
             <Button variant="secondary" onClick={() => window.print()}>
               <Icons.Printer size={15} strokeWidth={2} /> Print Report
