@@ -460,6 +460,19 @@ export function DataProvider({ children }) {
     [refreshAuditLogs],
   );
 
+  // Inverse of archiveRecord, same shape as restoreVictim/restoreCriminal
+  // below: the server decides the restored status from the row's own
+  // previous_status, and the response replaces the record in state so the
+  // list re-renders with it. No local status guessing.
+  const restoreRecord = useCallback(
+    async (id) => {
+      const updated = await incidentService.restore(id);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
+
   // ===== Victims =====
   // Checkpoint 20 — new. No page currently calls this (VictimRecords.jsx /
   // VictimProfile.jsx have no delete/archive button today), but it's
@@ -698,6 +711,7 @@ export function DataProvider({ children }) {
     validateRecord,
     updateRecord,
     archiveRecord,
+    restoreRecord,
     addRecord,
     archiveVictim,
     restoreVictim,

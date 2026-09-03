@@ -31,6 +31,28 @@ class Incident extends Model
         'Archived',
     ];
 
+    /**
+     * Statuses a record may be restored TO.
+     *
+     * 'Archived' is excluded on purpose: it is the state being left, so
+     * restoring "to" it would leave the record archived and unrestorable.
+     * IncidentController::restore() validates previous_status against this
+     * set and falls back to DEFAULT_STATUS when it does not match. Mirrors
+     * Criminal::RESTORABLE_STATUSES / Victim::RESTORABLE_STATUSES.
+     */
+    public const RESTORABLE_STATUSES = [
+        'Open',
+        'Under Investigation',
+        'Solved',
+        'Closed',
+    ];
+
+    /**
+     * Status a record falls back to when previous_status is null or is no
+     * longer a recognised value — matches the incidents.status column default.
+     */
+    public const DEFAULT_STATUS = 'Open';
+
     protected $fillable = [
         'incident_code',
         'case_number',
@@ -57,6 +79,11 @@ class Incident extends Model
         'badge_number',
         'unit',
         'status',
+        // Server-controlled only. Deliberately absent from
+        // IncidentController::mapToColumns() and from Store/UpdateIncidentRequest,
+        // so a client cannot supply it and forge a restore target; the archive
+        // endpoint is the only writer. Mirrors Criminal::$fillable.
+        'previous_status',
         'priority',
         'description',
         'evidence',

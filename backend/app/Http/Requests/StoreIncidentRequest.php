@@ -17,7 +17,15 @@ class StoreIncidentRequest extends FormRequest
     {
         return [
             'caseNumber' => ['required', 'string', 'max:50', Rule::unique('incidents', 'case_number')],
-            'crimeType' => ['required', 'string', 'max:100'],
+            // Must name a real entry in the crime_types vocabulary (the
+            // Crime Type dropdown on the incident form is populated from
+            // GET /crime-types and never lets an operator free-type a
+            // value), so a direct API call can no longer record an incident
+            // against a crime type that doesn't exist in System Settings.
+            // Not restricted to is_active=true: a disabled type is still a
+            // real vocabulary entry, and UpdateIncidentRequest below reuses
+            // this same rule for edits that don't touch crimeType at all.
+            'crimeType' => ['required', 'string', 'max:100', Rule::exists('crime_types', 'name')],
             'category' => ['nullable', 'string', 'max:100'],
             'date' => ['required', 'date'],
             'time' => ['nullable', 'date_format:H:i'],

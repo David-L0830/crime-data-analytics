@@ -437,7 +437,22 @@ class IncidentController extends Controller
             return response()->json(['message' => 'Encoders may only archive incidents they personally encoded.'], 403);
         }
 
-        $incident->update(['status' => 'Archived']);
+        // Same guard as CriminalController::archive() / VictimController::archive():
+        // a second archive would capture 'Archived' as previous_status and
+        // permanently destroy the real one, which is exactly what restore()
+        // exists to prevent.
+        if ($incident->status === 'Archived') {
+            return response()->json(['message' => 'This incident is already archived.'], 422);
+        }
+
+        // Capture the meaningful pre-archive status (Open, Under Investigation,
+        // Solved, Closed) before overwriting it, so restore() can put it back
+        // exactly rather than guessing. Written in the same update() as the
+        // status change so the two can never disagree.
+        $incident->update([
+            'previous_status' => $incident->status,
+            'status' => 'Archived',
+        ]);
 
         AuditLog::create([
             'user_id' => $request->user()?->id,
@@ -445,6 +460,51 @@ class IncidentController extends Controller
             'module' => 'incidents',
             'target_type' => 'incident',
             'description' => "Archived incident {$incident->case_number}",
+            'ip_address' => $request->ip(),
+        ]);
+
+        return new IncidentResource($incident->fresh()->load('evidenceItems'));
+    }
+
+    // PUT /api/incidents/{incident}/restore — the exact inverse of archive(),
+    // mirroring CriminalController::restore() / VictimController::restore().
+    // Registered in the same role:badac_admin,encoder group as archive() in
+    // routes/api.php, and carries the identical per-record ownership rule:
+    // "whoever may archive may restore."
+    public function restore(Request $request, Incident $incident)
+    {
+        $user = $request->user();
+
+        if ($user?->isEncoder() && $incident->reported_by !== $user->id) {
+            return response()->json(['message' => 'Encoders may only restore incidents they personally encoded.'], 403);
+        }
+
+        if ($incident->status !== 'Archived') {
+            return response()->json(['message' => 'Only archived incidents can be restored.'], 422);
+        }
+
+        // previous_status can legitimately be null — an incident archived
+        // before this column existed, or one archived through the general
+        // PUT /incidents/{id} status back door, which never passes through
+        // archive(). Both fall back to DEFAULT_STATUS rather than writing
+        // null (which would violate the NOT NULL column) or an unrecognised
+        // status (which would then be unreachable through the Status filter).
+        $previous = $incident->previous_status;
+        $restored = in_array($previous, Incident::RESTORABLE_STATUSES, true)
+            ? $previous
+            : Incident::DEFAULT_STATUS;
+
+        $incident->update([
+            'status' => $restored,
+            'previous_status' => null,
+        ]);
+
+        AuditLog::create([
+            'user_id' => $request->user()?->id,
+            'action' => 'RESTORE',
+            'module' => 'incidents',
+            'target_type' => 'incident',
+            'description' => "Restored incident {$incident->case_number} to {$restored}",
             'ip_address' => $request->ip(),
         ]);
 
