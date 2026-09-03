@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\CrimeTypeResource;
 use App\Models\AuditLog;
 use App\Models\CrimeType;
+use App\Models\Incident;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -81,20 +83,35 @@ class CrimeTypeController extends Controller
 
         $before = ['name' => $crimeType->name, 'color' => $crimeType->color, 'is_active' => $crimeType->is_active];
 
-        $crimeType->update(array_filter([
-            'name' => isset($data['name']) ? trim($data['name']) : null,
-            'color' => isset($data['color']) ? strtoupper($data['color']) : null,
-            'is_active' => $data['isActive'] ?? null,
-        ], fn ($v) => $v !== null));
+        // The rename and its cascade into incidents.crime_type are one unit
+        // of work: incidents.crime_type stores this vocabulary's name as a
+        // plain string (no foreign key), so without the cascade a rename
+        // here would silently orphan every existing incident's crime_type
+        // value, splitting one crime type into two buckets in the map
+        // legend and every crime-type-grouped chart.
+        $incidentsRelabelled = DB::transaction(function () use ($before, $crimeType, $data) {
+            $crimeType->update(array_filter([
+                'name' => isset($data['name']) ? trim($data['name']) : null,
+                'color' => isset($data['color']) ? strtoupper($data['color']) : null,
+                'is_active' => $data['isActive'] ?? null,
+            ], fn ($v) => $v !== null));
 
-        $crimeType->refresh();
+            $crimeType->refresh();
+
+            if ($before['name'] !== $crimeType->name) {
+                return Incident::where('crime_type', $before['name'])
+                    ->update(['crime_type' => $crimeType->name]);
+            }
+
+            return 0;
+        });
 
         // Colour changes are audited explicitly — the map legend is how the
         // whole barangay reads the map, so a silent recolour would be an
         // unexplained change in every printed map afterwards.
         $changes = [];
         if ($before['name'] !== $crimeType->name) {
-            $changes[] = "name {$before['name']} -> {$crimeType->name}";
+            $changes[] = "name {$before['name']} -> {$crimeType->name} ({$incidentsRelabelled} incident(s) relabelled)";
         }
         if ($before['color'] !== $crimeType->color) {
             $changes[] = "map colour {$before['color']} -> {$crimeType->color}";

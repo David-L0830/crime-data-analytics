@@ -209,6 +209,15 @@ Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROL
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/archive', [IncidentController::class, 'archive']);
 
+// PUT /incidents/{incident}/restore — the inverse of archive() above,
+// deliberately registered with the identical role set (badac_admin + encoder)
+// so "whoever may archive may restore" holds by construction, matching the
+// PUT /criminals/{criminal}/restore / PUT /victims/{victim}/restore pattern
+// below. Per-record ownership (Encoder may only restore an incident they
+// personally encoded) is enforced inside IncidentController::restore().
+Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
+    ->put('/incidents/{incident}/restore', [IncidentController::class, 'restore']);
+
 Route::middleware(['auth:supabase', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/criminals', [CriminalController::class, 'store']);
     Route::put('/criminals/{criminal}', [CriminalController::class, 'update']);

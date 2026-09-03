@@ -108,6 +108,42 @@ class IncidentTest extends TestCase
             ->assertJsonPath('data.status', 'Solved');
     }
 
+    // ===== crimeType must name a real crime_types row =====
+    //
+    // incidents.crime_type stores this vocabulary's name as a plain string —
+    // no foreign key — so without this validation a caller could record an
+    // incident against a crime type System Settings has never heard of,
+    // orphaned from the map legend and every crime-type-grouped chart.
+    // create_crime_types_table seeds a dozen real types (Theft, Robbery,
+    // Assault among them — see CrimeTypeTest), so every existing test that
+    // posts one of those names is unaffected.
+
+    public function test_crime_type_must_exist_when_creating_an_incident(): void
+    {
+        $this->actingUser();
+
+        $this->postJson('/api/incidents', [
+            'caseNumber' => 'CN-2025-9998',
+            'crimeType' => 'Not A Real Crime Type',
+            'date' => '2025-06-01',
+            'sitio' => 'Sitio 1',
+        ])->assertUnprocessable()->assertJsonValidationErrors(['crimeType']);
+
+        $this->assertDatabaseMissing('incidents', ['case_number' => 'CN-2025-9998']);
+    }
+
+    public function test_crime_type_must_exist_when_updating_an_incident(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['crime_type' => 'Theft']);
+
+        $this->putJson("/api/incidents/{$incident->id}", ['crimeType' => 'Not A Real Crime Type'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['crimeType']);
+
+        $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'crime_type' => 'Theft']);
+    }
+
     public function test_can_archive_an_incident(): void
     {
         $this->actingUser();
@@ -190,6 +226,99 @@ class IncidentTest extends TestCase
         $this->putJson("/api/incidents/{$incident->id}/archive")->assertOk();
 
         $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'status' => 'Archived']);
+    }
+
+    public function test_archiving_an_already_archived_incident_is_rejected(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Archived', 'previous_status' => 'Solved']);
+
+        $this->putJson("/api/incidents/{$incident->id}/archive")->assertStatus(422);
+
+        // The guard exists specifically so a second archive can never
+        // overwrite the real previous_status with 'Archived'.
+        $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'previous_status' => 'Solved']);
+    }
+
+    // ===== PUT /incidents/{incident}/restore — the inverse of archive() =====
+
+    public function test_can_restore_an_archived_incident_to_its_previous_status(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Open']);
+        $this->putJson("/api/incidents/{$incident->id}/archive")->assertOk();
+
+        $this->putJson("/api/incidents/{$incident->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Open');
+
+        $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'status' => 'Open', 'previous_status' => null]);
+    }
+
+    public function test_restoring_an_incident_with_no_previous_status_falls_back_to_the_default(): void
+    {
+        $this->actingUser();
+        // Archived directly (bypassing archive()), so previous_status is null —
+        // the same shape a pre-migration archived row would have.
+        $incident = Incident::factory()->create(['status' => 'Archived', 'previous_status' => null]);
+
+        $this->putJson("/api/incidents/{$incident->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Open');
+    }
+
+    public function test_restoring_a_non_archived_incident_is_rejected(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Open']);
+
+        $this->putJson("/api/incidents/{$incident->id}/restore")->assertStatus(422);
+    }
+
+    public function test_restoring_an_incident_creates_a_restore_audit_event(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Open']);
+        $this->putJson("/api/incidents/{$incident->id}/archive")->assertOk();
+
+        $this->putJson("/api/incidents/{$incident->id}/restore")->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'RESTORE',
+            'target_type' => 'incident',
+        ]);
+    }
+
+    public function test_encoder_can_restore_their_own_incident(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = Incident::factory()->create(['reported_by' => $encoder->id, 'status' => 'Archived', 'previous_status' => 'Open']);
+
+        $this->actingAsSupabase($encoder)
+            ->putJson("/api/incidents/{$incident->id}/restore")
+            ->assertOk();
+
+        $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'status' => 'Open']);
+    }
+
+    public function test_encoder_cannot_restore_another_encoders_incident(): void
+    {
+        $owner = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $otherEncoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = Incident::factory()->create(['reported_by' => $owner->id, 'status' => 'Archived', 'previous_status' => 'Open']);
+
+        $this->actingAsSupabase($otherEncoder)
+            ->putJson("/api/incidents/{$incident->id}/restore")
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'status' => 'Archived']);
+    }
+
+    public function test_unauthenticated_user_cannot_restore_an_incident(): void
+    {
+        $incident = Incident::factory()->create(['status' => 'Archived', 'previous_status' => 'Open']);
+
+        $this->putJson("/api/incidents/{$incident->id}/restore")->assertUnauthorized();
     }
 
     // ===== GET /incidents/map — the privacy contract =====

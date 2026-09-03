@@ -19,7 +19,8 @@ class UpdateIncidentRequest extends FormRequest
 
         return [
             'caseNumber' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('incidents', 'case_number')->ignore($incidentId)],
-            'crimeType' => ['sometimes', 'required', 'string', 'max:100'],
+            // See StoreIncidentRequest for why this must exist in crime_types.
+            'crimeType' => ['sometimes', 'required', 'string', 'max:100', Rule::exists('crime_types', 'name')],
             'category' => ['nullable', 'string', 'max:100'],
             'date' => ['sometimes', 'required', 'date'],
             'time' => ['nullable', 'date_format:H:i'],

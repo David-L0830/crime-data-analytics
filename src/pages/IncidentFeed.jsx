@@ -8,6 +8,7 @@ import FilterBar from '../components/ui/FilterBar';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import {
   IncidentViewModal,
@@ -37,6 +38,7 @@ export default function IncidentFeed() {
     validateRecord,
     updateRecord,
     archiveRecord,
+    restoreRecord,
     addRecord,
   } = useData();
   const { can, currentUser } = useAuth();
@@ -69,6 +71,7 @@ export default function IncidentFeed() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [archivingId, setArchivingId] = useState(null);
+  const [restoringId, setRestoringId] = useState(null);
 
   // Arriving from a notification click (e.g. "Case Resolved" / "Overdue
   // Case") carries the referenced case number in router state — pre-fill the
@@ -171,6 +174,44 @@ export default function IncidentFeed() {
       showToast(err.message || 'Could not archive incident', 'error');
     } finally {
       setArchivingId(null);
+    }
+  };
+
+  // Inverse of handleArchive. PUT /incidents/{id}/restore carries the same
+  // role:badac_admin,encoder + per-record ownership rule as archive
+  // (IncidentController::restore()), so reusing canArchiveRecord's check
+  // here mirrors CriminalRecords.jsx/VictimRecords.jsx's "whoever may
+  // archive may restore" convention exactly.
+  //
+  // The confirmation names the exact status the record will return to. The
+  // server is still the authority — it reads previous_status from the row —
+  // but showing it here means the user is never confirming blind.
+  const handleRestore = async (record) => {
+    if (!canArchiveRecord(record)) {
+      showToast(
+        'You may only restore incidents you personally encoded.',
+        'error',
+      );
+      return;
+    }
+    if (restoringId) return;
+    const target = record.previousStatus || 'Open';
+    if (
+      !window.confirm(
+        `Restore this incident? Its status will be set back to ${target} and it will reappear in the active list.`,
+      )
+    ) {
+      return;
+    }
+    setRestoringId(record.id);
+    try {
+      await restoreRecord(record.id);
+      showToast(`Incident restored to ${target}`, 'success');
+      if (viewing?.id === record.id) setViewing(null);
+    } catch (err) {
+      showToast(err.message || 'Could not restore incident', 'error');
+    } finally {
+      setRestoringId(null);
     }
   };
 
@@ -367,7 +408,30 @@ export default function IncidentFeed() {
               { key: 'sitio', label: 'Sitio' },
               { key: 'street', label: 'Location' },
               { key: 'reportingOfficer', label: 'Reporting Officer' },
-              { key: 'status', label: 'Status' },
+              {
+                key: 'status',
+                label: 'Status',
+                // Archiving overwrites status with 'Archived', so the row
+                // alone no longer says whether this case was Open, Under
+                // Investigation, Solved or Closed. previousStatus carries
+                // that through — mirrors CriminalRecords.jsx/VictimRecords.jsx.
+                render: (v, row) => (
+                  <>
+                    <Badge status={v} />
+                    {v === 'Archived' && row.previousStatus ? (
+                      <span
+                        style={{
+                          color: 'var(--text-muted)',
+                          fontSize: '0.8rem',
+                          marginLeft: 6,
+                        }}
+                      >
+                        was {row.previousStatus}
+                      </span>
+                    ) : null}
+                  </>
+                ),
+              },
             ]}
             rows={filtered}
             actions={(row) => (
@@ -379,7 +443,7 @@ export default function IncidentFeed() {
                 >
                   View
                 </Button>
-                {canArchiveRecord(row) && (
+                {canArchiveRecord(row) && row.status !== 'Archived' && (
                   <Button
                     size="sm"
                     variant="danger"
@@ -387,6 +451,16 @@ export default function IncidentFeed() {
                     disabled={archivingId === row.id}
                   >
                     {archivingId === row.id ? 'Archiving…' : 'Archive'}
+                  </Button>
+                )}
+                {canArchiveRecord(row) && row.status === 'Archived' && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleRestore(row)}
+                    disabled={restoringId === row.id}
+                  >
+                    {restoringId === row.id ? 'Restoring…' : 'Restore'}
                   </Button>
                 )}
               </>
@@ -404,6 +478,8 @@ export default function IncidentFeed() {
         onEdit={viewing && canEditRecord(viewing) ? handleEdit : null}
         onArchive={viewing && canArchiveRecord(viewing) ? handleArchive : null}
         archiving={viewing && archivingId === viewing.id}
+        onRestore={viewing && canArchiveRecord(viewing) ? handleRestore : null}
+        restoring={viewing && restoringId === viewing.id}
       />
       <IncidentEditModal
         incident={editing}

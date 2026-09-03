@@ -32,4 +32,8 @@ export const incidentService = {
   // and never removes the database row.
   archive: (id, token) =>
     api.put(`/incidents/${id}/archive`, {}, token ? { token } : undefined),
+  // Inverse of archive() — PUT /incidents/{id}/restore, same additive
+  // optional-token shape. Mirrors criminalService.restore()/victimService.restore().
+  restore: (id, token) =>
+    api.put(`/incidents/${id}/restore`, {}, token ? { token } : undefined),
 };

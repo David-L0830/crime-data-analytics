@@ -42,6 +42,7 @@ class IncidentResource extends JsonResource
             'badgeNumber' => $this->badge_number,
             'unit' => $this->unit,
             'status' => $this->status,
+            'previousStatus' => $this->previous_status,
             'priority' => $this->priority,
             'description' => $this->description,
             // Legacy single-string column. Kept in the payload so nothing

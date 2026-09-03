@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\CrimeType;
+use App\Models\Incident;
 use App\Models\User;
 use App\Services\CrimeTypeColorAllocator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -154,6 +155,58 @@ class CrimeTypeTest extends TestCase
             ->assertJsonPath('data.name', 'Qualified Theft')
             ->assertJsonPath('data.color', '#00AA55')
             ->assertJsonPath('data.isActive', false);
+    }
+
+    // ===== Renaming a crime type must not orphan existing incidents =====
+    //
+    // incidents.crime_type stores this vocabulary's name as a plain string,
+    // not a foreign key. Without a cascade, renaming 'Theft' to
+    // 'Qualified Theft' here would leave every existing incident still
+    // reading 'Theft' — a value no longer in crime_types at all — silently
+    // splitting the map legend and every crime-type-grouped chart into two
+    // buckets for what is really one crime type.
+
+    public function test_renaming_a_crime_type_relabels_existing_incidents(): void
+    {
+        $this->admin();
+        $type = CrimeType::where('name', 'Theft')->firstOrFail();
+
+        $matching = Incident::factory()->count(2)->create(['crime_type' => 'Theft']);
+        $unrelated = Incident::factory()->create(['crime_type' => 'Robbery']);
+
+        $this->putJson("/api/crime-types/{$type->id}", ['name' => 'Qualified Theft'])
+            ->assertOk();
+
+        foreach ($matching as $incident) {
+            $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'crime_type' => 'Qualified Theft']);
+        }
+        $this->assertDatabaseHas('incidents', ['id' => $unrelated->id, 'crime_type' => 'Robbery']);
+        $this->assertDatabaseMissing('incidents', ['crime_type' => 'Theft']);
+    }
+
+    public function test_renaming_a_crime_type_records_the_relabelled_count_in_the_audit_log(): void
+    {
+        $this->admin();
+        $type = CrimeType::where('name', 'Theft')->firstOrFail();
+        Incident::factory()->count(3)->create(['crime_type' => 'Theft']);
+
+        $this->putJson("/api/crime-types/{$type->id}", ['name' => 'Qualified Theft'])->assertOk();
+
+        $this->assertStringContainsString(
+            '3 incident(s) relabelled',
+            AuditLog::where('target_type', 'crime_type')->latest('id')->first()->description
+        );
+    }
+
+    public function test_changing_only_the_colour_does_not_touch_incidents(): void
+    {
+        $this->admin();
+        $type = CrimeType::where('name', 'Theft')->firstOrFail();
+        $incident = Incident::factory()->create(['crime_type' => 'Theft']);
+
+        $this->putJson("/api/crime-types/{$type->id}", ['color' => '#00AA55'])->assertOk();
+
+        $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'crime_type' => 'Theft']);
     }
 
     public function test_a_colour_change_is_written_to_the_audit_log(): void

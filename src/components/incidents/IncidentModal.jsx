@@ -34,6 +34,8 @@ export function IncidentViewModal({
   onEdit,
   onArchive,
   archiving,
+  onRestore,
+  restoring,
 }) {
   const { showToast } = useToast();
 
@@ -145,7 +147,7 @@ export function IncidentViewModal({
               <Icons.Edit size={15} strokeWidth={2} /> Edit
             </Button>
           )}
-          {onArchive && (
+          {onArchive && r.status !== 'Archived' && (
             <Button
               variant="danger"
               onClick={() => onArchive(r)}
@@ -153,6 +155,15 @@ export function IncidentViewModal({
             >
               <Icons.Archive size={15} strokeWidth={2} />{' '}
               {archiving ? 'Archiving…' : 'Archive'}
+            </Button>
+          )}
+          {onRestore && r.status === 'Archived' && (
+            <Button
+              variant="secondary"
+              onClick={() => onRestore(r)}
+              disabled={restoring}
+            >
+              {restoring ? 'Restoring…' : 'Restore'}
             </Button>
           )}
           <Button
