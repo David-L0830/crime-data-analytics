@@ -7,6 +7,7 @@ import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import { today } from '../utils/helpers';
 import { exportWorkbook } from '../utils/exportWorkbook';
+import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
 import { Icons } from '../components/icons';
 
@@ -156,47 +157,69 @@ export default function AuditLogs() {
     [auditLogs, filters],
   );
 
-  // Real .xlsx through the shared exportWorkbook helper. The previous CSV
-  // dumped the raw log objects, including the internal database id, and wrote
-  // the timestamp as a raw ISO string that Excel treats as text - so the one
-  // column an audit log is most often sorted by could not be sorted. It is
-  // written as a real date-time here, and the id, which identifies nothing
-  // outside this database, is left out.
+  // ONE projection, shared by the .xlsx and the .csv below, so the two files
+  // can never drift apart: same columns, same order, same labels, same rows.
+  //
+  // An older CSV dumped the raw log objects, including the internal database
+  // id, and wrote the timestamp as a raw ISO string that Excel treats as text -
+  // so the one column an audit log is most often sorted by could not be sorted.
+  // It is a real date-time in the workbook and a sortable 'YYYY-MM-DD HH:mm' in
+  // the .csv, which is what the numFmt below asks both exporters for; the id,
+  // which identifies nothing outside this database, is left out of both.
+  const exportSpec = () => ({
+    sheetName: 'Audit Logs',
+    title: 'Audit Log Report',
+    subtitle: 'Crime Data Analytics & Reporting System',
+    meta: [
+      `Action: ${filters['audit-action'] || 'All'}`,
+      `Target Type: ${filters['audit-target'] || 'All'}`,
+      `From: ${filters['audit-dateFrom'] || 'Any'}`,
+      `To: ${filters['audit-dateTo'] || 'Any'}`,
+    ],
+    columns: [
+      {
+        header: 'Date / Time',
+        key: 'timestamp',
+        type: 'date',
+        width: 22,
+        numFmt: 'dd mmm yyyy hh:mm',
+      },
+      { header: 'Action', key: 'action', width: 18, align: 'center' },
+      { header: 'Performed By', key: 'performedBy', width: 24 },
+      { header: 'Role', key: 'role', width: 18 },
+      { header: 'Target Type', key: 'targetType', width: 18 },
+      { header: 'Details', key: 'details', width: 60, wrap: true },
+    ],
+    rows: filtered,
+    onEmpty: () => showToast('No data to export', 'error'),
+    onError: () => showToast('Could not export report.', 'error'),
+  });
+
   const handleExportLogs = async () => {
     const ok = await exportWorkbook({
       filename: `audit_logs_${today()}.xlsx`,
-      sheetName: 'Audit Logs',
-      title: 'Audit Log Report',
-      subtitle: 'Crime Data Analytics & Reporting System',
-      meta: [
-        `Action: ${filters['audit-action'] || 'All'}`,
-        `Target Type: ${filters['audit-target'] || 'All'}`,
-        `From: ${filters['audit-dateFrom'] || 'Any'}`,
-        `To: ${filters['audit-dateTo'] || 'Any'}`,
-      ],
-      columns: [
-        {
-          header: 'Date / Time',
-          key: 'timestamp',
-          type: 'date',
-          width: 22,
-          numFmt: 'dd mmm yyyy hh:mm',
-        },
-        { header: 'Action', key: 'action', width: 18, align: 'center' },
-        { header: 'Performed By', key: 'performedBy', width: 24 },
-        { header: 'Role', key: 'role', width: 18 },
-        { header: 'Target Type', key: 'targetType', width: 18 },
-        { header: 'Details', key: 'details', width: 60, wrap: true },
-      ],
-      rows: filtered,
-      onEmpty: () => showToast('No data to export', 'error'),
-      onError: () => showToast('Could not export report.', 'error'),
+      ...exportSpec(),
     });
     if (ok) {
       showToast('Audit logs exported to Excel', 'success');
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
+      auditLogService.logExport('audit-logs');
+    }
+  };
+
+  // Same projection, same filtered rows, comma-separated. Synchronous because
+  // exportCsv needs no dynamic import — see the note there.
+  const handleExportLogsCsv = () => {
+    const ok = exportCsv({
+      filename: `audit_logs_${today()}.csv`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Audit logs exported to CSV', 'success');
+      // Same report key as the workbook above: the audit trail records WHICH
+      // report left the system, which is the question it exists to answer.
       auditLogService.logExport('audit-logs');
     }
   };
@@ -209,6 +232,9 @@ export default function AuditLogs() {
         </h2>
         <Button variant="secondary" onClick={handleExportLogs}>
           <Icons.Download size={15} strokeWidth={2} /> Export Logs
+        </Button>
+        <Button variant="secondary" onClick={handleExportLogsCsv}>
+          <Icons.Download size={15} strokeWidth={2} /> Export CSV
         </Button>
       </div>
 
