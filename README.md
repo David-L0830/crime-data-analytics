@@ -61,8 +61,8 @@ Both layers are driven by the **same React FilterBar**. The React filter state i
 - Incident recording, mapping, and audit logging
 - Role-based access control (Administrator / Encoder / BADAC read-only)
 - Adaptive multi-factor authentication (Supabase TOTP) — self-service enrollment for any account, plus administrator-imposed MFA requirements independent of enrollment
-- Archive and restore for criminal and victim records, plus archive for incidents
-- Crime Reporting Dashboard with 10 KPI cards and 4 tables computed in React
+- Archive and restore for incidents, criminal, and victim records
+- Crime Reporting Dashboard with 8 KPI cards and 4 tables computed in React
 - Embedded Metabase dashboards for Crime, Statistical Analysis, and Trend Detection
 - One shared filter bar per module driving both React and Metabase content
 - Server-signed JWT embedding — the Metabase secret never reaches the browser
@@ -209,12 +209,12 @@ See `AUTH_MIGRATION_STATUS.md` for the full history and rationale.
 | `incidents` | The core record. One row per reported crime incident. Holds `incident_code`, `case_number`, `crime_type`, `category`, `incident_date`, `incident_time`, location (`street`, `sitio`, `latitude`, `longitude`), victim and suspect fields, complainant fields (`complainant_is_victim`, `complainant_name`, `complainant_relationship`, `complainant_contact`, `complainant_address` — for when the person filing the report is not the victim, e.g. hospitalised or a minor), officer/unit fields, `status`, `priority`, `description`, `evidence` (legacy free-text, retained), and `synced_at`. Every KPI, table, and Metabase chart reads from here. |
 | `incident_evidence` | Structured, repeatable evidence per incident (`evidence_code`, `description`), replacing the single free-text `incidents.evidence` string for new records. `evidence_code` is unique per incident, not globally. |
 | `crime_types` | The configurable crime-type vocabulary: `name`, `color` (hex, auto-assigned from a curated palette if omitted), `is_active`. Drives the incident form, every crime-type filter, and the Crime Mapping legend/marker colours. |
-| `sync_logs` | An audit trail of data-import runs. Columns: `status`, `records_received`, `source`, `created_at`. Feeds the "Today Imported" / "Month Imported" KPI cards. |
+| `sync_logs` | An audit trail of data-import runs. Columns: `status`, `records_received`, `source`, `created_at`. No longer feeds any Dashboard KPI card — the "Today Imported" / "Month Imported" cards were removed; the table is still fetched into `DataContext` and backs the `getLastSync` helper. |
 | `settings` | A single configuration row for the barangay: `barangay`, `population`, `threshold`, `hotspot_threshold`, `categories`. `population` is the denominator for the Crime Rate / 1K KPI. |
 
 Supporting tables include `users`, `criminals`, `victims`, `incident_victim`, `audit_logs`, `app_notifications`, `notification_reads`, plus Laravel's own `sessions`, `cache`, and `jobs`.
 
-**Archiving, and restoring.** Incidents, criminals, and victims are archived by setting `status = 'Archived'` rather than being removed, and every statistic excludes archived rows. Criminals and victims can additionally be **restored**: archiving writes the row's prior value to a `previous_status` column, and `PUT /criminals/{id}/restore` / `PUT /victims/{id}/restore` (admin-only) read that column back onto `status`, so the restored value is exact rather than inferred from the audit trail. Incidents have no restore endpoint.
+**Archiving, and restoring.** Incidents, criminals, and victims are archived by setting `status = 'Archived'` rather than being removed, and every statistic excludes archived rows. All three can be **restored**: archiving writes the row's prior value to a `previous_status` column, and `PUT /incidents/{id}/restore` / `PUT /criminals/{id}/restore` / `PUT /victims/{id}/restore` read that column back onto `status`, so the restored value is exact rather than inferred from the audit trail. Criminal and victim restore is admin-only; incident restore is available to BADAC Admin and Encoder alike, with Encoder restricted to incidents they personally encoded — the same per-record ownership rule `archive()` enforces.
 
 **Row-level security.** All tables in the `public` schema have RLS enabled (enforced by migration for `crime_types`, `incident_evidence`, and `notification_reads` — the three most recently added tables, which briefly shipped without it — and configured directly in Supabase for the rest), with no permissive policies. Laravel connects as the table-owning `postgres` role, which PostgreSQL exempts from RLS by default, so the API's own access is unaffected; the purpose is to close the tables to Supabase's PostgREST surface, which the browser-visible publishable key would otherwise expose for direct read/write.
 
@@ -248,6 +248,43 @@ Notes:
 - `--no-owner --no-privileges` avoids restore errors caused by Supabase-managed roles that do not exist in your target database.
 - The dump covers the `public` schema Laravel owns. It does **not** back up Supabase Auth users (`auth.*`), which Supabase manages separately, nor anything in Metabase — Metabase keeps its own dashboards, questions and IDs in its H2 file on the machine it runs on. Back that file up separately; recreating Metabase from scratch reassigns dashboard IDs and breaks the embed.
 - Verify a dump before relying on it: `pg_restore --list cdars-YYYYMMDD-HHMM.dump` should list the tables.
+
+### Disaster recovery posture (Supabase Free plan)
+
+- Supabase Free does not provide automated managed backups for this project.
+- Supabase Free does not provide managed backup retention for this project.
+- Supabase Free does not provide point-in-time recovery (PITR) for this project.
+- The recovery point is the time of the most recent successful manual `pg_dump`.
+- Manual backup cadence: take a manual backup every Monday, and before every migration, bulk edit, or other high-risk operation. This is a human-operated process — no scheduled job performs it.
+- Dumps contain sensitive crime, victim, suspect, and user data.
+- Dumps must never be committed to Git.
+- Dumps must never be attached to issues, pull requests, or chats.
+- Keep backup copies in appropriately protected storage and, when practical, keep at least one copy off the development machine.
+- Temporary restore copies made to verify a dump must be destroyed once verification is complete.
+
+**RPO / RTO.** RPO: time elapsed since the most recent successful manual backup. RTO depends on restoration time plus Auth account re-provisioning and the Supabase email sending limit (see [Supabase Auth disaster recovery](#supabase-auth-disaster-recovery) below).
+
+### Supabase Auth disaster recovery
+
+Restoring the `public` schema from a `pg_dump` (above) does **not** restore Supabase Auth — they are separate systems that recover through different, non-interchangeable procedures:
+
+- **PostgreSQL database restoration** — `pg_restore` of the `public` schema dump, covered above.
+- **Supabase Auth account recovery** — manual, per-account re-provisioning described below. Not covered by the `pg_dump`.
+- **Application incident archive/restore** (`PUT /incidents/{id}/restore`, see [Archiving, and restoring](#database) above) — reverses an in-app soft-delete within the same live database. **This is not a disaster-recovery mechanism** and does not substitute for either of the above.
+
+Recovery procedure, in order:
+
+1. Restore the `public` PostgreSQL schema into a new/non-production database first, and verify it before treating it as a source of truth.
+2. `public.users` holds the roster information needed to recreate application users: email, username, role, name/full name, and active state.
+3. Supabase Auth users themselves are **not** contained in the public-schema `pg_dump` — no password hash and no MFA secret can be exported or recovered from it, and there is no separate Auth export mechanism.
+4. Re-provision affected Supabase Auth accounts using the existing administrator user-creation flow (**User Management**).
+5. Use the same verified email address as the existing `public.users` record for each re-provisioned account.
+6. `SupabaseTokenValidator` has an email-based fallback: when the incoming token carries a verified-email claim matching an existing `public.users` row, it relinks the newly created Supabase UUID to that local user record on next sign-in.
+7. Affected users must establish/recover their password again.
+8. MFA factors are not recoverable; affected users must re-enroll MFA.
+9. Google identity links are not restored by the public database dump; affected users must sign in through Google again for the identity to be re-established.
+10. Supabase Auth history/logs are not restored by the public database dump.
+11. The current Supabase email sending limit is **2 emails/hour, project-wide**, so any recovery step relying on password-reset or verification emails is rate-limited by that ceiling.
 
 ---
 
@@ -384,15 +421,6 @@ Computed in React in `src/pages/Dashboard.jsx`, over records already filtered by
 | **Crime Rate / 1K** | `(total / settings.population) × 1000`, 2 decimals | Incidents per 1,000 residents; `0` when population is unset |
 | **Today's Incidents** | count where `date === today()` | Incidents recorded today |
 | **This Month** | count where date starts with the current `YYYY-MM` | Incidents recorded this calendar month |
-
-### Synchronisation KPIs
-
-Still present in the current implementation. These read `sync_logs`, **not** `incidents`, and are deliberately **independent of the date-range filter** — they report import activity, not crime activity.
-
-| KPI | Source |
-|---|---|
-| **Today Imported** | Sum of `records_received` from sync logs since midnight today |
-| **Month Imported** | Sum of `records_received` from sync logs since the 1st of this month |
 
 **Layout note:** the cards are split into a primary row (Total, Solved, Pending, Resolution Rate) and a secondary row (everything else). This is a visual grouping only — no calculation differs.
 
