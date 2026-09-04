@@ -327,16 +327,33 @@ export default function Login() {
                 in global.css alongside the same .login-form / .form-group /
                 .btn-login chrome as the password step, so it inherits the
                 card's light/dark theming with no new styles. */}
-            {/* STEP TWO(b) — FORCED ENROLMENT. Shown when an administrator has
-                required a second factor of this account and it has none yet,
-                so there is nothing to challenge and the only way in is to
-                enrol. Rendered instead of both other forms, for the same
-                reason the challenge is: a half-authenticated session must
-                never be looking at something that starts another sign-in.
+            {/* STEP TWO(b) — FORCED ENROLMENT. Shown when a second factor is
+                owed and the account has none yet, so there is nothing to
+                challenge and the only way in is to enrol. Rendered instead of
+                both other forms, for the same reason the challenge is: a
+                half-authenticated session must never be looking at something
+                that starts another sign-in.
+
+                The WORDING depends on why we are here, because the two reasons
+                are not the same claim. pendingMfaEnrollment carries that
+                reason (see AuthContext.resolveSupabaseSession):
+
+                  'admin_required'  an administrator really did require MFA of
+                                    this account (mfaRequiredByAdmin === true).
+                  'status_unknown'  the backend could not verify the account's
+                                    security status, and fails closed. We must
+                                    NOT dress that up as an administrator
+                                    policy — on 2026-09-03 a rejected Supabase
+                                    credential put every unenrolled user on
+                                    this screen and told each of them their
+                                    administrator had required MFA, which was
+                                    false for all of them.
+
+                Enforcement is unchanged: both reasons still block sign-in.
 
                 The QR code and secret come straight from Supabase to this
-                browser and go no further — the administrator who imposed the
-                requirement cannot see either. */}
+                browser and go no further — no administrator ever sees
+                either. */}
             {pendingMfaEnrollment ? (
               <form
                 className="login-form"
@@ -347,12 +364,25 @@ export default function Login() {
                   <Icons.ShieldCheck size={18} strokeWidth={2} />
                   <h2>Set Up Two-Factor Authentication</h2>
                 </div>
-                <p className="two-factor-instructions">
-                  Your administrator requires two-factor authentication on this
-                  account. Scan the code below with your authenticator app
-                  (Google Authenticator, Microsoft Authenticator, 1Password, or
-                  similar), then enter the 6-digit code it shows.
-                </p>
+                {pendingMfaEnrollment === 'admin_required' ? (
+                  <p className="two-factor-instructions">
+                    Your administrator requires two-factor authentication on
+                    this account. Scan the code below with your authenticator
+                    app (Google Authenticator, Microsoft Authenticator,
+                    1Password, or similar), then enter the 6-digit code it
+                    shows.
+                  </p>
+                ) : (
+                  <p className="two-factor-instructions">
+                    We could not verify this account&apos;s security status, so
+                    sign-in is being held until a second factor is set up. This
+                    is usually temporary. If you were not expecting this, stop
+                    here and contact your administrator before continuing —
+                    otherwise scan the code below with your authenticator app
+                    (Google Authenticator, Microsoft Authenticator, 1Password,
+                    or similar), then enter the 6-digit code it shows.
+                  </p>
+                )}
 
                 {enrollLoading ? (
                   <div className="empty-state" style={{ padding: 24 }}>

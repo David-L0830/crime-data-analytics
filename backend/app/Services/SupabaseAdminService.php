@@ -437,6 +437,82 @@ class SupabaseAdminService
     }
 
     /**
+     * Is the configured Supabase Admin credential actually accepted?
+     *
+     * Exists because of the 2026-09-03 incident: a rejected service-role
+     * credential made every MFA security-state lookup throw, the system failed
+     * closed exactly as designed, and the only outward sign was users being
+     * told to enrol in two-factor authentication. Nothing failed loudly, and
+     * the warnings went to a container-local log file nobody could see. A
+     * deploy must be able to answer "can this backend still talk to Supabase
+     * as an administrator?" without waiting for a person to hit the symptom.
+     *
+     * DELIBERATELY LOOKS UP THE NIL UUID. A credential check must not
+     * enumerate or read anybody's account, so this asks for a user id that
+     * cannot exist. The answer still separates the two cases cleanly, because
+     * GoTrue authenticates before it looks anything up:
+     *
+     *   404 -> the credential was ACCEPTED; there is simply no such user.
+     *          This is the success case.
+     *   401 -> the credential was rejected. This is the incident.
+     *   403 -> authenticated but not authorised for admin operations.
+     *
+     * Goes through client() rather than building its own request, so it
+     * exercises the exact credential, headers and base URL the real MFA lookup
+     * uses. A check that assembled its own request could pass while the thing
+     * it is meant to protect fails.
+     *
+     * Returns only a status code and a verdict. The response body is never
+     * read, and the key, the Authorization header and the project URL never
+     * appear in the return value.
+     *
+     * @return array{ok: bool, status: int|null, reason: string}
+     */
+    public function checkAdminCredential(): array
+    {
+        $nilUuid = '00000000-0000-0000-0000-000000000000';
+
+        try {
+            $response = $this->client('checking the Supabase admin credential')
+                ->get("/users/{$nilUuid}");
+        } catch (RuntimeException $e) {
+            // Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. That message is
+            // already written for a human and names no value.
+            return ['ok' => false, 'status' => null, 'reason' => $e->getMessage()];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'status' => null, 'reason' => 'Supabase could not be reached.'];
+        }
+
+        $status = $response->status();
+
+        if ($status === 404 || $response->successful()) {
+            return ['ok' => true, 'status' => $status, 'reason' => 'Credential accepted.'];
+        }
+
+        if ($status === 401) {
+            return [
+                'ok' => false,
+                'status' => 401,
+                'reason' => 'Supabase rejected the admin credential. If this project has migrated to the new API key system, a legacy service_role JWT will be refused - use the project secret key.',
+            ];
+        }
+
+        if ($status === 403) {
+            return [
+                'ok' => false,
+                'status' => 403,
+                'reason' => 'The credential authenticated but is not authorised for admin operations.',
+            ];
+        }
+
+        return [
+            'ok' => false,
+            'status' => $status,
+            'reason' => 'Unexpected response from the Supabase Admin API.',
+        ];
+    }
+
+    /**
      * Drops the cached obligation for one account.
      *
      * Called after either administrator action - clearing factors

@@ -95,6 +95,10 @@ export function AuthProvider({ children }) {
   // only way forward is enrolment — Login.jsx renders the QR/secret step.
   // currentUser stays null throughout, exactly as it does for a challenge,
   // so nothing protected renders either way.
+  // false when no enrolment is pending, otherwise WHY one is:
+  // 'admin_required' (an administrator imposed it) or 'status_unknown' (the
+  // security lookup failed and the reason cannot be established). Both are
+  // truthy, so this stays a drop-in for the boolean it replaced.
   const [pendingMfaEnrollment, setPendingMfaEnrollment] = useState(false);
 
   // Does this session still owe a TOTP challenge?
@@ -161,20 +165,38 @@ export function AuthProvider({ children }) {
       const user = await authService.currentUserViaSupabaseToken(accessToken);
 
       if (user.mfaRequired) {
-        // A second factor is owed, and the authoritative listFactors() lookup
-        // above found none to challenge — so this account has been REQUIRED to
-        // use MFA by an administrator and has not enrolled yet. It is not
-        // signed in: it is put through enrolment first, and reaches aal2 by
-        // verifying the factor it creates.
+        // A second factor is owed and the authoritative listFactors() lookup
+        // above found none to challenge, so this session is not signed in: it
+        // is put through enrolment first and reaches aal2 by verifying the
+        // factor it creates.
         //
-        // The backend also reports mfaRequired when it could not determine the
-        // account's status at all, and routing that here is deliberate rather
-        // than a conflation. Enrolment talks to the same Supabase that just
-        // could not be reached, so it fails too and nobody gets in — the
-        // fail-closed outcome — whereas admitting them would not.
+        // TWO DIFFERENT REASONS REACH THIS BRANCH, and they are no longer
+        // conflated. Routing both here is still correct — enrolment talks to
+        // the same Supabase that may have just failed, so a broken lookup
+        // fails there too and nobody gets in, which is the fail-closed
+        // outcome. What was wrong was TELLING the person the same thing in
+        // both cases:
+        //
+        //   'admin_required'  mfaRequiredByAdmin is true, so an administrator
+        //                     really did impose this. Safe to say so.
+        //   'status_unknown'  the backend could not determine the account's
+        //                     security status at all (UserResource fails
+        //                     CLOSED to mfaRequired: true while
+        //                     mfaRequiredByAdmin fails SOFT to false — that
+        //                     pair IS the signature of "unknown"). Claiming an
+        //                     administrator policy here states as fact
+        //                     something nobody established, and during the
+        //                     2026-09-03 incident it told an Encoder with no
+        //                     such policy that her administrator had required
+        //                     MFA.
+        //
+        // The value stays truthy in both cases, so every existing truthiness
+        // check on pendingMfaEnrollment behaves exactly as before.
         setCurrentUser(null);
         setPendingMfa(null);
-        setPendingMfaEnrollment(true);
+        setPendingMfaEnrollment(
+          user.mfaRequiredByAdmin === true ? 'admin_required' : 'status_unknown',
+        );
         return { success: true, mfaEnrollmentRequired: true };
       }
 
