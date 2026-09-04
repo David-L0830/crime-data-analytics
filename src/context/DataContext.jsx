@@ -642,28 +642,6 @@ export function DataProvider({ children }) {
     () => syncLogs.find((l) => l.status === 'completed') || null,
     [syncLogs],
   );
-  const sumImported = useCallback(
-    (sinceMs) =>
-      syncLogs
-        .filter(
-          (l) =>
-            l.status === 'completed' &&
-            new Date(l.timestamp).getTime() >= sinceMs,
-        )
-        .reduce((sum, l) => sum + (l.recordsReceived || 0), 0),
-    [syncLogs],
-  );
-  const getTodayImportedCount = useCallback(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return sumImported(d.getTime());
-  }, [sumImported]);
-  const getThisMonthImportedCount = useCallback(() => {
-    const d = new Date();
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return sumImported(d.getTime());
-  }, [sumImported]);
 
   // Checkpoint 28 — `residents` dropped from both the backup snapshot and
   // its dependency array; the Resident Registry module (and the
@@ -732,8 +710,6 @@ export function DataProvider({ children }) {
     refreshNotifications,
     saveSettings,
     getLastSync,
-    getTodayImportedCount,
-    getThisMonthImportedCount,
     backup,
     addAuditLog,
     today,
