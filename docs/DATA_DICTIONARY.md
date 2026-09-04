@@ -68,9 +68,15 @@ the Supabase identity by `supabase_user_id`.
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
 > **Note on the `two_factor_*` columns.** These columns exist in the schema from
-> `2025_01_04_000001`. No later migration drops them. This document records
-> their presence in the schema; it does not assert how (or whether) current
-> application code populates them.
+> `2025_01_04_000001` and no later migration drops them. No current application
+> code reads or writes them: `App\Models\User` lists them in neither `$fillable`,
+> `$hidden` nor `casts()`, so they carry no `encrypted` cast and the migration
+> created them as plain `text`/`timestamp` columns. Two-factor authentication is
+> now handled entirely by Supabase Auth — verified factors are read through
+> `SupabaseAdminService` and enforced by the `supabase.mfa`
+> (`EnsureSupabaseAal2`) middleware. The `2025_01_04_000001` migration comment
+> describes an Eloquent-level encrypted cast and a `User::hasTwoFactorEnabled()`
+> helper; both are historical and neither exists in the current model.
 
 ---
 
