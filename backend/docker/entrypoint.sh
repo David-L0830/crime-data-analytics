@@ -83,6 +83,36 @@ if [ "${APP_ENV}" = "production" ]; then
         echo "[entrypoint] manually with: php artisan migrate:status"
     fi
     rm -f /tmp/migrate-status.out
+
+    # Read-only Supabase Admin credential check. Reveals nothing: a presence
+    # flag, the (public) project reference, an HTTP status and a sanitized
+    # reason. Never the key, the Authorization header, a JWT, or any account.
+    #
+    # Why it exists: on 2026-09-03 this credential started being rejected with
+    # HTTP 401. EnsureSupabaseAal2 fails closed by design, so the application
+    # stayed secure — but every unenrolled user was told a second factor was
+    # required, and the login screen attributed it to an administrator policy
+    # that did not exist. Nothing failed loudly. Laravel's warnings went to
+    # storage/logs/laravel.log inside the container, which Render never shows,
+    # so the deploy reported success while the feature was broken.
+    #
+    # Non-fatal by construction, exactly like the migration check above: it runs
+    # as an `if` condition, where `set -e` is suspended, and neither branch
+    # exits. A Supabase outage must not stop this API from booting.
+    echo "[entrypoint] checking Supabase admin credential (read-only, reveals no secrets)"
+    if php artisan supabase:check-admin-credential --no-ansi; then
+        echo "[entrypoint] Supabase admin credential: OK"
+    else
+        echo "[entrypoint] =========================================================="
+        echo "[entrypoint] WARNING: SUPABASE ADMIN CREDENTIAL IS NOT WORKING"
+        echo "[entrypoint] Two-factor enrolment status cannot be determined. MFA"
+        echo "[entrypoint] enforcement fails CLOSED, so users will be prompted to"
+        echo "[entrypoint] set up two-factor authentication even when no"
+        echo "[entrypoint] administrator required it. Fix SUPABASE_SERVICE_ROLE_KEY"
+        echo "[entrypoint] before letting people sign in. See the command output"
+        echo "[entrypoint] above for the HTTP status and reason."
+        echo "[entrypoint] =========================================================="
+    fi
 else
     echo "[entrypoint] APP_ENV=${APP_ENV:-unset} — skipping config cache (local bind-mount safety)"
 fi

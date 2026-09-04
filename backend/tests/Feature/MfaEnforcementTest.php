@@ -44,6 +44,25 @@ class MfaEnforcementTest extends TestCase
     }
 
     /**
+     * An ordinary Encoder — the role the 2026-09-03 incident actually hurt.
+     *
+     * Every other subject in this file is an administrator, which left the
+     * most common account shape in the system uncovered. Enforcement is
+     * role-agnostic by design (EnsureSupabaseAal2 reads no role at all), and
+     * these tests exist to keep it that way.
+     */
+    private function encoder(): User
+    {
+        return User::factory()->create([
+            'username' => 'encoder1',
+            'name' => 'Test Encoder',
+            'email' => 'encoder1@example.com',
+            'role' => User::ROLE_ENCODER,
+            'supabase_user_id' => 'supabase-mfa-test-encoder',
+        ]);
+    }
+
+    /**
      * Stubs the Admin API user lookup that hasVerifiedFactor() reads.
      *
      * @param  array<int, array<string, string>>  $factors
@@ -449,6 +468,114 @@ class MfaEnforcementTest extends TestCase
      * Adding a genuinely exempt route means adding it to this list on
      * purpose, with a reason — which is the point.
      */
+    // -----------------------------------------------------------------------
+    // Regression: the 2026-09-03 production incident.
+    //
+    // The backend's Supabase service-role credential was rejected, so every
+    // Admin API lookup returned 401. The existing coverage faked a 500, which
+    // takes the same `! successful()` branch — so the behaviour was correct
+    // and tested, and the incident still happened. What was missing was a test
+    // pinning the SHAPE of the response under a failed lookup, because that
+    // shape is what the login screen misread: it announced an administrator
+    // policy that did not exist, to accounts that had none.
+    //
+    // These fix the credential-rejection case specifically and pin the pair of
+    // fields that together mean "status unknown".
+    // -----------------------------------------------------------------------
+
+    public function test_a_rejected_credential_401_fails_closed_like_any_other_failure(): void
+    {
+        // A 401 is not a "no" from Supabase, it is "I could not ask". It must
+        // never be read as "this account owes nothing".
+        //
+        // Note what the middleware does NOT say: it refuses with "could not be
+        // verified" and deliberately omits the mfaRequired flag it sets when an
+        // obligation is genuinely established. The middleware has always told
+        // these two cases apart correctly — it is GET /user (exempt from this
+        // gate, so the login screen can reach it) that reports them through one
+        // fail-closed boolean. That asymmetry is asserted in the next test.
+        $user = $this->admin();
+        Http::fake(['*/auth/v1/admin/users/*' => Http::response(['msg' => 'unauthorized'], 401)]);
+
+        $response = $this->actingAsSupabase($user, 'aal1')
+            ->getJson('/api/dashboard')
+            ->assertStatus(401);
+
+        $response->assertJsonMissingPath('mfaRequired');
+        $this->assertStringContainsString(
+            'could not be verified',
+            (string) $response->json('message'),
+        );
+    }
+
+    public function test_a_rejected_credential_401_does_not_invent_an_administrator_requirement(): void
+    {
+        // THE incident, stated as an assertion. Under a failed lookup the two
+        // fields disagree ON PURPOSE — mfaRequired fails closed,
+        // mfaRequiredByAdmin fails soft — and that disagreement is the signal
+        // meaning "unknown". Reporting mfaRequiredByAdmin: true here would
+        // make the login screen's old claim retroactively true and hide the
+        // bug; reporting mfaRequired: false would unlock the door.
+        $user = $this->admin();
+        Http::fake(['*/auth/v1/admin/users/*' => Http::response(['msg' => 'unauthorized'], 401)]);
+
+        $this->actingAsSupabase($user, 'aal1')
+            ->getJson('/api/user')
+            ->assertOk()
+            ->assertJsonPath('data.mfaRequired', true)
+            ->assertJsonPath('data.mfaRequiredByAdmin', false)
+            ->assertJsonPath('data.twoFactorEnabled', false);
+    }
+
+    public function test_a_verified_factor_is_still_reported_as_enrolled_when_the_lookup_succeeds(): void
+    {
+        // The other half of the incident: with the lookup broken, User
+        // Management showed every account — including three with verified
+        // factors — as "Not enrolled". This is the canary for that.
+        $user = $this->admin();
+        $this->fakeFactors([['id' => 'f1', 'factor_type' => 'totp', 'status' => 'verified']]);
+
+        $this->actingAsSupabase($user, 'aal2')
+            ->getJson('/api/user')
+            ->assertOk()
+            ->assertJsonPath('data.twoFactorEnabled', true);
+    }
+
+    public function test_a_non_mfa_encoder_signs_in_normally(): void
+    {
+        // Luiza Perez's account shape: an Encoder with no factor and no
+        // administrator requirement. She must reach the application with no
+        // second factor asked of her at all.
+        $encoder = $this->encoder();
+        $this->fakeFactors([]);
+
+        $this->actingAsSupabase($encoder, 'aal1')
+            ->getJson('/api/user')
+            ->assertOk()
+            ->assertJsonPath('data.mfaRequired', false)
+            ->assertJsonPath('data.mfaRequiredByAdmin', false)
+            ->assertJsonPath('data.role', User::ROLE_ENCODER);
+
+        // And is not blocked from the routes their role allows.
+        $this->actingAsSupabase($encoder, 'aal1')
+            ->getJson('/api/incidents')
+            ->assertOk();
+    }
+
+    public function test_a_non_mfa_encoder_is_still_refused_when_the_lookup_fails(): void
+    {
+        // Fail-closed applies to Encoders exactly as it does to
+        // administrators. This is the behaviour that was CORRECT during the
+        // incident — only the explanation shown to the user was wrong — so it
+        // must not be softened while fixing the wording.
+        $encoder = $this->encoder();
+        Http::fake(['*/auth/v1/admin/users/*' => Http::response(['msg' => 'unauthorized'], 401)]);
+
+        $this->actingAsSupabase($encoder, 'aal1')
+            ->getJson('/api/incidents')
+            ->assertStatus(401);
+    }
+
     public function test_every_authenticated_api_route_is_gated_except_the_named_exemptions(): void
     {
         $exempt = [

@@ -119,9 +119,12 @@ describe('Admin-required MFA enrolment', () => {
     const start = authContext.indexOf('if (user.mfaRequired)');
     expect(start).toBeGreaterThan(-1);
 
-    const branch = authContext.slice(start, start + 900);
+    const branch = authContext.slice(start, start + 2200);
     expect(branch).toContain('setCurrentUser(null)');
-    expect(branch).toContain('setPendingMfaEnrollment(true)');
+    // Enrolment is still forced — the value is truthy in both cases — but it
+    // now carries WHY, so the screen can stop guessing. See the
+    // "Enrolment message attribution" block below.
+    expect(branch).toMatch(/setPendingMfaEnrollment\(\s*\n?\s*user\.mfaRequiredByAdmin === true/);
   });
 
   it('verifies a freshly enrolled factor through the same server-confirmed path', () => {
@@ -148,6 +151,89 @@ describe('Admin-required MFA enrolment', () => {
     expect(authContext.slice(cancelStart, cancelStart + 400)).toContain(
       'setPendingMfaEnrollment(false)',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression guard for the 2026-09-03 production incident.
+//
+// A rejected Supabase service-role credential made every security-state lookup
+// throw. UserResource fails CLOSED for mfaRequired (true) and SOFT for
+// mfaRequiredByAdmin (false), so GET /user returned the pair that means
+// "status unknown" — and the login screen rendered a hardcoded sentence
+// telling the person their ADMINISTRATOR had required two-factor
+// authentication. That was false for every account it was shown to: not one of
+// them had app_metadata.mfa_required set. An Encoder was pushed into enrolling
+// on the strength of a policy that did not exist.
+//
+// Enforcement stayed correct throughout and must not be weakened here. What
+// these tests pin is that the UI cannot again ASSERT a cause it has not
+// established.
+// ---------------------------------------------------------------------------
+describe('Enrolment message attribution', () => {
+  it('distinguishes an administrator requirement from an unverifiable status', () => {
+    // The two reasons must be separate values, decided from the one field that
+    // actually carries an administrator's intent.
+    expect(authContext).toContain("'admin_required'");
+    expect(authContext).toContain("'status_unknown'");
+    expect(authContext).toContain('user.mfaRequiredByAdmin === true');
+  });
+
+  it('only claims an administrator required MFA when that is established', () => {
+    // The literal claim must sit behind an explicit admin_required check.
+    const claim = 'Your administrator requires two-factor authentication';
+    const claimAt = login.indexOf(claim);
+    expect(claimAt, 'the admin-required wording should still exist').toBeGreaterThan(-1);
+
+    const guardAt = login.indexOf(
+      "pendingMfaEnrollment === 'admin_required'",
+    );
+    expect(guardAt, 'the claim must be guarded').toBeGreaterThan(-1);
+    expect(
+      guardAt,
+      'the guard must come before the sentence it guards',
+    ).toBeLessThan(claimAt);
+  });
+
+  it('never renders the administrator claim unconditionally', () => {
+    // The exact defect: the sentence used to sit directly under
+    // `{pendingMfaEnrollment ? (` with nothing distinguishing the two reasons,
+    // so it was shown for BOTH. If that shape ever returns, the guard above
+    // would still pass while the claim was once again unconditional.
+    const branchAt = login.indexOf('{pendingMfaEnrollment ? (');
+    const claimAt = login.indexOf(
+      'Your administrator requires two-factor authentication',
+    );
+    const guardAt = login.indexOf("pendingMfaEnrollment === 'admin_required'");
+
+    expect(branchAt).toBeGreaterThan(-1);
+    expect(
+      guardAt > branchAt && guardAt < claimAt,
+      'the admin claim must be nested inside a reason check, not the bare enrolment branch',
+    ).toBe(true);
+  });
+
+  it('tells the person the status could not be verified in the unknown case', () => {
+    // The honest alternative must actually exist — a guard with no second
+    // branch would just hide the message and leave a blank explanation.
+    expect(login).toMatch(/could not verify this account/i);
+  });
+
+  it('still blocks sign-in for both reasons', () => {
+    // The whole point is that only the WORDING changes. Both reasons must keep
+    // clearing currentUser and holding the person on the enrolment screen.
+    //
+    // Bounded to the mfaRequired branch itself — it ends at its own return —
+    // so this cannot accidentally read the success path that follows, which
+    // legitimately calls setCurrentUser(user).
+    const start = authContext.indexOf('if (user.mfaRequired)');
+    const end = authContext.indexOf('mfaEnrollmentRequired: true', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const branch = authContext.slice(start, end);
+    expect(branch).toContain('setCurrentUser(null)');
+    expect(branch).not.toContain('setCurrentUser(user)');
   });
 });
 
