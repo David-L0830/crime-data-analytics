@@ -39,11 +39,15 @@ export default function ForgotPassword() {
     setError('');
     setSubmitting(true);
     try {
-      await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        { redirectTo: `${window.location.origin}/reset-password` },
+      );
+      if (resetError) throw resetError;
       setSent(true);
     } catch {
+      // Generic on purpose: never reveal whether the address matched an
+      // account, and never surface the raw Supabase error (e.g. a 429).
       setError('Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);
