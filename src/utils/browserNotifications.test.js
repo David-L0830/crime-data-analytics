@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   hasAnnounced,
+  isSystemAlertWorthy,
   notificationPermission,
   notificationsSupported,
   rememberAnnounced,
@@ -269,5 +270,58 @@ describe('system notifications', () => {
     expect(hasAnnounced(undefined)).toBe(false);
     expect(hasAnnounced(null)).toBe(false);
     expect(() => rememberAnnounced(undefined)).not.toThrow();
+  });
+});
+
+describe('which notifications earn an operating-system alert', () => {
+  // THE ALLOW-LIST. These two are time-critical and are about something
+  // happening in the barangay right now, so they may interrupt somebody who is
+  // in another application. Everything else keeps its in-app pop-up and its
+  // bell entry and is read when the bell is next opened.
+  it('lets a New Incident interrupt the user', () => {
+    expect(isSystemAlertWorthy({ title: 'New Incident' })).toBe(true);
+  });
+
+  it('lets a Hotspot Alert interrupt the user', () => {
+    expect(isSystemAlertWorthy({ title: 'Hotspot Alert' })).toBe(true);
+  });
+
+  it('keeps Case Resolved in the application only', () => {
+    expect(isSystemAlertWorthy({ title: 'Case Resolved' })).toBe(false);
+  });
+
+  it('keeps New Criminal Record in the application only', () => {
+    expect(isSystemAlertWorthy({ title: 'New Criminal Record' })).toBe(false);
+  });
+
+  it('keeps New Victim Record in the application only', () => {
+    expect(isSystemAlertWorthy({ title: 'New Victim Record' })).toBe(false);
+  });
+
+  it('keeps the remaining seeded titles in the application only', () => {
+    expect(isSystemAlertWorthy({ title: 'Sync Complete' })).toBe(false);
+    expect(isSystemAlertWorthy({ title: 'Overdue Case' })).toBe(false);
+    expect(isSystemAlertWorthy({ title: 'Backup Reminder' })).toBe(false);
+  });
+
+  it('is an allow-list, so an unrecognised title raises nothing', () => {
+    // A title added to the product later must stay silent until it is
+    // deliberately listed. The cost of a missed desktop alert is that the user
+    // sees the item in the bell a moment later; the cost of an unwanted one is
+    // a desktop interruption during unrelated work, repeated every time.
+    expect(isSystemAlertWorthy({ title: 'Some Future Notification' })).toBe(
+      false,
+    );
+  });
+
+  it('matches the title exactly, not loosely', () => {
+    expect(isSystemAlertWorthy({ title: 'new incident' })).toBe(false);
+    expect(isSystemAlertWorthy({ title: 'New Incident Report' })).toBe(false);
+  });
+
+  it('does not throw on a missing or malformed notification', () => {
+    expect(isSystemAlertWorthy(undefined)).toBe(false);
+    expect(isSystemAlertWorthy(null)).toBe(false);
+    expect(isSystemAlertWorthy({})).toBe(false);
   });
 });

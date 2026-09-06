@@ -1224,6 +1224,120 @@ h6 {
 }
 
 /* ===== Profile Settings modal (Checkpoint 25) ===== */
+/* ===== Permissions block inside Profile Settings =====
+   Built entirely from theme tokens, so it follows light and dark mode with the
+   modal around it and carries no [data-theme="dark"] override of its own.
+   Separated from the account fields above by a rule, because nothing in here
+   is saved by the modal's Save Changes button — these controls act on the
+   browser immediately and belong to the machine, not to the profile record. */
+.permissions-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.permissions-heading {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.permissions-intro {
+  margin: 0 0 14px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.permission-row {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.permission-row + .permission-row {
+  margin-top: 10px;
+}
+
+.permission-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-row-head > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.permission-row-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* The status chip is pushed to the trailing edge so the four states line up
+   down the column and can be compared at a glance. */
+.permission-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.permission-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.permission-status-granted {
+  color: var(--success);
+}
+
+.permission-status-denied {
+  color: var(--danger);
+}
+
+.permission-status-prompt {
+  color: var(--text-muted);
+}
+
+.permission-status-unsupported {
+  color: var(--text-muted);
+}
+
+.permission-row-purpose {
+  margin: 6px 0 10px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.permission-row-help {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.permission-row-error {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
 .profile-settings-avatar-row {
   display: flex;
   align-items: center;
@@ -2324,6 +2438,53 @@ select {
 .map-caption-source {
   font-size: 0.68rem;
   color: var(--text-muted);
+}
+
+/* ===== My Location control in the map sidebar =====
+   Every colour is a theme token, so this follows light/dark with the rest of
+   the sidebar and needs no dark-mode override of its own. */
+.map-my-location {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.map-location-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.map-location-clear:hover {
+  color: var(--text-primary);
+}
+
+.map-location-notice {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Three tones, because the three situations are genuinely different and
+   colouring them the same would tell the user nothing. `warning` is the
+   outside-the-barangay case, which is not a failure — the map is working
+   exactly as designed — so it is amber rather than red. */
+.map-location-notice.muted {
+  color: var(--text-secondary);
+}
+
+.map-location-notice.warning {
+  color: var(--warning);
+}
+
+.map-location-notice.error {
+  color: var(--danger);
 }
 
 /* ===== Data-quality panel in the map sidebar ===== */

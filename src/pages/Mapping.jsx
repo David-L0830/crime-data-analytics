@@ -22,6 +22,11 @@ import {
   isWithinBarangay178,
 } from '../utils/geo';
 import { BASEMAPS } from '../utils/basemaps';
+import {
+  geolocationSupported,
+  locationPermission,
+  requestCurrentPosition,
+} from '../utils/browserLocation';
 import { Icons } from '../components/icons';
 import Button from '../components/ui/Button';
 
@@ -46,6 +51,20 @@ const UNKNOWN_TYPE_COLOR = '#94A3B8';
 // ordinary barangay incidents, because they are not ones this system has
 // jurisdiction over. See the classification block in the component.
 const OUT_OF_AREA_COLOR = '#94A3B8';
+
+// The viewer's own position. Not a crime-type colour and not the boundary's
+// green — but colour is NOT what distinguishes it, and it cannot be: crime
+// type colours are allocated by the server from an eighteen-hue palette (see
+// CrimeTypeColorAllocator) that leaves no hue permanently free, so any colour
+// chosen here could one day be issued to a crime type.
+//
+// What actually makes this marker unmistakable is its FORM. It is the only
+// thing on the map drawn as a small solid dot inside a soft accuracy disc,
+// the only marker with a white ring, and there is never more than one of it.
+// A crime marker is an 8px circle with a thin white stroke and no disc around
+// it. The two cannot be confused even if the palette collides, and the
+// tooltip says "Your current location" outright.
+const USER_LOCATION_COLOR = '#6366F1';
 
 // How far outside the barangay the viewport may be dragged, in degrees —
 // roughly 1.3 km on each side.
@@ -181,6 +200,19 @@ export default function Mapping() {
   // is the view that names the roads an incident report refers to, and the one
   // whose survey the boundary polygon comes from.
   const [basemap, setBasemap] = useState('street');
+
+  // MY LOCATION. All three pieces of this are session state that dies with the
+  // component — nothing here is written to localStorage, to Laravel, or to
+  // Supabase. See utils/browserLocation for why that is deliberate.
+  //
+  // `userLocation` is the coordinate to draw, or null for "not located".
+  // `locating` disables the button while a fix is being acquired, which can
+  // legitimately take several seconds indoors.
+  // `locationNotice` is what the sidebar says about the last attempt: a
+  // failure, or the outside-the-barangay case, which is not a failure at all.
+  const [userLocation, setUserLocation] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [locationNotice, setLocationNotice] = useState(null);
   // Whether incidents whose recorded location is outside the barangay are drawn
   // at all. On by default: hiding data by default is how a known problem
   // becomes an invisible one. The control exists because an officer reading the
@@ -238,6 +270,16 @@ export default function Mapping() {
   const mapInstance = useRef(null);
   const layerRef = useRef(null);
   const basemapLayerRef = useRef(null);
+  // The viewer's own position, on its OWN reference.
+  //
+  // This is the whole reason My Location survives everything else the map
+  // does. layerRef is torn down and rebuilt on every filter change, every
+  // visualization switch and every crime-colour change; basemapLayerRef is
+  // torn down and rebuilt on every base-map switch. Each of those effects
+  // removes only the layer held in its own ref, so a location marker kept
+  // here is untouched by all of them — and conversely, nothing in this
+  // location effect can disturb the markers, clusters, heatmap or tiles.
+  const userLocationRef = useRef(null);
 
   const colorFor = useMemo(
     () => (crimeType) => crimeTypeColors[crimeType] || UNKNOWN_TYPE_COLOR,
@@ -485,6 +527,88 @@ export default function Mapping() {
     };
   }, [basemap]);
 
+  // THE VIEWER'S OWN POSITION — its own layer, its own effect, its own ref.
+  //
+  // Keyed on `userLocation` alone. It therefore does not re-run when filters,
+  // visualization type, crime colours or the base map change, which is exactly
+  // what "the location marker survives a map refresh" means in practice: the
+  // marker is not redrawn because it is never removed. On a StrictMode
+  // remount React runs every cleanup and then every effect again, so the map
+  // is rebuilt and this puts the marker back on the fresh map, the same way
+  // the base-map effect above puts back its tiles.
+  //
+  // NO fitBounds, NO setView, NO maxBounds. This effect only adds and removes
+  // an overlay. Moving the view is the click handler's decision, made once per
+  // click and only when the position is inside the barangay — a view change
+  // here would fight the marker effect's own fit on every filter change.
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return undefined;
+
+    if (userLocationRef.current) {
+      map.removeLayer(userLocationRef.current);
+      userLocationRef.current = null;
+    }
+
+    if (!userLocation) return undefined;
+
+    const { latitude, longitude, accuracy } = userLocation;
+
+    // The accuracy disc is drawn first so the dot sits on top of it. It is a
+    // real radius in metres, not decoration: a fix accurate to 2 km and a fix
+    // accurate to 8 m are very different claims about where somebody is, and
+    // a bare dot asserts the precise one regardless. Omitted when the browser
+    // reports no accuracy, rather than invented.
+    const parts = [];
+
+    if (typeof accuracy === 'number' && accuracy > 0) {
+      parts.push(
+        L.circle([latitude, longitude], {
+          radius: accuracy,
+          color: USER_LOCATION_COLOR,
+          weight: 1,
+          opacity: 0.45,
+          fillColor: USER_LOCATION_COLOR,
+          fillOpacity: 0.12,
+          // Not interactive: it can be hundreds of metres across, and a
+          // clickable disc that size would swallow every incident marker
+          // underneath it.
+          interactive: false,
+        }),
+      );
+    }
+
+    const dot = L.circleMarker([latitude, longitude], {
+      radius: 6,
+      fillColor: USER_LOCATION_COLOR,
+      color: COLORS.white,
+      weight: 3,
+      fillOpacity: 1,
+    });
+
+    dot.bindTooltip('<div class="map-tip"><strong>Your current location</strong></div>', {
+      direction: 'auto',
+      offset: [0, 0],
+      opacity: 1,
+      sticky: false,
+      className: 'map-hover-tip',
+    });
+
+    parts.push(dot);
+
+    userLocationRef.current = L.layerGroup(parts).addTo(map);
+
+    return () => {
+      // Guarded the same way the base-map cleanup is: by the time this runs on
+      // unmount the init effect's cleanup may already have destroyed the map,
+      // taking its layers with it.
+      if (userLocationRef.current && mapInstance.current) {
+        mapInstance.current.removeLayer(userLocationRef.current);
+      }
+      userLocationRef.current = null;
+    };
+  }, [userLocation]);
+
   useEffect(() => {
     const map = mapInstance.current;
     if (!map) return;
@@ -663,6 +787,100 @@ export default function Mapping() {
   const setFilter = (id, value) =>
     setFilters((prev) => ({ ...prev, [id]: value }));
 
+  // MY LOCATION — the only path in this application that can ask for the
+  // browser's location, and it runs only from the button's click.
+  //
+  // The permission is READ before anything is requested, because a decision
+  // that is already 'denied' must produce an explanation rather than another
+  // request. Re-asking a blocked permission does not re-prompt — the browser
+  // rejects it immediately — so the only thing a blind retry would achieve is
+  // a spinner followed by the same message, one round-trip later.
+  const handleLocate = async () => {
+    if (locating) return;
+    setLocating(true);
+    setLocationNotice(null);
+
+    try {
+      const state = await locationPermission();
+
+      if (state === 'unsupported') {
+        setLocationNotice({
+          tone: 'muted',
+          text: 'This browser cannot provide your location.',
+        });
+        return;
+      }
+
+      if (state === 'denied') {
+        setLocationNotice({
+          tone: 'muted',
+          text: 'Location access is blocked for this site. To use My Location, allow location for this site in your browser settings (usually via the icon at the left of the address bar), then reload the page.',
+        });
+        return;
+      }
+
+      // 'granted' and 'prompt' both come here. The browser prompts, or does
+      // not, according to what it has already been told — that decision is
+      // the browser's to make and this code does not try to second-guess it.
+      const position = await requestCurrentPosition();
+
+      if (!isValidCoordinate(position.latitude, position.longitude)) {
+        setLocationNotice({
+          tone: 'error',
+          text: 'Your browser returned a location that is not a usable coordinate.',
+        });
+        return;
+      }
+
+      setUserLocation(position);
+
+      const map = mapInstance.current;
+      const inside = isWithinBarangay178(position.latitude, position.longitude);
+
+      if (inside) {
+        // setView, never fitBounds. fitBounds belongs to the incident layer
+        // and to the initial view; borrowing it here would recompute the
+        // viewport from a bounding box that has nothing to do with the data.
+        //
+        // The zoom never decreases: somebody already looking closely at a
+        // street should not be pulled back out by asking where they are.
+        if (map) {
+          map.setView(
+            [position.latitude, position.longitude],
+            Math.max(map.getZoom(), 17),
+          );
+        }
+        setLocationNotice(null);
+      } else {
+        // OUTSIDE THE BARANGAY. The map's restriction is not relaxed for this
+        // and the view is not moved — maxBounds stays exactly as configured,
+        // and a setView beyond it would only rubber-band back, which reads as
+        // a broken button. The marker is still added (it is within the
+        // pannable margin often enough to be visible, and drawing it is the
+        // honest answer to "where am I"), and the sidebar says plainly why
+        // nothing moved.
+        setLocationNotice({
+          tone: 'warning',
+          text: 'Your current location is outside Barangay 178. The map stays on the barangay.',
+        });
+      }
+    } catch (err) {
+      // LocationError messages are already written for a user to read; see
+      // utils/browserLocation. Raw browser error text never reaches here.
+      setLocationNotice({
+        tone: err?.code === 'denied' ? 'muted' : 'error',
+        text: err?.message || 'Your location could not be determined.',
+      });
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const clearUserLocation = () => {
+    setUserLocation(null);
+    setLocationNotice(null);
+  };
+
   // Crime Type comes from the configured, enabled vocabulary (see
   // DataContext), not a hard-coded list — an Administrator adding a crime type
   // in System Settings makes it filterable here immediately.
@@ -763,6 +981,56 @@ export default function Mapping() {
                 {config.label}
               </label>
             ))}
+          </div>
+
+          {/* MY LOCATION. Between Base Map and Visualization because it is
+              neither: it is not what the incidents are drawn over, and it is
+              not how they are drawn — it is the one control on this page that
+              is about the person reading the map rather than the data.
+
+              OPTIONAL, AND NEVER AUTOMATIC. Nothing requests location when
+              this page mounts; the request happens inside this button's click
+              handler and nowhere else. The coordinate it produces stays in
+              this component and is never sent to Laravel or Supabase. */}
+          <h3>My Location</h3>
+          <div className="map-my-location">
+            {geolocationSupported() ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleLocate}
+                  disabled={locating}
+                  style={{ width: '100%' }}
+                >
+                  <Icons.Crosshair size={14} strokeWidth={2} />{' '}
+                  {locating ? 'Finding you…' : 'Show My Location'}
+                </Button>
+
+                {/* Only once there is something to clear. The marker is not
+                    removed by anything else on this page, so this is the only
+                    way to take it off — which is why it exists. */}
+                {userLocation && !locating && (
+                  <button
+                    type="button"
+                    className="map-location-clear"
+                    onClick={clearUserLocation}
+                  >
+                    Hide my location
+                  </button>
+                )}
+
+                {locationNotice && (
+                  <p className={`map-location-notice ${locationNotice.tone}`}>
+                    {locationNotice.text}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="map-location-notice muted">
+                This browser cannot provide your location.
+              </p>
+            )}
           </div>
 
           <h3>Visualization</h3>

@@ -30,6 +30,52 @@
 
 const STORAGE_KEY = 'badac.announcedNotificationIds';
 
+/**
+ * The notification titles that are allowed to interrupt somebody outside the
+ * application with a system alert.
+ *
+ * AN ALLOW-LIST, NOT A BLOCK-LIST. A title added to the product later raises
+ * no system alert until it is deliberately listed here, which is the safe
+ * default: the cost of a missed OS alert is that the user sees the item in the
+ * bell a moment later, whereas the cost of an unwanted one is a desktop
+ * interruption during unrelated work, repeated for every notification the
+ * system happens to emit.
+ *
+ * WHY THESE TWO. Both are time-critical and both are about something happening
+ * in the barangay right now: 'New Incident' is a report being logged, and
+ * 'Hotspot Alert' is the threshold for repeated crime in one sitio being
+ * crossed. The rest — 'Case Resolved', 'New Criminal Record', 'New Victim
+ * Record', 'Sync Complete', 'Backup Reminder' — are records of something
+ * already handled, and are read when somebody next opens the bell. They keep
+ * their in-app pop-up and their bell entry exactly as before; the only thing
+ * withheld from them is the operating-system notification.
+ *
+ * Titles are matched exactly against the strings the backend writes (see
+ * IncidentController, CriminalController and VictimController). Kept as a Set
+ * because membership is the only operation ever performed on it, and kept
+ * module-private — the predicate below is the only way in, so no caller can
+ * widen the policy at runtime.
+ */
+const SYSTEM_ALERT_TITLES = new Set(['New Incident', 'Hotspot Alert']);
+
+/**
+ * Whether a notification should also raise an operating-system notification.
+ *
+ * THE SINGLE DEFINITION of that policy. It lives beside showSystemNotification
+ * rather than in notificationRouting, because routing answers "where does this
+ * lead when clicked" — a question every notification has an answer to — while
+ * this answers "may this interrupt you", which is about the system-alert layer
+ * specifically. One exported predicate means the bell, the in-app pop-up and
+ * any future surface cannot each arrive at their own idea of what is urgent.
+ *
+ * Deliberately takes the notification, not a bare title: callers already hold
+ * the record, and passing the whole thing means the rule can later consider
+ * `type` or any other field without every call site changing shape.
+ */
+export function isSystemAlertWorthy(notification) {
+  return SYSTEM_ALERT_TITLES.has(notification?.title);
+}
+
 // How many ids to remember. Large enough that a busy week cannot roll an id out
 // of the window and replay its notification, small enough to stay a trivially
 // small localStorage value.

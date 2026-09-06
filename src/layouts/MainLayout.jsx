@@ -9,7 +9,10 @@ import {
   playNotificationChime,
   unlockNotificationAudio,
 } from '../utils/notificationSound';
-import { showSystemNotification } from '../utils/browserNotifications';
+import {
+  isSystemAlertWorthy,
+  showSystemNotification,
+} from '../utils/browserNotifications';
 import { notificationTarget } from '../utils/notificationRouting';
 
 // How long the top-edge pulse runs. Kept in sync with the
@@ -121,12 +124,20 @@ export default function MainLayout() {
       // The system notification, for the case the in-app pop-up cannot reach:
       // the user is in another tab or another application entirely.
       //
-      // Fired unconditionally rather than only when document.hidden. A
-      // notification that arrives in the instant before someone switches away
-      // would otherwise be the one alert they never see, and the operating
-      // system already suppresses or quietly stacks a notification for a window
-      // that is in focus — so letting the OS make that call is both simpler and
-      // better behaved than guessing at it here.
+      // NOT EVERY NOTIFICATION EARNS ONE. isSystemAlertWorthy is the single
+      // definition of which titles may interrupt somebody outside the
+      // application — currently 'New Incident' and 'Hotspot Alert', the two
+      // that are about something happening in the barangay right now. Every
+      // other notification still gets the in-app pop-up above and its entry in
+      // the bell; it simply does not raise a desktop alert. The rule lives in
+      // utils/browserNotifications so this call site holds no copy of it.
+      //
+      // Fired unconditionally with respect to focus rather than only when
+      // document.hidden. A notification that arrives in the instant before
+      // someone switches away would otherwise be the one alert they never see,
+      // and the operating system already suppresses or quietly stacks a
+      // notification for a window that is in focus — so letting the OS make
+      // that call is both simpler and better behaved than guessing at it here.
       //
       // Its OWN duplicate guard is keyed on the notification id and backed by
       // localStorage (see utils/browserNotifications), which is deliberately a
@@ -134,12 +145,14 @@ export default function MainLayout() {
       // is emptied by a page reload or a remount, whereas a system notification
       // that re-fired on every reload would be genuinely intrusive. Returns
       // false and does nothing when permission has not been granted.
-      showSystemNotification({
-        id: n.id,
-        title: n.title,
-        message: n.message,
-        onClick: act,
-      });
+      if (isSystemAlertWorthy(n)) {
+        showSystemNotification({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          onClick: act,
+        });
+      }
     });
 
     // Once per batch of GENUINELY new notifications, not once per

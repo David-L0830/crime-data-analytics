@@ -64,6 +64,7 @@ import {
   Plus,
   Map as MapIcon,
   Globe,
+  Crosshair,
 } from 'lucide-react';
 
 // Login redesign (BADAC Analytics visual refresh) — small inline icon that
@@ -188,6 +189,11 @@ export const Icons = {
   // and one of its radio options the same glyph.
   Map: MapIcon,
   Globe,
+  // Crime Mapping's My Location control. A crosshair rather than another pin:
+  // MapPin already means "the Mapping module" in the nav and "an incident" on
+  // the map itself, so a third meaning on the same glyph would make the one
+  // button that is about the VIEWER look like one more thing about the data.
+  Crosshair,
 };
 
 export default Icons;
