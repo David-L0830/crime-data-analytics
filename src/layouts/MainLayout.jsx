@@ -3,7 +3,10 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/layout/Sidebar';
 import Header from '../components/layout/Header';
 import ErrorBoundary from '../components/ErrorBoundary';
+import SessionTimeoutModal from '../components/auth/SessionTimeoutModal';
+import { useAuth } from '../hooks/useAuth';
 import { useData } from '../hooks/useData';
+import { useInactivityTimeout } from '../hooks/useInactivityTimeout';
 import { useToast } from '../hooks/useToast';
 import {
   playNotificationChime,
@@ -39,6 +42,28 @@ export default function MainLayout() {
   const { showNotificationToast } = useToast();
   const [toplinePulsing, setToplinePulsing] = useState(false);
   const pulseTimer = useRef(null);
+  const { currentUser, logout } = useAuth();
+
+  // THE one place the inactivity timeout is mounted. This layout is the single
+  // authenticated shell — every module (Dashboard, Crime Mapping, Incidents,
+  // Victims, Criminal Records, Reports, Analytics, Profile) renders through
+  // the <Outlet /> below — so mounting it here covers all of them with exactly
+  // one timer, and no page holds a competing copy.
+  //
+  // `enabled` is tied to currentUser rather than left on: ProtectedRoute means
+  // this layout only mounts for a signed-in user, but currentUser also drops
+  // to null the instant any sign-out completes, and that must tear the timers
+  // and listeners down rather than leave them running against a session that
+  // no longer exists.
+  //
+  // onTimeout is AuthContext's own logout — the same function the sidebar's
+  // Sign Out calls. It writes the audit entry, ends the Supabase session, and
+  // clears currentUser; ProtectedRoute then redirects to /login on its own. No
+  // token is touched here, no state is cleared here, and the page is not
+  // reloaded.
+  const { warningRemainingMs, staySignedIn, signOutNow } = useInactivityTimeout(
+    { enabled: Boolean(currentUser), onTimeout: logout },
+  );
   // Ids this session has already announced. See the effect below for why
   // clearing the queue is not, by itself, enough to guarantee once-only.
   const announcedIds = useRef(new Set());
@@ -266,6 +291,15 @@ export default function MainLayout() {
           )}
         </div>
       </main>
+      {/* Closed (and rendering nothing) unless warningRemainingMs is non-null.
+          Placed at the shell level rather than inside .content-area so it is
+          not remounted by navigation and cannot be taken down by a page's
+          ErrorBoundary. */}
+      <SessionTimeoutModal
+        remainingMs={warningRemainingMs}
+        onStaySignedIn={staySignedIn}
+        onSignOut={signOutNow}
+      />
     </div>
   );
 }
