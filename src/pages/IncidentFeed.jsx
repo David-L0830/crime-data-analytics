@@ -223,6 +223,11 @@ export default function IncidentFeed() {
       showToast('Incident updated', 'success');
     } catch (err) {
       showToast(err.message || 'Could not update incident', 'error');
+      // Re-thrown, not swallowed: the toast is gone in a few seconds and
+      // cannot carry a 422's per-field messages. IncidentEditModal catches
+      // this and renders err.errors inside the still-open form, which is
+      // where the encoder is looking and where the offending field is.
+      throw err;
     }
   };
 
@@ -327,6 +332,9 @@ export default function IncidentFeed() {
       showToast('Incident recorded', 'success');
     } catch (err) {
       showToast(err.message || 'Could not save incident', 'error');
+      // See handleSave: IncidentCreateModal needs the error to show the
+      // server's field-level messages in the open form.
+      throw err;
     }
   };
 

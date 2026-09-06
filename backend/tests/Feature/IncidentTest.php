@@ -411,4 +411,75 @@ class IncidentTest extends TestCase
     {
         $this->getJson('/api/incidents/map')->assertUnauthorized();
     }
+
+    // ===== An incident cannot be dated in the future =====
+    //
+    // `date` alone accepted any parseable date, so a mis-keyed year (2026 typed
+    // as 2062) was storable. Such a record is not merely wrong, it is invisible:
+    // it sits beyond every dashboard date range and drags trend lines with it.
+    // Today remains valid because reports are very often encoded the same day.
+
+    public function test_a_future_dated_incident_is_rejected(): void
+    {
+        $this->actingUser();
+
+        $this->postJson('/api/incidents', [
+            'caseNumber' => 'CN-2025-7001',
+            'crimeType' => 'Theft',
+            'date' => now()->addDay()->format('Y-m-d'),
+            'sitio' => 'Sitio 1',
+        ])->assertUnprocessable()->assertJsonValidationErrors(['date']);
+
+        $this->assertDatabaseMissing('incidents', ['case_number' => 'CN-2025-7001']);
+    }
+
+    public function test_an_incident_dated_today_is_accepted(): void
+    {
+        $this->actingUser();
+
+        $this->postJson('/api/incidents', [
+            'caseNumber' => 'CN-2025-7002',
+            'crimeType' => 'Theft',
+            'date' => now()->format('Y-m-d'),
+            'sitio' => 'Sitio 1',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('incidents', ['case_number' => 'CN-2025-7002']);
+    }
+
+    public function test_updating_an_incident_to_a_future_date_is_rejected(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['incident_date' => '2026-01-15']);
+
+        $this->putJson("/api/incidents/{$incident->id}", [
+            'date' => now()->addYear()->format('Y-m-d'),
+        ])->assertUnprocessable()->assertJsonValidationErrors(['date']);
+
+        // The stored date is untouched: a rejected edit changes nothing.
+        $this->assertDatabaseHas('incidents', [
+            'id' => $incident->id,
+            'incident_date' => '2026-01-15',
+        ]);
+    }
+
+    public function test_updating_an_incident_without_changing_its_date_still_works(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create([
+            'incident_date' => '2026-01-15',
+            'status' => 'Open',
+        ]);
+
+        // `sometimes` must keep an edit that omits `date` entirely out of the
+        // new rule's way, otherwise every existing record becomes uneditable.
+        $this->putJson("/api/incidents/{$incident->id}", ['status' => 'Solved'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Solved');
+
+        $this->assertDatabaseHas('incidents', [
+            'id' => $incident->id,
+            'incident_date' => '2026-01-15',
+        ]);
+    }
 }

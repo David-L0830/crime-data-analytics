@@ -8,6 +8,10 @@ import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
+import {
+  coordinatePayload,
+  submissionErrorMessages,
+} from './incidentSubmission';
 
 // The complainant is whoever filed the report. Usually that is the victim
 // themselves, which is what complainantIsVictim records; when it is not, the
@@ -786,8 +790,7 @@ export function IncidentCreateModal({
       ...form,
       victimAge: form.victimAge ? parseInt(form.victimAge, 10) : null,
       suspectAge: form.suspectAge ? parseInt(form.suspectAge, 10) : null,
-      latitude: form.latitude ? parseFloat(form.latitude) : null,
-      longitude: form.longitude ? parseFloat(form.longitude) : null,
+      ...coordinatePayload(form),
       status: form.status || 'Open',
       // Blank rows are dropped here as well as server-side, so a record saved
       // with the default empty row does not travel with a meaningless item.
@@ -801,9 +804,17 @@ export function IncidentCreateModal({
       setErrors(validationErrors);
       return;
     }
+    // Clears any messages left by a previous rejected attempt, so a retry
+    // never shows stale errors next to a form that has since been corrected.
+    setErrors([]);
     setSubmitting(true);
     try {
       await onSave(data);
+    } catch (err) {
+      // A rejected save leaves the modal open with everything the encoder
+      // typed still in it, and reports the server's field-level messages in
+      // the same area the client-side ones use. Nothing is re-validated here.
+      setErrors(submissionErrorMessages(err, 'Could not save incident.'));
     } finally {
       setSubmitting(false);
     }
@@ -935,10 +946,7 @@ export function IncidentEditModal({
       ...form,
       victimAge: form.victimAge ? parseInt(form.victimAge, 10) : null,
       suspectAge: form.suspectAge ? parseInt(form.suspectAge, 10) : null,
-      latitude: form.latitude ? parseFloat(form.latitude) : incident.latitude,
-      longitude: form.longitude
-        ? parseFloat(form.longitude)
-        : incident.longitude,
+      ...coordinatePayload(form),
       // Blank rows are dropped here as well as server-side, so a record saved
       // with the default empty row does not travel with a meaningless item.
       evidenceItems: (form.evidenceItems || []).filter(
@@ -951,9 +959,16 @@ export function IncidentEditModal({
       setErrors(validationErrors);
       return;
     }
+    // Clears any messages left by a previous rejected attempt, so a retry
+    // never shows stale errors next to a form that has since been corrected.
+    setErrors([]);
     setSubmitting(true);
     try {
       await onSave(incident.id, data);
+    } catch (err) {
+      // See IncidentCreateModal: the modal stays open, the entered values
+      // stay put, and the server's messages are shown inline.
+      setErrors(submissionErrorMessages(err, 'Could not update incident.'));
     } finally {
       setSubmitting(false);
     }

@@ -28,7 +28,11 @@ class UpdateIncidentRequest extends FormRequest
             // See StoreIncidentRequest for why this must exist in crime_types.
             'crimeType' => ['sometimes', 'required', 'string', 'max:100', Rule::exists('crime_types', 'name')],
             'category' => ['nullable', 'string', 'max:100'],
-            'date' => ['sometimes', 'required', 'date'],
+            // See StoreIncidentRequest for why a future date is rejected.
+            // `sometimes` is kept ahead of it: an edit that does not send
+            // `date` at all leaves the stored date alone and is not judged
+            // against today, so existing records stay editable.
+            'date' => ['sometimes', 'required', 'date', 'before_or_equal:today'],
             'time' => ['nullable', 'date_format:H:i'],
             'street' => ['nullable', 'string', 'max:255'],
             'sitio' => ['sometimes', 'required', 'string', 'max:100'],
@@ -73,6 +77,7 @@ class UpdateIncidentRequest extends FormRequest
     {
         return [
             'caseNumber.unique' => 'Case number already exists.',
+            'date.before_or_equal' => 'Incident date cannot be in the future.',
             'complainantName.required_if' => 'Complainant full name is required when the complainant is not the victim.',
         ];
     }

@@ -33,7 +33,16 @@ class StoreIncidentRequest extends FormRequest
             // this same rule for edits that don't touch crimeType at all.
             'crimeType' => ['required', 'string', 'max:100', Rule::exists('crime_types', 'name')],
             'category' => ['nullable', 'string', 'max:100'],
-            'date' => ['required', 'date'],
+            // An incident cannot have happened later than today. `date` alone
+            // accepted 2099-01-01, which is not a recordable event but a typo
+            // (a mis-keyed year) that then skews every dashboard, trend line
+            // and date-ranged export it lands in. Today is still valid: a
+            // report is very often encoded on the day it is made.
+            //
+            // `before_or_equal:today` resolves "today" in the application
+            // timezone (Asia/Manila, config/app.php), which is the timezone the
+            // encoder in the barangay hall is actually working in.
+            'date' => ['required', 'date', 'before_or_equal:today'],
             'time' => ['nullable', 'date_format:H:i'],
             'street' => ['nullable', 'string', 'max:255'],
             'sitio' => ['required', 'string', 'max:100'],
@@ -83,6 +92,7 @@ class StoreIncidentRequest extends FormRequest
     {
         return [
             'caseNumber.unique' => 'Case number already exists.',
+            'date.before_or_equal' => 'Incident date cannot be in the future.',
             'complainantName.required_if' => 'Complainant full name is required when the complainant is not the victim.',
         ];
     }
