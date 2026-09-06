@@ -21,6 +21,7 @@ import {
   isValidCoordinate,
   isWithinBarangay178,
 } from '../utils/geo';
+import { BASEMAPS } from '../utils/basemaps';
 import { Icons } from '../components/icons';
 import Button from '../components/ui/Button';
 
@@ -62,6 +63,7 @@ const BOUNDS_PADDING_DEG = 0.012;
 // flick from zooming out to the whole of Luzon, which is the other half of
 // "the map is about Barangay 178".
 const MIN_ZOOM = 13;
+
 
 // ---------------------------------------------------------------------------
 // COLOUR MEANS CRIME TYPE. NOTHING ELSE.
@@ -175,6 +177,10 @@ export default function Mapping() {
   const { showToast } = useToast();
   const [filters, setFilters] = useState({});
   const [vizType, setVizType] = useState('markers');
+  // Which base map is drawn underneath everything else. Street by default: it
+  // is the view that names the roads an incident report refers to, and the one
+  // whose survey the boundary polygon comes from.
+  const [basemap, setBasemap] = useState('street');
   // Whether incidents whose recorded location is outside the barangay are drawn
   // at all. On by default: hiding data by default is how a known problem
   // becomes an invisible one. The control exists because an officer reading the
@@ -231,6 +237,7 @@ export default function Mapping() {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const layerRef = useRef(null);
+  const basemapLayerRef = useRef(null);
 
   const colorFor = useMemo(
     () => (crimeType) => crimeTypeColors[crimeType] || UNKNOWN_TYPE_COLOR,
@@ -388,10 +395,10 @@ export default function Mapping() {
     // map valid at all on first render.
     map.fitBounds(boundaryBounds, { padding: [24, 24] });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map);
+    // The base map is NOT added here. It is owned by the effect below, which
+    // keyed on `basemap` is the only thing that adds or removes a tile layer —
+    // so there is exactly one code path that can put tiles on this map, and
+    // switching base maps cannot leave two stacked on top of each other.
 
     // THE REAL BOUNDARY, replacing a 500 m circle drawn around a point in
     // another city.
@@ -436,6 +443,47 @@ export default function Mapping() {
       mapInstance.current = null;
     };
   }, []);
+
+  // BASE-MAP SWAP — the only place a tile layer is added or removed.
+  //
+  // Declared after the effect that creates the map, so on first render the map
+  // already exists by the time this runs (effects run in declaration order and
+  // mapInstance.current is assigned synchronously above). On a StrictMode
+  // remount React runs every cleanup and then every effect again, so the map is
+  // rebuilt and this puts a fresh tile layer on the fresh map.
+  //
+  // ONLY THE BASE LAYER CHANGES. The boundary, markers, clusters and heat layer
+  // live in Leaflet's overlayPane and marker pane; tiles live in the tilePane
+  // underneath. Removing and adding a tile layer therefore cannot disturb any
+  // overlay — they are not touched here, and the map's view, maxBounds and zoom
+  // limits belong to the map object itself, which this effect never recreates.
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map) return;
+
+    // Remove the outgoing layer BEFORE adding the incoming one, so the two are
+    // never both attached — stacked semi-transparent tiles would otherwise
+    // render as a muddy blend of street and imagery.
+    if (basemapLayerRef.current) {
+      map.removeLayer(basemapLayerRef.current);
+      basemapLayerRef.current = null;
+    }
+
+    const config = BASEMAPS[basemap] ?? BASEMAPS.street;
+    basemapLayerRef.current = L.tileLayer(config.url, {
+      attribution: config.attribution,
+      maxZoom: config.maxZoom,
+    }).addTo(map);
+
+    return () => {
+      // Guarded: by the time this runs on unmount the init effect's cleanup may
+      // already have destroyed the map, taking its layers with it.
+      if (basemapLayerRef.current && mapInstance.current) {
+        mapInstance.current.removeLayer(basemapLayerRef.current);
+      }
+      basemapLayerRef.current = null;
+    };
+  }, [basemap]);
 
   useEffect(() => {
     const map = mapInstance.current;
@@ -687,6 +735,34 @@ export default function Mapping() {
             >
               Clear Filters
             </Button>
+          </div>
+
+          {/* BASE MAP. Separate from Visualization on purpose: visualization is
+              how the incidents are drawn, base map is what they are drawn over.
+              Changing one must never be mistaken for changing the other, and
+              they are independent — every visualization works over either base.
+
+              Rendered from BASEMAPS so the control cannot list an option the
+              map does not implement, or omit one it does. */}
+          <h3>Base Map</h3>
+          <div className="map-viz-options">
+            {Object.entries(BASEMAPS).map(([key, config]) => (
+              <label key={key}>
+                <input
+                  type="radio"
+                  name="base-map"
+                  value={key}
+                  checked={basemap === key}
+                  onChange={() => setBasemap(key)}
+                />{' '}
+                {key === 'satellite' ? (
+                  <Icons.Globe size={14} strokeWidth={2} />
+                ) : (
+                  <Icons.Map size={14} strokeWidth={2} />
+                )}{' '}
+                {config.label}
+              </label>
+            ))}
           </div>
 
           <h3>Visualization</h3>

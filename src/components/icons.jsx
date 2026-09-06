@@ -62,6 +62,8 @@ import {
   ChevronRight,
   Camera,
   Plus,
+  Map as MapIcon,
+  Globe,
 } from 'lucide-react';
 
 // Login redesign (BADAC Analytics visual refresh) — small inline icon that
@@ -180,6 +182,12 @@ export const Icons = {
   Camera,
   // Structured evidence rows in the incident form
   Plus,
+  // Crime Mapping base-map selector. `Map` is the street basemap and `Globe`
+  // the satellite one; MapPin above is already taken by the nav entry for the
+  // module itself, and reusing it here would give the page's navigation icon
+  // and one of its radio options the same glyph.
+  Map: MapIcon,
+  Globe,
 };
 
 export default Icons;
