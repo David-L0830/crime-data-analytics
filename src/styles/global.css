@@ -2292,6 +2292,146 @@ select {
 /* ===== Marker popup =====
    Leaflet renders popups into its own container outside the app's DOM tree, so
    these are plain (unnested) selectors rather than descendants of .map-*. */
+/* ===== Barangay caption on the map =====
+   The viewport is restricted to Barangay 178, so a viewer cannot pan out far
+   enough to recognise the surrounding city — the map has to say what it is. */
+.map-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.map-caption-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.map-caption-title svg {
+  color: var(--accent);
+}
+
+/* Attribution, not a heading — deliberately quiet, but present: the ODbL
+   requires OpenStreetMap to be credited wherever its data is shown. */
+.map-caption-source {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* ===== Data-quality panel in the map sidebar ===== */
+.map-data-quality {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.map-data-quality p {
+  margin: 0 0 8px;
+}
+
+.map-data-quality strong {
+  color: var(--text-primary);
+}
+
+.map-outofarea-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+/* ===== Hover card on a marker =====
+   Leaflet's own tooltip skin is a small white box with a hard border, which
+   reads as a browser artefact rather than as part of this application. These
+   rules restyle it to the same card language as the rest of the system and,
+   critically, use theme tokens so it follows dark mode — the default skin
+   stays white-on-white-text in a dark theme and is unreadable. */
+.leaflet-tooltip.map-hover-tip {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 12px;
+  font-family: inherit;
+  white-space: normal;
+  max-width: 260px;
+}
+
+/* The little arrow is drawn as a CSS triangle whose colour is set by the
+   default skin, so it has to be re-pointed at the theme background or it
+   remains white against a dark card. */
+.leaflet-tooltip.map-hover-tip.leaflet-tooltip-top::before {
+  border-top-color: var(--border);
+}
+
+.map-tip {
+  min-width: 190px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.map-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.map-tip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.map-tip-type {
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+/* An incident whose recorded location is not in this barangay. Called out in
+   the card as well as in the marker's styling, so it can never be mistaken for
+   an ordinary Barangay 178 incident by someone reading only the card. */
+.map-tip-warning {
+  display: block;
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--warning-bg, rgba(255, 138, 61, 0.14));
+  color: var(--warning, #ff8a3d);
+  font-weight: 700;
+  font-size: 0.7rem;
+}
+
+.map-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.map-tip-row span {
+  color: var(--text-muted);
+}
+
+.map-tip-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: right;
+}
+
 .map-popup {
   min-width: 210px;
   font-size: 0.8rem;
@@ -2838,15 +2978,30 @@ select {
    The container itself is pointer-events: none so an empty stack can never
    intercept a click meant for the page; each card re-enables pointer events
    for its own dismiss button. */
+/* BOTTOM-RIGHT, not top-right.
+   The stack used to sit at top: 74px, immediately under the topbar, where it
+   overlapped the bell and the account controls it was announcing about — so a
+   burst of arrivals covered the very buttons somebody would reach for to act on
+   them. The bottom-right corner is the conventional home for transient system
+   toasts and is the only corner of this layout with no persistent control in it.
+
+   column-reverse is what makes the newest card appear at the BOTTOM of the
+   stack, nearest the corner, with older ones pushed upward. Growing downward
+   from a bottom anchor would push the newest card off-screen.
+
+   pointer-events: none on the container with `auto` restored on each card means
+   the empty space in this column never intercepts a click meant for the page
+   underneath — the stack cannot block normal application controls even while
+   three cards are showing. */
 .notif-toast-stack {
   position: fixed;
-  top: 74px;
+  bottom: 24px;
   right: 24px;
   z-index: 2100;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 10px;
-  max-width: min(360px, calc(100vw - 48px));
+  max-width: min(380px, calc(100vw - 48px));
   pointer-events: none;
 }
 
@@ -2950,20 +3105,45 @@ select {
   outline-offset: 2px;
 }
 
+/* Rises from the bottom edge and settles, matching where the stack now lives —
+   a card that slid DOWN into a bottom-anchored stack would read as leaving
+   rather than arriving. The slight horizontal offset makes it read as coming
+   from the corner. Short enough (0.28s) to feel immediate.
+
+   Honoured for people who have asked for less motion: the card still appears,
+   it simply appears rather than travels. */
 @keyframes badac-notif-toast-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translate3d(12px, 16px, 0) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .notif-toast {
+    animation: badac-notif-toast-fade 0.2s ease;
+  }
+}
+
+@keyframes badac-notif-toast-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* On a phone the stack spans the width rather than floating in a corner, and
+   sits clear of the bottom edge so it does not collide with the browser's own
+   chrome or a home-indicator gesture area. */
 @media (max-width: 640px) {
   .notif-toast-stack {
-    top: 66px;
+    bottom: 16px;
     right: 12px;
     left: 12px;
     max-width: none;
@@ -3343,6 +3523,48 @@ select {
 .notif-dropdown-list {
   max-height: 400px;
   overflow-y: auto;
+}
+
+/* Desktop-alert permission footer inside the bell panel. Sits below the
+   scrolling list, so it stays visible however long the inbox is — it is a
+   setting, not an entry, and scrolling it away with the notifications would
+   hide the one control that fixes "I never get alerted".
+
+   Every colour is a theme token, so this follows light/dark with the rest of
+   the panel and needs no dark-mode override of its own. */
+.notif-permission {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle, var(--bg-card));
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.notif-permission > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.notif-permission-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.notif-permission-granted > svg {
+  color: var(--success);
+}
+
+.notif-permission-muted > svg {
+  color: var(--text-muted);
 }
 
 .notif-dropdown-item {

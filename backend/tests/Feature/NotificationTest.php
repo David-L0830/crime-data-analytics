@@ -232,6 +232,118 @@ class NotificationTest extends TestCase
         ]);
     }
 
+    /**
+     * The bug this pins down: PUT /notifications/{id}/read answers with a full
+     * NotificationResource, and route-model binding will resolve any id the
+     * caller types. Until this check existed, an Encoder could walk the id
+     * space and read the title and message of announcements that
+     * GET /notifications correctly refuses to list for them — marking a
+     * notification read was an unguarded read primitive.
+     */
+    public function test_a_role_cannot_read_an_announcement_outside_its_audience_by_marking_it_read(): void
+    {
+        $hidden = AppNotification::factory()->create([
+            'title' => 'New Criminal Record',
+            'message' => 'Criminal record for Juan Santos was added.',
+            'read' => false,
+            'audience_roles' => AppNotification::audienceFor([
+                User::ROLE_BADAC_ADMIN,
+                User::ROLE_BADAC_READONLY,
+            ]),
+        ]);
+
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+
+        // 404, not 403: a 403 would confirm the notification exists, which is
+        // itself a disclosure. To this caller it does not exist.
+        $this->actingAsSupabase($encoder)
+            ->putJson("/api/notifications/{$hidden->id}/read")
+            ->assertNotFound();
+
+        // And nothing leaked into the response body on the way out.
+        $this->assertStringNotContainsString(
+            'Juan Santos',
+            $this->putJson("/api/notifications/{$hidden->id}/read")->getContent()
+        );
+
+        // The refusal must also not have written a read marker: a rejected
+        // request that still records "this user read it" would corrupt the
+        // unread count for an announcement they were never shown.
+        $this->assertDatabaseMissing('notification_reads', [
+            'app_notification_id' => $hidden->id,
+            'user_id' => $encoder->id,
+        ]);
+    }
+
+    public function test_a_role_inside_the_audience_can_still_mark_it_read(): void
+    {
+        // The other half of the check above: narrowing access must not have
+        // broken the case it was narrowing around.
+        $notification = AppNotification::factory()->create([
+            'title' => 'New Criminal Record',
+            'read' => false,
+            'audience_roles' => AppNotification::audienceFor([
+                User::ROLE_BADAC_ADMIN,
+                User::ROLE_BADAC_READONLY,
+            ]),
+        ]);
+
+        $admin = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);
+
+        $this->actingAsSupabase($admin)
+            ->putJson("/api/notifications/{$notification->id}/read")
+            ->assertOk()
+            ->assertJsonPath('data.read', true);
+
+        $this->assertDatabaseHas('notification_reads', [
+            'app_notification_id' => $notification->id,
+            'user_id' => $admin->id,
+        ]);
+    }
+
+    public function test_an_unrestricted_announcement_is_markable_by_every_role(): void
+    {
+        // A NULL audience means "everyone", including every notification
+        // written before the audience column existed. The new gate must not
+        // have made those unreachable.
+        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+            $this->app['auth']->forgetGuards();
+
+            $notification = AppNotification::factory()->create([
+                'title' => 'New Incident',
+                'read' => false,
+                'audience_roles' => null,
+            ]);
+            $user = User::factory()->create(['role' => $role]);
+
+            $this->actingAsSupabase($user)
+                ->putJson("/api/notifications/{$notification->id}/read")
+                ->assertOk();
+        }
+    }
+
+    public function test_a_withdrawn_notification_is_neither_listed_nor_readable(): void
+    {
+        // "Backup Reminder" was withdrawn from the product but may still sit in
+        // older databases. It is excluded from the list, so it must also be
+        // unreachable through mark-as-read — otherwise the endpoint would be a
+        // way to read exactly what the list hides.
+        $withdrawn = AppNotification::factory()->create([
+            'title' => 'Backup Reminder',
+            'audience_roles' => null,
+        ]);
+
+        $admin = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);
+
+        $this->actingAsSupabase($admin)
+            ->getJson('/api/notifications')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $this->putJson("/api/notifications/{$withdrawn->id}/read")
+            ->assertNotFound();
+    }
+
     public function test_creating_a_criminal_record_announces_it(): void
     {
         $admin = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);

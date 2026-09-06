@@ -35,6 +35,20 @@ return [
     // anywhere the frontend can reach.
     'service_role_key' => env('SUPABASE_SERVICE_ROLE_KEY'),
 
+    // Supabase Storage bucket holding profile pictures. See
+    // App\Services\SupabaseStorageService for the full rationale; in short,
+    // Render's container filesystem is ephemeral, so the `public` local disk
+    // loses every uploaded avatar on the next deploy or restart.
+    //
+    // The bucket must exist and must be PUBLIC — the avatar is rendered by an
+    // ordinary <img src>, which cannot renew an expiring signed URL.
+    //
+    // Left UNSET by default on purpose. When it is empty, ProfileController
+    // falls back to the local `public` disk, so a developer with no Supabase
+    // project (and the existing test suite) keeps working exactly as before.
+    // Only a deployment that has created the bucket should set it.
+    'avatar_bucket' => env('SUPABASE_AVATAR_BUCKET'),
+
     // How long to cache the fetched JWKS key set before re-fetching.
     'jwks_cache_ttl' => 3600,
 

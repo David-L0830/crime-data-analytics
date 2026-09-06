@@ -10,10 +10,10 @@ import {
   CRIME_TYPES,
   TYPE_CATEGORY_MAP,
   OFFICERS,
-  BARANGAY_178_CENTER,
   CRIMINAL_STATUSES,
   RESIDENT_STATUSES,
 } from './constants';
+import { BARANGAY_178_BOUNDS, isWithinBarangay178 } from './geo';
 
 // Small seeded PRNG so the mock dataset is stable across reloads (nicer demo UX)
 function mulberry32(seed) {
@@ -28,6 +28,28 @@ function mulberry32(seed) {
 const rand = mulberry32(178);
 const pick = (arr) => arr[Math.floor(rand() * arr.length)];
 const randInt = (min, max) => Math.floor(rand() * (max - min + 1)) + min;
+
+/**
+ * One coordinate genuinely inside the Barangay 178 polygon.
+ *
+ * Rejection sampling against the real boundary: draw inside its bounding box,
+ * keep the draw only if the polygon actually contains it. Uses the same seeded
+ * PRNG as everything else here, so the demo dataset stays stable across
+ * reloads. The attempt cap means a malformed boundary file produces a visibly
+ * wrong point rather than an infinite loop; the barangay fills enough of its
+ * bounding box that it is never reached in practice.
+ */
+function randomPointInBarangay178() {
+  const { south, west, north, east } = BARANGAY_178_BOUNDS;
+
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const lat = Number((south + rand() * (north - south)).toFixed(7));
+    const lng = Number((west + rand() * (east - west)).toFixed(7));
+    if (isWithinBarangay178(lat, lng)) return [lat, lng];
+  }
+
+  return [south, west];
+}
 
 // Realistic *fictional* Filipino names for demo/sample victim & suspect
 // records (this is synthetic seed data — Barangay 178, North Caloocan does
@@ -175,11 +197,15 @@ function generateIncidents() {
       const sitio = pick(SITIOS);
       const street = pick(STREETS[sitio]);
       const houseNum = randInt(1, 300);
-      // Scattered within ~350m of the barangay center — Barangay 178 is a small
-      // urban barangay, not a multi-km area, so keep sample points from spilling
-      // into neighboring barangays (e.g. Brgy 176, Bagong Silang).
-      const lat = BARANGAY_178_CENTER.lat + randInt(-32, 32) / 10000;
-      const lng = BARANGAY_178_CENTER.lng + randInt(-32, 32) / 10000;
+      // Drawn from inside the real Barangay 178 polygon by rejection sampling,
+      // the same way the backend seeder and factory do it.
+      //
+      // This used to be `BARANGAY_178_CENTER ± 0.0032` around a hardcoded
+      // centre that was ~4.3 km outside the barangay. Correcting the centre
+      // alone would not fix it: a square around ANY centre spills outside a
+      // barangay that is not square. Nothing in this repository generates a
+      // coordinate from a centre and a radius any more.
+      const [lat, lng] = randomPointInBarangay178();
       const statusPool =
         mIndex < 8
           ? ['Solved', 'Closed', 'Under Investigation', 'Open']

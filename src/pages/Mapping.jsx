@@ -14,12 +14,13 @@ import {
   formatTime,
   countBy,
 } from '../utils/helpers';
+import { COLORS, SITIOS, STATUSES } from '../utils/constants';
 import {
-  COLORS,
-  SITIOS,
-  STATUSES,
-  BARANGAY_178_CENTER,
-} from '../utils/constants';
+  BARANGAY_178_BOUNDARY,
+  barangay178LatLngBounds,
+  isValidCoordinate,
+  isWithinBarangay178,
+} from '../utils/geo';
 import { Icons } from '../components/icons';
 import Button from '../components/ui/Button';
 
@@ -38,6 +39,29 @@ L.Icon.Default.mergeOptions({
 // is the honest answer there, rather than borrowing another type's colour and
 // misreporting what the marker is.
 const UNKNOWN_TYPE_COLOR = '#94A3B8';
+
+// Marker colour for an incident whose coordinate is real but is NOT inside
+// Barangay 178. Deliberately not a crime-type colour: these must not read as
+// ordinary barangay incidents, because they are not ones this system has
+// jurisdiction over. See the classification block in the component.
+const OUT_OF_AREA_COLOR = '#94A3B8';
+
+// How far outside the barangay the viewport may be dragged, in degrees —
+// roughly 1.3 km on each side.
+//
+// The map is restricted, not imprisoned. Zero padding would clamp the
+// viewport exactly to the boundary box, which makes the edges of the barangay
+// impossible to inspect (they would always be flush against the frame) and
+// makes the map feel broken when it hits the stop. This is enough room to see
+// what is immediately around the barangay and to pan comfortably along its
+// edge, and far too little to wander across Metro Manila.
+const BOUNDS_PADDING_DEG = 0.012;
+
+// Zoom floor. At the barangay's ~2.6 km extent this keeps the whole boundary
+// comfortably in frame at the widest allowed zoom, and stops a scroll-wheel
+// flick from zooming out to the whole of Luzon, which is the other half of
+// "the map is about Barangay 178".
+const MIN_ZOOM = 13;
 
 // ---------------------------------------------------------------------------
 // COLOUR MEANS CRIME TYPE. NOTHING ELSE.
@@ -74,6 +98,50 @@ function escapeHtml(value) {
   );
 }
 
+// The hover card.
+//
+// Shown on mouseover via Leaflet's tooltip, so the information appears without
+// a click — see makeMarker(). It carries the same fields the click-popup does
+// minus the directions link, because a link inside a tooltip that disappears
+// when the pointer leaves it is a link nobody can reach.
+//
+// It observes exactly the same privacy rule as the popup below: case
+// identification, classification, time and place, and nothing that names a
+// person. The map payload itself does not contain victim, complainant or
+// suspect details (see IncidentController::map), so that rule is enforced a
+// layer deeper than this file as well.
+function tooltipContent(r, color) {
+  const row = (label, value) =>
+    value
+      ? `<div class="map-tip-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`
+      : '';
+
+  // The out-of-area banner is the whole reason an out-of-boundary incident is
+  // allowed on screen at all: it is shown, but it is never shown as though it
+  // were an ordinary Barangay 178 incident.
+  const outOfArea =
+    r.coordinateState === 'outside'
+      ? '<div class="map-tip-warning">Recorded location is outside Barangay 178</div>'
+      : '';
+
+  return `<div class="map-tip">
+    <div class="map-tip-head">
+      <span class="map-tip-swatch" style="background:${escapeHtml(color)}"></span>
+      <strong>${escapeHtml(r.caseNumber || r.incidentCode || 'Incident')}</strong>
+    </div>
+    <div class="map-tip-type">${escapeHtml(r.crimeType || '—')}</div>
+    ${outOfArea}
+    ${row('Incident Code', r.incidentCode)}
+    ${row('Category', r.category)}
+    ${row('Date', formatDate(r.date))}
+    ${row('Time', formatTime(r.time))}
+    ${row('Sitio', r.sitio)}
+    ${row('Location', r.location)}
+    ${row('Status', r.status)}
+    ${row('Priority', r.priority)}
+  </div>`;
+}
+
 function popupContent(r, color) {
   const row = (label, value) =>
     `<div class="map-popup-row"><span>${label}</span><strong>${escapeHtml(value || '—')}</strong></div>`;
@@ -107,6 +175,11 @@ export default function Mapping() {
   const { showToast } = useToast();
   const [filters, setFilters] = useState({});
   const [vizType, setVizType] = useState('markers');
+  // Whether incidents whose recorded location is outside the barangay are drawn
+  // at all. On by default: hiding data by default is how a known problem
+  // becomes an invisible one. The control exists because an officer reading the
+  // barangay's own crime picture is entitled to a view containing only it.
+  const [showOutOfArea, setShowOutOfArea] = useState(true);
 
   // Crime Mapping reads GET /incidents/map rather than the shared `records`
   // slice, which carries the full incident payload — victim, suspect and
@@ -158,11 +231,42 @@ export default function Mapping() {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const layerRef = useRef(null);
-  const boundaryDrawn = useRef(false);
 
   const colorFor = useMemo(
     () => (crimeType) => crimeTypeColors[crimeType] || UNKNOWN_TYPE_COLOR,
     [crimeTypeColors],
+  );
+
+  // COORDINATE CLASSIFICATION — three outcomes, not two.
+  //
+  // The old predicate was `r.latitude && r.longitude`, which is a truthiness
+  // test standing in for a validity test. It silently dropped a coordinate of
+  // exactly 0 (correctly, as it happens, but by accident) and silently ACCEPTED
+  // a numeric string, a value out of range, or a point in the South China Sea —
+  // and the database contains an example of the last one, because the API used
+  // to validate coordinates only as "somewhere on Earth".
+  //
+  // Each incident is now labelled:
+  //   'invalid'  no coordinate, or not a usable one. Not plotted at all. This
+  //              is NOT dropped silently: the sidebar states how many there
+  //              are, because an incident missing from a map with no
+  //              explanation is worse than one that is missing with one.
+  //   'outside'  a real point, but not inside Barangay 178. Plotted — but
+  //              visibly differently, and captioned as out of area, so it can
+  //              never be read as an ordinary barangay incident. Its stored
+  //              coordinates are never altered to make the map look tidier.
+  //   'inside'   a real point inside the barangay.
+  const classified = useMemo(
+    () =>
+      mapIncidents.map((r) => ({
+        ...r,
+        coordinateState: !isValidCoordinate(r.latitude, r.longitude)
+          ? 'invalid'
+          : isWithinBarangay178(r.latitude, r.longitude)
+            ? 'inside'
+            : 'outside',
+      })),
+    [mapIncidents],
   );
 
   // Everything the map could plot if no filter were set. This predicate used to
@@ -172,11 +276,24 @@ export default function Mapping() {
   // unfiltered base can answer that.
   const plottable = useMemo(
     () =>
-      mapIncidents.filter(
-        (r) => r.status !== 'Archived' && r.latitude && r.longitude,
+      classified.filter(
+        (r) => r.status !== 'Archived' && r.coordinateState !== 'invalid',
       ),
-    [mapIncidents],
+    [classified],
   );
+
+  // Counts for the sidebar. Derived from the unfiltered base on purpose: "how
+  // much of this barangay's data cannot be shown on a barangay map" is a fact
+  // about the records, not about the filter currently applied.
+  const coordinateCounts = useMemo(() => {
+    const live = classified.filter((r) => r.status !== 'Archived');
+
+    return {
+      inside: live.filter((r) => r.coordinateState === 'inside').length,
+      outside: live.filter((r) => r.coordinateState === 'outside').length,
+      invalid: live.filter((r) => r.coordinateState === 'invalid').length,
+    };
+  }, [classified]);
 
   // No category filter. The map payload deliberately does not carry `category`,
   // and filterRecords compares it strictly — passing an undefined field against
@@ -194,28 +311,125 @@ export default function Mapping() {
     [plottable, filters],
   );
 
+  // What is actually drawn: the filtered set, minus out-of-area incidents when
+  // the viewer has chosen to exclude them. Kept separate from `filtered` so the
+  // sidebar can still report how many exist while none of them is on screen.
+  const visible = useMemo(
+    () =>
+      showOutOfArea
+        ? filtered
+        : filtered.filter((r) => r.coordinateState !== 'outside'),
+    [filtered, showOutOfArea],
+  );
+
   // The legend lists the crime types actually plotted on the map right now,
   // in descending count, rather than every configured type — a legend full of
   // entries that appear nowhere on the map is noise. It is generated from the
   // data and the configured colours, so a crime type an Administrator adds
   // shows up here the first time an incident uses it, with no code change.
+  //
+  // Built from the incidents INSIDE the barangay only. The legend is a key to
+  // the map's colours, and out-of-area incidents are deliberately not drawn in
+  // a crime-type colour, so counting them here would put a number beside a
+  // swatch that matches nothing on screen — and would quietly report an
+  // incident from another barangay as part of this barangay's crime picture.
   const legend = useMemo(() => {
-    const counts = countBy(filtered, 'crimeType');
+    const counts = countBy(
+      visible.filter((r) => r.coordinateState === 'inside'),
+      'crimeType',
+    );
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([name, count]) => ({ name, count, color: colorFor(name) }));
-  }, [filtered, colorFor]);
+  }, [visible, colorFor]);
 
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
-    mapInstance.current = L.map(mapRef.current).setView(
-      [BARANGAY_178_CENTER.lat, BARANGAY_178_CENTER.lng],
-      15,
+
+    // THE VIEWPORT IS DERIVED FROM THE BOUNDARY, not from a centre and a zoom.
+    //
+    // It used to be setView(14.7323, 121.027, 15) — a hardcoded point about
+    // 4.3 km south-west of the barangay, in the Bagbag/Novaliches part of
+    // Quezon City. Fitting the real polygon's bounds instead means the map
+    // opens on exactly the barangay, at whatever zoom actually frames it, and
+    // that both follow automatically if the boundary file is ever updated.
+    const boundaryBounds = L.latLngBounds(barangay178LatLngBounds());
+
+    // Panning is limited to the barangay plus a fixed margin.
+    //
+    // Written out rather than using Leaflet's bounds.pad(), which takes a RATIO
+    // of the box's size — that would make the allowance scale with whatever
+    // boundary is loaded, so a smaller barangay would get a proportionally
+    // smaller margin. An explicit degree margin keeps the allowance the same
+    // real-world distance whatever the boundary's dimensions are.
+    const pannableBounds = L.latLngBounds(
+      [
+        boundaryBounds.getSouth() - BOUNDS_PADDING_DEG,
+        boundaryBounds.getWest() - BOUNDS_PADDING_DEG,
+      ],
+      [
+        boundaryBounds.getNorth() + BOUNDS_PADDING_DEG,
+        boundaryBounds.getEast() + BOUNDS_PADDING_DEG,
+      ],
     );
+
+    const map = L.map(mapRef.current, {
+      maxBounds: pannableBounds,
+      // Firm but not rigid: a drag past the edge resists and springs back
+      // rather than stopping dead, which reads as a deliberate limit rather
+      // than a broken map.
+      maxBoundsViscosity: 0.9,
+      minZoom: MIN_ZOOM,
+      maxZoom: 19,
+    });
+
+    // Leaflet requires a view before any layer is added, so this is not
+    // redundant with the fit in the layer effect below — it is what makes the
+    // map valid at all on first render.
+    map.fitBounds(boundaryBounds, { padding: [24, 24] });
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19,
-    }).addTo(mapInstance.current);
+    }).addTo(map);
+
+    // THE REAL BOUNDARY, replacing a 500 m circle drawn around a point in
+    // another city.
+    //
+    // The circle was wrong twice over: wrong place, and wrong shape at the
+    // wrong scale — Barangay 178 is roughly 2.6 km across and is not a disc.
+    // This is OpenStreetMap relation 11322824 rendered as-is (ODbL,
+    // © OpenStreetMap contributors), stored in the repository so it draws
+    // correctly with no third-party request at view time. See src/utils/geo.js
+    // for the provenance and the cross-check.
+    //
+    // interactive: false so the polygon never swallows a click or a hover meant
+    // for a marker sitting on top of it.
+    //
+    // ADDED HERE, WITH THE TILE LAYER, and not in the marker effect below.
+    // It used to live there behind a `boundaryDrawn` ref that was set once and
+    // never reset. That ref belongs to the COMPONENT, but the map belongs to
+    // THIS EFFECT — and React Strict Mode (enabled in main.jsx) mounts,
+    // unmounts and remounts every effect in development. The unmount ran this
+    // effect's cleanup, destroying the map and its boundary, while the ref
+    // survived on the same component instance and reported "already drawn" —
+    // so on the second mount the boundary was never added to the new map and
+    // simply did not appear at all in development. Browser verification caught
+    // it. Tying the boundary to the map's own lifecycle removes the
+    // possibility: a new map always gets a new boundary, and a destroyed map
+    // takes its boundary with it.
+    L.geoJSON(BARANGAY_178_BOUNDARY, {
+      interactive: false,
+      style: {
+        color: COLORS.green,
+        fillColor: COLORS.greenLight,
+        fillOpacity: 0.12,
+        weight: 2.5,
+        dashArray: '6, 8',
+      },
+    }).addTo(map);
+
+    mapInstance.current = map;
 
     return () => {
       mapInstance.current?.remove();
@@ -227,19 +441,6 @@ export default function Mapping() {
     const map = mapInstance.current;
     if (!map) return;
 
-    if (!boundaryDrawn.current) {
-      L.circle([BARANGAY_178_CENTER.lat, BARANGAY_178_CENTER.lng], {
-        radius: 500,
-        color: COLORS.green,
-        fillColor: COLORS.greenLight,
-        weight: 2,
-        dashArray: '5, 10',
-      })
-        .addTo(map)
-        .bindTooltip('Barangay 178');
-      boundaryDrawn.current = true;
-    }
-
     if (layerRef.current) {
       map.removeLayer(layerRef.current);
       layerRef.current = null;
@@ -250,20 +451,72 @@ export default function Mapping() {
     // markers do. Clustering itself is unchanged — L.markerClusterGroup still
     // receives ordinary circleMarkers, which is what it clusters.
     const makeMarker = (r) => {
-      const color = colorFor(r.crimeType);
+      const outside = r.coordinateState === 'outside';
+      // Colour means crime type — unless the incident is not in this barangay,
+      // in which case saying anything about its crime type in the map's own
+      // colour language would assert it as a Barangay 178 statistic. Those are
+      // drawn hollow and neutral instead: present, findable, and visibly not
+      // part of the picture the legend describes.
+      const color = outside ? OUT_OF_AREA_COLOR : colorFor(r.crimeType);
+
       const marker = L.circleMarker([r.latitude, r.longitude], {
-        radius: 8,
+        radius: outside ? 7 : 8,
         fillColor: color,
-        color: COLORS.white,
-        weight: 1.5,
-        fillOpacity: 0.85,
+        color: outside ? OUT_OF_AREA_COLOR : COLORS.white,
+        weight: outside ? 2 : 1.5,
+        fillOpacity: outside ? 0.15 : 0.85,
+        dashArray: outside ? '3, 3' : undefined,
       });
+
+      // HOVER. The information appears on mouseover with no click required —
+      // this is what the click-only bindPopup could not do.
+      //
+      // A Leaflet tooltip rather than opening the popup on mouseover, for three
+      // reasons that all matter here: Leaflet manages exactly one visible
+      // tooltip at a time, so passing the pointer across a dense cluster of
+      // pins cannot leave a trail of open cards behind; it closes itself on
+      // mouseout without any bookkeeping; and it does not steal the popup, so
+      // clicking still opens the fuller card with its directions link.
+      //
+      // Bound per marker and created lazily by Leaflet, so this is NOT "one
+      // permanent popup for every marker" — nothing is rendered until a pointer
+      // actually enters a pin.
+      //
+      // sticky: false anchors the card above the pin rather than chasing the
+      // cursor; on a map where pins can be a few pixels apart, a card that
+      // follows the pointer covers the neighbouring pins you are trying to
+      // reach.
+      // direction: 'auto' places the card BESIDE the pin — left or right
+      // depending on which half of the map the pin is in — rather than above it.
+      //
+      // 'top' was tried first and clipped. Leaflet renders tooltips inside the
+      // map pane, which clips at the container edge and has no auto-pan for
+      // tooltips the way popups do, so a card roughly 200px tall above a pin
+      // within 200px of the top edge loses its first several rows — including
+      // the case number. Browser verification caught exactly that. Placed
+      // beside the pin the card is vertically centred instead, so it only needs
+      // ~100px of clearance above and below, which the viewport always has.
+      marker.bindTooltip(tooltipContent(r, color), {
+        direction: 'auto',
+        offset: [0, 0],
+        opacity: 1,
+        sticky: false,
+        className: 'map-hover-tip',
+      });
+
       marker.bindPopup(popupContent(r, color));
       return marker;
     };
 
     if (vizType === 'heatmap') {
-      const heatData = filtered.map((r) => [r.latitude, r.longitude, 0.5]);
+      // Density of BARANGAY incidents only. A heatmap has no per-point
+      // labelling, so an out-of-area point folded into it would become an
+      // indistinguishable part of a hotspot reading — the one place these
+      // records genuinely cannot be shown honestly is a surface that averages
+      // them together. They are counted in the sidebar instead.
+      const heatData = visible
+        .filter((r) => r.coordinateState === 'inside')
+        .map((r) => [r.latitude, r.longitude, 0.5]);
       layerRef.current = L.heatLayer(heatData, {
         radius: 25,
         blur: 15,
@@ -271,22 +524,54 @@ export default function Mapping() {
       }).addTo(map);
     } else if (vizType === 'cluster') {
       const cluster = L.markerClusterGroup();
-      filtered.forEach((r) => cluster.addLayer(makeMarker(r)));
+      visible.forEach((r) => cluster.addLayer(makeMarker(r)));
+
+      // Hovering a CLUSTER says how many incidents it stands for. Without this
+      // the hover interaction would simply stop working wherever pins are dense
+      // enough to be grouped — which is exactly where an officer most wants to
+      // know what is underneath. The individual markers keep their own hover
+      // cards, which appear once the cluster is zoomed into or spiderfied.
+      cluster.on('clustermouseover', (e) => {
+        const count = e.layer.getAllChildMarkers().length;
+        e.layer
+          .bindTooltip(
+            `<div class="map-tip"><strong>${count} incident${count === 1 ? '' : 's'}</strong>` +
+              '<div class="map-tip-type">Zoom in or click to see each one</div></div>',
+            { direction: 'top', offset: [0, -12], opacity: 1, className: 'map-hover-tip' },
+          )
+          .openTooltip();
+      });
+      cluster.on('clustermouseout', (e) => e.layer.closeTooltip());
+
       layerRef.current = cluster;
       map.addLayer(cluster);
     } else {
-      layerRef.current = L.layerGroup(filtered.map(makeMarker)).addTo(map);
+      layerRef.current = L.layerGroup(visible.map(makeMarker)).addTo(map);
     }
 
-    if (filtered.length) {
-      const bounds = L.latLngBounds(
-        filtered.map((r) => [r.latitude, r.longitude]),
+    // Fit to the incidents that are actually IN the barangay.
+    //
+    // Fitting to every plotted point would let one incident recorded kilometres
+    // away drag the viewport off the barangay entirely — and since the map is
+    // now clamped by maxBounds, the fit would be silently clipped and land
+    // somewhere neither the data nor the boundary justifies. With nothing
+    // inside to fit, the map simply stays on the barangay, which is the honest
+    // default for a barangay map with no barangay incidents to show.
+    const insideVisible = visible.filter((r) => r.coordinateState === 'inside');
+
+    if (insideVisible.length) {
+      map.fitBounds(
+        L.latLngBounds(insideVisible.map((r) => [r.latitude, r.longitude])),
+        { padding: [40, 40], maxZoom: 17 },
       );
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    } else {
+      map.fitBounds(L.latLngBounds(barangay178LatLngBounds()), {
+        padding: [24, 24],
+      });
     }
 
     setTimeout(() => map.invalidateSize(), 200);
-  }, [filtered, vizType, colorFor]);
+  }, [visible, vizType, colorFor]);
 
   // The four states an empty map can be in, said out loud rather than left to
   // an unexplained blank. Kept inline because nothing outside this sidebar
@@ -304,6 +589,12 @@ export default function Mapping() {
   else if (mapError) mapStatus = 'Could not load incidents.';
   else if (!plottable.length) mapStatus = 'No incidents have been recorded.';
   else if (!filtered.length) mapStatus = 'No incidents match these filters.';
+  // A fifth case, which did not exist while the map's own centre was wrong:
+  // records exist and pass the filters, but none of them was recorded inside
+  // the barangay. Saying "no incidents match these filters" there would be
+  // false, and saying nothing would leave an empty map unexplained.
+  else if (!visible.some((r) => r.coordinateState === 'inside'))
+    mapStatus = 'No incidents were recorded inside Barangay 178.';
 
   // Held once so the two branches below render the same node rather than two
   // copies of the same markup that could drift apart.
@@ -311,7 +602,13 @@ export default function Mapping() {
     <div className="map-legend-empty">{mapStatus}</div>
   ) : null;
 
-  const bySitio = countBy(filtered, 'sitio');
+  // "Top Sitio" is a claim about this barangay, so it is computed from the
+  // incidents actually inside it — a hotspot figure that included a case from
+  // another city would be a wrong answer to the question the panel asks.
+  const bySitio = countBy(
+    visible.filter((r) => r.coordinateState === 'inside'),
+    'sitio',
+  );
   const topSitio = Object.entries(bySitio).sort((a, b) => b[1] - a[1])[0];
 
   // Filters apply automatically on every change — no Apply Filters button.
@@ -412,7 +709,7 @@ export default function Mapping() {
                 checked={vizType === 'heatmap'}
                 onChange={() => setVizType('heatmap')}
               />{' '}
-              <Icons.Flame size={14} strokeWidth={2} /> Heatmap
+              <Icons.Flame size={14} strokeWidth={2} /> Crime Heatmap
             </label>
             <label>
               <input
@@ -455,13 +752,65 @@ export default function Mapping() {
             statusNode
           )}
 
+          {/* DATA QUALITY. Shown whenever there is something to report, and
+              never quietly suppressed: an incident that the map cannot place
+              inside the barangay is a fact about the records, and a map that
+              silently omitted it would be the thing that hid the problem.
+
+              The counts come from the unfiltered base, so this reports the
+              state of the data rather than the state of the current filter. */}
+          {!mapLoading &&
+            !mapError &&
+            (coordinateCounts.outside > 0 || coordinateCounts.invalid > 0) && (
+              <>
+                <h3>Data Quality</h3>
+                <div className="map-data-quality">
+                  {coordinateCounts.outside > 0 && (
+                    <>
+                      <p>
+                        <strong>{coordinateCounts.outside}</strong> incident
+                        {coordinateCounts.outside === 1 ? ' has' : 's have'} a
+                        recorded location outside Barangay 178. They are drawn
+                        hollow and grey, are excluded from the Crime Heatmap,
+                        the legend and the Top Sitio figure, and their stored
+                        coordinates have not been altered.
+                      </p>
+                      <label className="map-outofarea-toggle">
+                        <input
+                          type="checkbox"
+                          checked={showOutOfArea}
+                          onChange={(e) => setShowOutOfArea(e.target.checked)}
+                        />{' '}
+                        Show out-of-area incidents
+                      </label>
+                    </>
+                  )}
+                  {coordinateCounts.invalid > 0 && (
+                    <p>
+                      <strong>{coordinateCounts.invalid}</strong> incident
+                      {coordinateCounts.invalid === 1 ? '' : 's'} cannot be
+                      plotted at all — no location was recorded, or the recorded
+                      one is not a usable coordinate. They are not placed
+                      anywhere on the map.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
           <h3>Statistics</h3>
           <div className="map-stats">
             <div className="stat-row">
-              <span>Total Markers</span>
+              <span>Markers in Barangay 178</span>
               {/* A dash until the request settles, so an in-flight fetch is not
-                  read as a barangay with zero incidents. */}
-              <strong>{mapLoading ? '—' : filtered.length}</strong>
+                  read as a barangay with zero incidents. Counts what is on the
+                  map AND inside the boundary — the number this barangay's crime
+                  picture is actually made of. */}
+              <strong>
+                {mapLoading
+                  ? '—'
+                  : visible.filter((r) => r.coordinateState === 'inside').length}
+              </strong>
             </div>
             <div className="stat-row">
               <span>Top Sitio</span>
@@ -478,6 +827,20 @@ export default function Mapping() {
           </div>
         </div>
         <div className="map-container card">
+          {/* Says what the map is, in the map. The viewport is restricted to
+              this barangay, so somebody who cannot pan out to recognise the
+              surrounding city has no other way to know what they are looking
+              at — and the boundary source is named because a boundary asserted
+              without provenance is just another circle drawn on a map. */}
+          <div className="map-caption">
+            <span className="map-caption-title">
+              <Icons.MapPin size={14} strokeWidth={2.25} /> Barangay 178,
+              Camarin, North Caloocan
+            </span>
+            <span className="map-caption-source">
+              Boundary: OpenStreetMap relation 11322824 (ODbL)
+            </span>
+          </div>
           <div id="crime-map" ref={mapRef} />
         </div>
       </div>

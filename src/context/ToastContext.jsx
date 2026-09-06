@@ -70,11 +70,19 @@ export function ToastProvider({ children }) {
         {toast?.message}
       </div>
 
-      {/* Upper right, above the content but clear of the topbar's own
-          controls. aria-live="polite" announces each arrival once to a screen
-          reader without interrupting whatever is being read; the container is
-          always in the DOM so the live region is established before anything
-          is inserted into it, which is what makes the announcement work. */}
+      {/* BOTTOM-RIGHT. It used to sit under the topbar, where it overlapped the
+          bell and the account controls somebody would reach for to act on the
+          very notification being announced; the bottom-right corner is the only
+          corner of this layout with no persistent control in it. The stack
+          renders column-reverse so the newest card is nearest the corner (see
+          .notif-toast-stack in global.css), and the container is
+          pointer-events: none so its empty space never intercepts a click meant
+          for the page underneath.
+
+          aria-live="polite" announces each arrival once to a screen reader
+          without interrupting whatever is being read; the container is always
+          in the DOM so the live region is established before anything is
+          inserted into it, which is what makes the announcement work. */}
       <div
         className="notif-toast-stack"
         role="status"

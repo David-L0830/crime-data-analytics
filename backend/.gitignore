@@ -17,3 +17,10 @@ bootstrap/cache/config.php
 # run — so tracking it produces a spurious diff after each test execution.
 # Generated, machine-specific, and safe to delete at any time.
 .phpunit.result.cache
+
+# Storage::fake()'s scratch directory. ProfileTest fakes the `public` disk to
+# exercise the avatar upload path, and Laravel materialises the faked disk here
+# rather than in a temporary folder — so every test run leaves an uploaded
+# fixture image behind. Generated, machine-specific, and safe to delete at any
+# time, exactly like the PHPUnit result cache above.
+storage/framework/testing/

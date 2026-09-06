@@ -2,12 +2,18 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesIncidentLocation;
 use App\Models\Incident;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class StoreIncidentRequest extends FormRequest
 {
+    // Coordinates must be a real place inside Barangay 178, or absent
+    // entirely. See the trait for the policy and why it is enforced here
+    // rather than by a per-field rule.
+    use ValidatesIncidentLocation;
+
     public function authorize(): bool
     {
         return true;
@@ -31,8 +37,7 @@ class StoreIncidentRequest extends FormRequest
             'time' => ['nullable', 'date_format:H:i'],
             'street' => ['nullable', 'string', 'max:255'],
             'sitio' => ['required', 'string', 'max:100'],
-            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            ...$this->coordinateRules(),
             'victimName' => ['nullable', 'string', 'max:150'],
             'victimAge' => ['nullable', 'integer', 'min:0', 'max:120'],
             'victimGender' => ['nullable', 'string', 'max:20'],

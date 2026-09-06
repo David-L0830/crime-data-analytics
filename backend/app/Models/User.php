@@ -126,4 +126,61 @@ class User extends Authenticatable
     {
         return $this->role === self::ROLE_BADAC_READONLY;
     }
+
+    /**
+     * The browser-facing URL of this account's profile picture, or null when
+     * none has been uploaded.
+     *
+     * WHY avatar_path CAN HOLD TWO DIFFERENT THINGS
+     *
+     * A Supabase Storage upload stores the full public URL; the local-disk
+     * fallback stores a relative path like `avatars/7.png`, which is also what
+     * every avatar uploaded before Supabase Storage existed looks like. Both
+     * are still resolvable, so no data migration was needed and no existing
+     * account lost its picture. The scheme test is what tells them apart.
+     *
+     * WHY THE LOCAL BRANCH DOES NOT SIMPLY USE Storage::disk('public')->url()
+     *
+     * That helper builds `config('app.url').'/storage/'.$path` (see
+     * config/filesystems.php). APP_URL defaults to http://localhost:8000 and is
+     * easy to leave that way on a deployed container — at which point every
+     * avatar URL handed to the browser points at the VIEWER's own machine and
+     * 404s, with the frontend's broken-image fallback quietly showing initials
+     * instead. Falling back to the host the request actually arrived on fixes
+     * that without hardcoding any domain: the value is read from the live
+     * request, so it is correct on localhost, on Render, and on any future host
+     * without a configuration change.
+     *
+     * APP_URL is still preferred when it is set to something usable, because a
+     * proxy can make the request's own host wrong in ways a configured value is
+     * not.
+     */
+    public function avatarUrl(): ?string
+    {
+        $path = $this->avatar_path;
+
+        if (! $path) {
+            return null;
+        }
+
+        // Supabase Storage (or any absolute URL) — already browser-facing.
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        $base = rtrim((string) config('app.url'), '/');
+
+        $looksLocal = $base === ''
+            || str_contains($base, 'localhost')
+            || str_contains($base, '127.0.0.1');
+
+        if ($looksLocal && ! app()->runningInConsole() && app()->environment() !== 'local') {
+            $requestRoot = rtrim((string) request()->getSchemeAndHttpHost(), '/');
+            if ($requestRoot !== '') {
+                $base = $requestRoot;
+            }
+        }
+
+        return $base.'/storage/'.ltrim($path, '/');
+    }
 }

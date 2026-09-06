@@ -5,7 +5,11 @@ import Header from '../components/layout/Header';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
-import { playNotificationChime } from '../utils/notificationSound';
+import {
+  playNotificationChime,
+  unlockNotificationAudio,
+} from '../utils/notificationSound';
+import { showSystemNotification } from '../utils/browserNotifications';
 import { notificationTarget } from '../utils/notificationRouting';
 
 // How long the top-edge pulse runs. Kept in sync with the
@@ -91,22 +95,50 @@ export default function MainLayout() {
     unannounced.forEach((n) => {
       announcedIds.current.add(n.id);
       const target = notificationTarget(n);
+
+      // Acting on an arrival does what acting on the same entry in the bell's
+      // panel does: mark it read for this user, then go to the record. Built
+      // once and given to BOTH the in-app pop-up and the system notification,
+      // so clicking either lands in the same place. The rules come from the one
+      // shared routing module so the surfaces cannot diverge.
+      const act = target
+        ? () => {
+            markNotificationRead(n.id);
+            navigate(
+              target.path,
+              target.state ? { state: target.state } : undefined,
+            );
+          }
+        : undefined;
+
       showNotificationToast({
         title: n.title,
         message: n.message,
         type: n.type,
-        // Acting on the pop-up does what acting on the same entry in the bell's
-        // panel does: mark it read for this user, then go to the record. The
-        // rules come from the one shared module so the two cannot diverge.
-        onClick: target
-          ? () => {
-              markNotificationRead(n.id);
-              navigate(
-                target.path,
-                target.state ? { state: target.state } : undefined,
-              );
-            }
-          : undefined,
+        onClick: act,
+      });
+
+      // The system notification, for the case the in-app pop-up cannot reach:
+      // the user is in another tab or another application entirely.
+      //
+      // Fired unconditionally rather than only when document.hidden. A
+      // notification that arrives in the instant before someone switches away
+      // would otherwise be the one alert they never see, and the operating
+      // system already suppresses or quietly stacks a notification for a window
+      // that is in focus — so letting the OS make that call is both simpler and
+      // better behaved than guessing at it here.
+      //
+      // Its OWN duplicate guard is keyed on the notification id and backed by
+      // localStorage (see utils/browserNotifications), which is deliberately a
+      // stronger guarantee than the in-memory `announcedIds` set above: that set
+      // is emptied by a page reload or a remount, whereas a system notification
+      // that re-fired on every reload would be genuinely intrusive. Returns
+      // false and does nothing when permission has not been granted.
+      showSystemNotification({
+        id: n.id,
+        title: n.title,
+        message: n.message,
+        onClick: act,
       });
     });
 
@@ -132,6 +164,36 @@ export default function MainLayout() {
   ]);
 
   useEffect(() => () => clearTimeout(pulseTimer.current), []);
+
+  // AUTOPLAY UNLOCK.
+  //
+  // Browsers start an AudioContext 'suspended' and only allow it to resume
+  // during a real user interaction. Signing in is an interaction, but it
+  // happens on the Login screen — a different React tree — so by the time this
+  // layout mounts the browser may still be waiting for a gesture inside it.
+  //
+  // These listeners take the FIRST click or keypress anywhere in the
+  // application and use it to resume the audio context, after which every
+  // subsequent chime is allowed. They are `once`, so they cost one dispatch and
+  // then remove themselves; `capture` so a handler that stops propagation
+  // cannot swallow the gesture before it gets here.
+  //
+  // This does not defeat the autoplay policy and does not try to: it satisfies
+  // it, at the earliest legitimate moment. If a notification somehow arrives
+  // before any interaction, the chime is simply skipped — the pop-up, the bell
+  // and the system notification all still carry it.
+  useEffect(() => {
+    const unlock = () => unlockNotificationAudio();
+    const options = { once: true, capture: true };
+
+    window.addEventListener('pointerdown', unlock, options);
+    window.addEventListener('keydown', unlock, options);
+
+    return () => {
+      window.removeEventListener('pointerdown', unlock, options);
+      window.removeEventListener('keydown', unlock, options);
+    };
+  }, []);
 
   const handleMenuToggle = () => {
     if (window.innerWidth <= 768) {

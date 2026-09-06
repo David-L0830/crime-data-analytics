@@ -333,48 +333,101 @@ export function DataProvider({ children }) {
   // the incident write itself already succeeded and has its own error
   // handling at the call site - a stale bell must never be reported to the
   // user as a failed save.
+  // In-flight guard for the poll below.
+  //
+  // A hidden tab's timers are throttled and coalesced by the browser, so a slow
+  // response can be followed immediately by the next tick firing — without this
+  // the requests would overlap and, worse, two responses could interleave
+  // through applyNotificationList and announce the same arrival twice. A ref
+  // rather than state on purpose: this must be read and written synchronously
+  // within one tick, and a state update would not have landed in time.
+  const notificationFetchInFlight = useRef(false);
+
   const refreshNotifications = useCallback(() => {
+    if (notificationFetchInFlight.current) return;
+    notificationFetchInFlight.current = true;
+
     notificationService
       .list()
       .then(applyNotificationList)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        notificationFetchInFlight.current = false;
+      });
   }, [applyNotificationList]);
 
   // Polls for notifications raised elsewhere — another encoder logging an
   // incident, an Administrator resolving a case. Without this the bell would
   // only ever change on a full page load or on this user's own writes.
   //
-  // Paused while the tab is hidden (and refreshed once on becoming visible
-  // again) so a backgrounded tab is not requesting on a timer all day; the
-  // notification is still there when the person comes back, because the
-  // announcement is a database row, not an event that can be missed.
+  // POLLING CONTINUES WHILE THE TAB IS HIDDEN. That is the change, and it is
+  // the whole point.
+  //
+  // This used to stop entirely when the tab was backgrounded: the interval was
+  // cleared on 'hidden' and its callback additionally checked
+  // visibilityState === 'visible' before fetching. The reasoning was that a
+  // notification is a database row, not an event that can be missed, so it
+  // would still be there on return. True for the BELL — and exactly wrong for
+  // the case this system needs, which is somebody being told about a new
+  // incident WHILE they are in another tab or another application. A desk
+  // officer cannot be alerted by a row they will discover later.
+  //
+  // The tab is not stopped, it is SLOWED. A hidden tab polls at a longer
+  // interval than a visible one, which keeps a backgrounded session from
+  // requesting at full rate all day while still detecting arrivals within a
+  // couple of minutes — and it is a system notification, not a repaint, that
+  // does the alerting from there (see MainLayout and utils/browserNotifications).
+  //
+  // BROWSER THROTTLING IS REAL AND IS NOT WORKED AROUND. Chrome and Firefox
+  // clamp timers in hidden tabs (to roughly once a minute, and harder still
+  // once a tab has been backgrounded for several minutes or the machine is on
+  // battery). So HIDDEN_POLL_MS is a floor, not a promise: the actual interval
+  // may stretch. Nothing here tries to defeat that — a Web Worker or an audio
+  // keep-alive would evade the throttle at the cost of the user's battery, for
+  // a feature that is not worth it. Becoming visible always triggers an
+  // immediate catch-up fetch, so nothing is ever lost, only delayed.
   useEffect(() => {
     if (!isAuthenticated) return undefined;
 
-    const POLL_MS = 30000;
-    let timer = null;
+    const VISIBLE_POLL_MS = 30000;
+    // Two minutes while hidden. Long enough to be a considerate background
+    // task, short enough that "somebody logged an incident" reaches a
+    // backgrounded desk within a useful window.
+    const HIDDEN_POLL_MS = 120000;
 
-    const start = () => {
-      if (timer) return;
-      timer = setInterval(() => {
-        if (document.visibilityState === 'visible') refreshNotifications();
-      }, POLL_MS);
+    let timer = null;
+    // Tracked so a visibility change only rebuilds the interval when the
+    // CADENCE actually needs to change — switching tabs back and forth
+    // repeatedly must not restart the timer on every flip.
+    let currentInterval = null;
+
+    const schedule = (intervalMs) => {
+      if (timer && currentInterval === intervalMs) return;
+      if (timer) clearInterval(timer);
+      currentInterval = intervalMs;
+      timer = setInterval(refreshNotifications, intervalMs);
     };
+
     const stop = () => {
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       timer = null;
+      currentInterval = null;
     };
+
+    const intervalForCurrentVisibility = () =>
+      document.visibilityState === 'visible' ? VISIBLE_POLL_MS : HIDDEN_POLL_MS;
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
+        // Catch-up on return: whatever the hidden cadence missed (or whatever
+        // the browser's throttle delayed) is fetched immediately, so coming
+        // back to the tab never shows a stale bell.
         refreshNotifications();
-        start();
-      } else {
-        stop();
       }
+      schedule(intervalForCurrentVisibility());
     };
 
-    if (document.visibilityState === 'visible') start();
+    schedule(intervalForCurrentVisibility());
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {

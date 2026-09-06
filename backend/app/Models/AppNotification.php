@@ -79,6 +79,62 @@ class AppNotification extends Model
         });
     }
 
+    /**
+     * The title that was withdrawn from the product but may still sit in older
+     * databases. Named once here so the list query, the bulk mark-as-read and
+     * the per-notification authorization check cannot disagree about it.
+     */
+    public const WITHDRAWN_TITLES = ['Backup Reminder'];
+
+    /**
+     * Limits a query to what one caller is entitled to see: their role's
+     * audience, minus anything withdrawn from the product.
+     *
+     * THE WHOLE POINT of this scope is that it is the single definition of
+     * "visible", used by every endpoint. It used to exist only as two separate
+     * clauses copied into index() and markAllRead(), and markRead() had
+     * neither — which is exactly how an Encoder could read an administrators-
+     * only announcement by guessing its id.
+     */
+    public function scopeVisibleTo($query, ?string $role)
+    {
+        return $query
+            ->whereNotIn('title', self::WITHDRAWN_TITLES)
+            ->forRole($role);
+    }
+
+    /**
+     * Whether one already-loaded notification is visible to a role.
+     *
+     * The row-level twin of scopeVisibleTo, for the case where the model has
+     * already been resolved (route-model binding) and re-querying it just to
+     * ask this question would be a wasted round trip. The two must agree; the
+     * NotificationTest authorization cases assert that they do.
+     */
+    public function isVisibleTo(?string $role): bool
+    {
+        if (in_array($this->title, self::WITHDRAWN_TITLES, true)) {
+            return false;
+        }
+
+        // A null audience is "everyone", which is what every notification
+        // written before the column existed carries.
+        if ($this->audience_roles === null) {
+            return true;
+        }
+
+        // A caller with no role cannot be inside a restricted audience. Fails
+        // closed on purpose: the alternative would admit an unresolvable role
+        // to precisely the announcements that were restricted.
+        if ($role === null) {
+            return false;
+        }
+
+        // Same comma-anchored match as scopeForRole's LIKE, so one role name
+        // cannot match another that merely contains it as a substring.
+        return str_contains($this->audience_roles, ','.$role.',');
+    }
+
     public function reads()
     {
         return $this->hasMany(NotificationRead::class, 'app_notification_id');

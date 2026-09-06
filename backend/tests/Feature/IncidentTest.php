@@ -383,9 +383,14 @@ class IncidentTest extends TestCase
         // should have to be made deliberately, in this test, rather than
         // arriving as a side effect. Note 'location' — the street is exposed
         // under that name, which is what the map's popup reads.
+        //
+        // 'incidentCode' and 'category' were added deliberately, here, when the
+        // map's click-popup became a hover tooltip: both identify and classify
+        // a case without naming any person, which is the line this payload
+        // draws. Nothing about a victim, complainant or suspect may join them.
         $this->assertSame([
-            'id', 'latitude', 'longitude', 'caseNumber', 'crimeType',
-            'date', 'time', 'location', 'sitio', 'status', 'priority',
+            'id', 'latitude', 'longitude', 'incidentCode', 'caseNumber', 'category',
+            'crimeType', 'date', 'time', 'location', 'sitio', 'status', 'priority',
         ], array_keys($row));
     }
 

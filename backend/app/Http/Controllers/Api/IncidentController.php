@@ -80,20 +80,26 @@ class IncidentController extends Controller
             ->whereNotNull('longitude')
             ->where('status', '!=', 'Archived')
             ->get([
-                'id', 'case_number', 'crime_type', 'incident_date', 'incident_time',
+                'id', 'incident_code', 'case_number', 'crime_type', 'category',
+                'incident_date', 'incident_time',
                 'street', 'sitio', 'status', 'priority', 'latitude', 'longitude',
             ]);
 
         // Case number, time and priority are included because the map popup
-        // shows them. Victim, complainant and suspect details deliberately are
-        // NOT in this payload: a map pin is a location, and identifying a
+        // shows them, and incident_code and category joined them when the popup
+        // became a hover tooltip — both identify and classify a case without
+        // naming anybody. Victim, complainant and suspect details deliberately
+        // are NOT in this payload: a map pin is a location, and identifying a
         // named individual by a dot on screen is exactly the disclosure this
-        // module has to avoid.
+        // module has to avoid. That rule is what bounds this list, not the
+        // convenience of whoever adds the next field.
         return $incidents->map(fn ($i) => [
             'id' => (string) $i->id,
             'latitude' => (float) $i->latitude,
             'longitude' => (float) $i->longitude,
+            'incidentCode' => $i->incident_code,
             'caseNumber' => $i->case_number,
+            'category' => $i->category,
             'crimeType' => $i->crime_type,
             'date' => optional($i->incident_date)->format('Y-m-d'),
             'time' => $i->incident_time ? substr($i->incident_time, 0, 5) : null,

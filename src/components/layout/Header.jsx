@@ -5,6 +5,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useData } from '../../hooks/useData';
 import { useToast } from '../../hooks/useToast';
 import { Icons } from '../icons';
+import NotificationPermissionControl from './NotificationPermissionControl';
 import { notificationTarget } from '../../utils/notificationRouting';
 import { relativeTime } from '../../utils/helpers';
 
@@ -187,6 +188,11 @@ export default function Header({ onMenuToggle, bellPulse = false }) {
                 );
               })}
             </div>
+            {/* Desktop-alert permission, at the foot of the panel rather than in
+                System Settings: it is per-person and per-browser, not barangay
+                configuration, and every role needs it. It never prompts on its
+                own — see the component. */}
+            <NotificationPermissionControl open={dropdownOpen} />
           </div>
         </div>
         <button

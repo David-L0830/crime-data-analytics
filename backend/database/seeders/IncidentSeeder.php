@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Incident;
 use App\Models\User;
+use App\Services\Barangay178Boundary;
 use Illuminate\Database\Seeder;
 
 // Mirrors src/utils/mockData.js `generateIncidents()` so seeded data keeps the
@@ -65,9 +66,20 @@ class IncidentSeeder extends Seeder
         return "{$first} {$last}";
     }
 
-    private const CENTER_LAT = 14.7323;
-
-    private const CENTER_LNG = 121.0270;
+    // CENTER_LAT / CENTER_LNG are gone deliberately, and should not come back.
+    //
+    // They held 14.7323, 121.0270 - a point roughly 4.3 km south-west of
+    // Barangay 178, in the Bagbag/Novaliches part of Quezon City. Every
+    // incident this seeder has ever produced was scattered around it, which is
+    // why not one of the 120 plottable rows in the database falls inside the
+    // real barangay.
+    //
+    // Correcting the constant would not have been enough. A `centre + random
+    // offset` square still spills outside a barangay that is not square, so
+    // some share of every seed run would land outside the very boundary the
+    // map draws. Points are now drawn from the actual polygon instead - see
+    // Barangay178Boundary::randomPointInside() - so "inside Barangay 178" is a
+    // property of the generator rather than a hope about its parameters.
 
     private const BASE_COUNTS = [8, 7, 9, 8, 10, 12, 14, 13, 11, 10, 8, 7];
 
@@ -104,6 +116,11 @@ class IncidentSeeder extends Seeder
         if (Incident::count() > 0) {
             return;
         }
+
+        // Resolved once and reused: the boundary parses its GeoJSON on first
+        // use and caches it on the instance, so building it per incident would
+        // re-read and re-decode the polygon for every row.
+        $boundary = app(Barangay178Boundary::class);
 
         $id = 1;
 
@@ -157,11 +174,10 @@ class IncidentSeeder extends Seeder
                 $sitio = self::SITIOS[array_rand(self::SITIOS)];
                 $streetName = self::STREETS[$sitio][array_rand(self::STREETS[$sitio])];
                 $houseNum = random_int(1, 300);
-                // Barangay 178 is a small urban barangay (~350m radius) — a
-                // ±250/10000 (~2.5km) spread was landing points in neighboring
-                // barangays, so keep this tight to the actual barangay extent.
-                $lat = self::CENTER_LAT + random_int(-32, 32) / 10000;
-                $lng = self::CENTER_LNG + random_int(-32, 32) / 10000;
+                // Rejection-sampled from the real Barangay 178 polygon, so
+                // every seeded incident is somewhere the barangay actually
+                // covers. See the note where CENTER_LAT used to live.
+                [$lat, $lng] = $boundary->randomPointInside();
                 $statusPool = $mIndex < 8
                     ? ['Solved', 'Closed', 'Under Investigation', 'Open']
                     : ['Open', 'Under Investigation'];

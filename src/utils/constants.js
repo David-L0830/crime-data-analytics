@@ -140,7 +140,13 @@ export const OFFICERS = [
   'Insp. Torres',
 ];
 
-export const BARANGAY_178_CENTER = { lat: 14.7323, lng: 121.027 };
+// Re-exported, not defined here. This used to be the literal
+// `{ lat: 14.7323, lng: 121.027 }`, which is about 4.3 km south-west of
+// Barangay 178 — in Quezon City, not Caloocan. It is now derived from the real
+// boundary polygon in src/utils/geo.js, so the centre cannot disagree with the
+// boundary the map draws. Kept exported from here so existing importers
+// (Mapping, mockData) did not have to change their import path.
+export { BARANGAY_178_CENTER, BARANGAY_178_BOUNDS } from './geo';
 
 export const COLORS = {
   black: '#22291F',

@@ -5,7 +5,6 @@ namespace App\Http\Resources;
 use App\Services\SupabaseAdminService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class UserResource extends JsonResource
 {
@@ -38,7 +37,12 @@ class UserResource extends JsonResource
             // every account before this checkpoint); the sidebar/profile UI
             // fall back to the initial-letter `avatar` above whenever this
             // is null, so no existing call site needed to change.
-            'avatarUrl' => $this->avatar_path ? Storage::disk('public')->url($this->avatar_path) : null,
+            // Resolution moved to User::avatarUrl(). It has to handle two
+            // shapes now — a full Supabase Storage URL, or a legacy relative
+            // local-disk path — and it also stops a stale APP_URL from
+            // producing avatar URLs that point at the viewer's own machine.
+            // See that method for both reasons.
+            'avatarUrl' => $this->avatarUrl(),
             // Final auth migration — Laravel TOTP is retired; this now
             // reflects whether Supabase has a verified MFA factor on file
             // for this account, via the Admin API (server-side only, see
