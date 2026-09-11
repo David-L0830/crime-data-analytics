@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import FilterBar from '../components/ui/FilterBar';
+import useTableSort from '../hooks/useTableSort';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
@@ -166,6 +167,14 @@ export default function AuditLogs() {
   // It is a real date-time in the workbook and a sortable 'YYYY-MM-DD HH:mm' in
   // the .csv, which is what the numFmt below asks both exporters for; the id,
   // which identifies nothing outside this database, is left out of both.
+
+  // Column sorting for this report. `sorted` — not `filtered` — is what the
+  // table renders and what both exporters project, so the order on screen and
+  // the order in the generated file are the same order by construction. The
+  // default (no sort) keeps the newest-first ordering the rows already arrive
+  // in. See useTableSort / sortRecords.
+  const { sort, sorted, toggleSort, sortSummary } = useTableSort(filtered);
+
   const exportSpec = () => ({
     sheetName: 'Audit Logs',
     title: 'Audit Log Report',
@@ -175,6 +184,7 @@ export default function AuditLogs() {
       `Target Type: ${filters['audit-target'] || 'All'}`,
       `From: ${filters['audit-dateFrom'] || 'Any'}`,
       `To: ${filters['audit-dateTo'] || 'Any'}`,
+      sortSummary,
     ],
     columns: [
       {
@@ -190,7 +200,7 @@ export default function AuditLogs() {
       { header: 'Target Type', key: 'targetType', width: 18 },
       { header: 'Details', key: 'details', width: 60, wrap: true },
     ],
-    rows: filtered,
+    rows: sorted,
     onEmpty: () => showToast('No data to export', 'error'),
     onError: () => showToast('Could not export report.', 'error'),
   });
@@ -265,6 +275,9 @@ export default function AuditLogs() {
               key: 'timestamp',
               label: 'Date/Time',
               render: (v) => new Date(v).toLocaleString('en-PH'),
+              // Ordered as a real date-time, not as the localised string the
+              // renderer produces — that text sorts '1/9' before '10/2'.
+              sortType: 'date',
             },
             {
               key: 'action',
@@ -284,7 +297,9 @@ export default function AuditLogs() {
             { key: 'targetType', label: 'Target Type' },
             { key: 'details', label: 'Details' },
           ]}
-          rows={filtered}
+          rows={sorted}
+          sort={sort}
+          onSort={toggleSort}
           emptyMessage={
             secondaryLoading
               ? 'Loading audit logs…'

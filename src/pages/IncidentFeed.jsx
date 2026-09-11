@@ -4,6 +4,7 @@ import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { useDebounce } from '../hooks/useDebounce';
+import useTableSort from '../hooks/useTableSort';
 import FilterBar from '../components/ui/FilterBar';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
@@ -116,6 +117,12 @@ export default function IncidentFeed() {
       return withArchiveRule.filter((r) => PENDING_STATUSES.includes(r.status));
     return withArchiveRule;
   }, [records, filters, debouncedSearch, location.state]);
+
+  // Column sorting for this report. `sorted` — not `filtered` — is what the
+  // table renders, what the printed document shows and what both exporters
+  // project, so the order on screen and the order in the generated file are
+  // the same order by construction. See useTableSort / sortRecords.
+  const { sort, sorted, toggleSort, sortSummary } = useTableSort(filtered);
 
   // BADAC Administrator may edit any record; an Encoder may only correct
   // incidents they personally encoded (Part H-30 of the RBAC spec). The
@@ -247,16 +254,16 @@ export default function IncidentFeed() {
   // ONE projection, shared by the .xlsx and the .csv below, so the two files
   // can never drift apart: same columns, same order, same labels, same rows.
   //
-  // The columns are an explicit, ordered projection of the SAME `filtered`
-  // records the table above is showing - search and every active filter
-  // already applied. Internal plumbing (id, reportedBy, synced_at,
-  // latitude/longitude) is simply not a reporting field, and no underlying
-  // record value is altered.
+  // The columns are an explicit, ordered projection of the SAME `sorted`
+  // records the table above is showing - search, every active filter and the
+  // chosen column ordering already applied. Internal plumbing (id, reportedBy,
+  // synced_at, latitude/longitude) is simply not a reporting field, and no
+  // underlying record value is altered.
   const exportSpec = () => ({
     sheetName: 'Crime Data Collection',
     title: 'Crime Data Collection Report',
     subtitle: 'Crime Data Analytics & Reporting System',
-    meta: [`Filters: ${filterSummary}`],
+    meta: [`Filters: ${filterSummary}`, sortSummary],
     columns: [
       { header: 'Case Number', key: 'caseNumber', width: 16 },
       { header: 'Date', key: 'date', type: 'date', width: 14 },
@@ -290,7 +297,7 @@ export default function IncidentFeed() {
       { header: 'Suspect', key: 'suspectName', width: 22 },
       { header: 'Description', key: 'description', width: 40, wrap: true },
     ],
-    rows: filtered,
+    rows: sorted,
     onEmpty: () => showToast('No data to export', 'error'),
     onError: () => showToast('Could not export report.', 'error'),
   });
@@ -309,7 +316,7 @@ export default function IncidentFeed() {
     }
   };
 
-  // Same projection, same `filtered` rows, comma-separated. Synchronous
+  // Same projection, same `sorted` rows, comma-separated. Synchronous
   // because exportCsv needs no dynamic import — see the note there.
   const handleExportCsv = () => {
     const ok = exportCsv({
@@ -349,8 +356,9 @@ export default function IncidentFeed() {
         title="Crime Data Collection Report"
         subtitle="Crime Data Analytics &amp; Reporting System"
         meta={[
-          `${filtered.length} record${filtered.length === 1 ? '' : 's'}`,
+          `${sorted.length} record${sorted.length === 1 ? '' : 's'}`,
           filterSummary,
+          sortSummary,
         ]}
       >
 
@@ -364,11 +372,11 @@ export default function IncidentFeed() {
             />
           </div>
           <div className="toolbar-actions">
-            {/* Checkpoint 27 — overall CSV export. Exports `filtered` (search +
+            {/* Checkpoint 27 — overall CSV export. Exports `sorted` (search +
                 every active FilterBar field already applied above), matching
                 this app's established export convention on every other module
                 (Dashboard, Analytics, AuditLogs, Residents, CriminalRecords,
-                VictimRecords all export their own `filtered`, not the raw
+                VictimRecords all export their own filtered rows, not the raw
                 unfiltered dataset) — there is no pagination on this table to
                 worry about accidentally under-exporting from. This is
                 deliberately separate from the per-incident "VIEW -> Export
@@ -437,7 +445,15 @@ export default function IncidentFeed() {
               { key: 'caseNumber', label: 'Case #' },
               { key: 'crimeType', label: 'Type' },
               { key: 'category', label: 'Category' },
-              { key: 'date', label: 'Date', render: formatDate },
+              // sortType 'date' so the column orders chronologically rather
+              // than by the formatted text formatDate produces, which would
+              // put every April before every January.
+              {
+                key: 'date',
+                label: 'Date',
+                render: formatDate,
+                sortType: 'date',
+              },
               { key: 'time', label: 'Time', render: formatTime },
               { key: 'sitio', label: 'Sitio' },
               { key: 'street', label: 'Location' },
@@ -467,7 +483,9 @@ export default function IncidentFeed() {
                 ),
               },
             ]}
-            rows={filtered}
+            rows={sorted}
+            sort={sort}
+            onSort={toggleSort}
             actions={(row) => (
               <>
                 <Button

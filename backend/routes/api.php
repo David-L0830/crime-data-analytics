@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\MetabaseEmbedController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ReportScheduleController;
 use App\Http\Controllers\Api\RolePermissionController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\SyncLogController;
@@ -156,6 +157,36 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 // yourself is not the same permission as reading everyone's.
 Route::middleware(['auth:supabase', 'supabase.mfa'])
     ->post('/report-export-audit', [AuditLogController::class, 'reportExported']);
+
+// ===== Automated (scheduled) reports =====
+//
+// ADMINISTRATOR ONLY, every route, read and write alike.
+//
+// A schedule is a standing instruction to e-mail crime records to an address,
+// repeatedly, with nobody present. That is a stronger capability than the
+// on-demand export above: POST /report-export-audit is open to every
+// authenticated role because each of them exports data from a screen it is
+// already entitled to see, whereas a schedule sends that data to a recipient
+// who need not be a user of this system at all. The read side is restricted
+// for the same reason it is on GET /audit-logs — the email log lists recipient
+// addresses and is exactly as sensitive as the audit trail.
+//
+// Encoder and Badac (read-only) therefore get a 403 from the role: middleware
+// before the controller runs, which is the same treatment they already get on
+// /users and /audit-logs.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+    Route::get('/report-schedules', [ReportScheduleController::class, 'index']);
+    Route::post('/report-schedules', [ReportScheduleController::class, 'store']);
+    Route::put('/report-schedules/{reportSchedule}', [ReportScheduleController::class, 'update']);
+    Route::delete('/report-schedules/{reportSchedule}', [ReportScheduleController::class, 'destroy']);
+
+    // Runs the schedule now, through the identical path the scheduler uses.
+    Route::post('/report-schedules/{reportSchedule}/run', [ReportScheduleController::class, 'run']);
+
+    // The "Email Logs" evidence: what ran, for whom, when, and whether it
+    // arrived.
+    Route::get('/report-email-logs', [ReportScheduleController::class, 'logs']);
+});
 
 // GET /sync-logs, GET /users, GET /users/{user} — admin-only. Badac
 // (read-only) has no User Management, Settings, or Audit Logs access.

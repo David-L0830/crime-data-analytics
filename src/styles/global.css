@@ -1968,6 +1968,55 @@ th {
   font-family: var(--font-heading);
 }
 
+/* Sortable column header (Table.jsx, opt-in via its `onSort` prop).
+   The button has to be invisible as a control and inherit the <th>'s own
+   typography, so the header row still reads as a header row rather than as a
+   strip of buttons — the only affordances are the cursor, the hover colour and
+   the direction glyph. Columns on tables that were never given `onSort` render
+   plain text exactly as before and none of these rules apply to them. */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.th-sort:hover {
+  color: var(--text-primary);
+}
+
+/* Keyboard focus must stay visible — this is the one control in the header
+   row, and removing its outline would make the table unnavigable by keyboard
+   without removing the ability to operate it. */
+.th-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.th-sort-active {
+  color: var(--accent);
+}
+
+/* The neutral up/down glyph on an unsorted column is a hint, not information;
+   it is dimmed so the one column actually being sorted is the one that reads
+   as marked. */
+.th-sort-indicator {
+  font-size: 0.75em;
+  opacity: 0.45;
+}
+
+.th-sort-active .th-sort-indicator {
+  opacity: 1;
+}
+
 tbody tr {
   transition: background var(--transition);
 }

@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { useDebounce } from '../hooks/useDebounce';
 import FilterBar from '../components/ui/FilterBar';
+import useTableSort from '../hooks/useTableSort';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
@@ -69,6 +70,13 @@ export default function CriminalRecords() {
   // records the list is showing: related cases become a readable comma list,
   // and previousStatus stays out because it is restore plumbing rather than
   // reportable data. No record value is altered.
+
+  // Column sorting for this report. `sorted` — not `filtered` — is what the
+  // table renders and what both exporters project, so the order on screen and
+  // the order in the generated file are the same order by construction. See
+  // useTableSort / sortRecords.
+  const { sort, sorted, toggleSort, sortSummary } = useTableSort(filtered);
+
   const exportSpec = () => ({
     sheetName: 'Criminal Records',
     title: 'Criminal Records Report',
@@ -77,6 +85,7 @@ export default function CriminalRecords() {
       `Status: ${filters['crim-status'] || 'All'}`,
       `Gender: ${filters['crim-gender'] || 'All'}`,
       `Search: ${debouncedSearch || 'None'}`,
+      sortSummary,
     ],
     columns: [
       { header: 'Criminal ID', key: 'criminalId', width: 14 },
@@ -107,7 +116,7 @@ export default function CriminalRecords() {
       },
       { header: 'Notes', key: 'notes', width: 40, wrap: true },
     ],
-    rows: filtered,
+    rows: sorted,
     onEmpty: () => showToast('No data to export', 'error'),
     onError: () => showToast('Could not export report.', 'error'),
   });
@@ -249,6 +258,11 @@ export default function CriminalRecords() {
               key: 'charges',
               label: 'Charges',
               render: (v) => (v || []).join(', ') || '—',
+              // Charges is an array; ordering on the raw value would compare
+              // every row's "[object Array]" against every other's. It sorts
+              // on the same joined text the cell displays, which is what the
+              // reader sees and therefore what they expect to be ordering by.
+              sortValue: (row) => (row.charges || []).join(', '),
             },
             {
               key: 'relatedCaseNumber',
@@ -282,7 +296,9 @@ export default function CriminalRecords() {
               ),
             },
           ]}
-          rows={filtered}
+          rows={sorted}
+          sort={sort}
+          onSort={toggleSort}
           actions={(row) => (
             <>
               <Button
