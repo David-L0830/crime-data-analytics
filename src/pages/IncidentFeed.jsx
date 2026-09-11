@@ -27,7 +27,7 @@ import {
 import { exportWorkbook } from '../utils/exportWorkbook';
 import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
-import { TYPE_CATEGORY_MAP } from '../utils/constants';
+import { TYPE_CATEGORY_MAP, ASSIGNABLE_STATUSES } from '../utils/constants';
 import { Icons } from '../components/icons';
 
 export default function IncidentFeed() {
@@ -541,7 +541,10 @@ export default function IncidentFeed() {
         crimeTypes={CRIME_TYPES}
         categories={CATEGORIES}
         sitios={SITIOS}
-        statuses={STATUSES}
+        // ASSIGNABLE_STATUSES, not the STATUSES the Status filter above uses:
+        // 'Archived' is set by the Archive action alone, so the form must not
+        // offer it. The server rejects it too (Store/UpdateIncidentRequest).
+        statuses={ASSIGNABLE_STATUSES}
         typeCategoryMap={TYPE_CATEGORY_MAP}
         validate={validateRecord}
       />
@@ -552,7 +555,7 @@ export default function IncidentFeed() {
         crimeTypes={CRIME_TYPES}
         categories={CATEGORIES}
         sitios={SITIOS}
-        statuses={STATUSES}
+        statuses={ASSIGNABLE_STATUSES}
         typeCategoryMap={TYPE_CATEGORY_MAP}
         validate={validateRecord}
       />

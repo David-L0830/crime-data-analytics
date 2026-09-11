@@ -132,7 +132,11 @@ class StatusDefaultsAndNullTest extends TestCase
     {
         $this->actingAsSupabase($this->admin());
 
-        foreach (Incident::STATUSES as $status) {
+        // ASSIGNABLE_STATUSES, not STATUSES: 'Archived' is no longer settable
+        // through POST /incidents — the archive endpoint is its only writer
+        // (see StatusValidationTest and IncidentTest). Nothing about the
+        // nullable behaviour under test here changed.
+        foreach (Incident::ASSIGNABLE_STATUSES as $status) {
             $this->postJson('/api/incidents', $this->incidentPayload(['status' => $status]))
                 ->assertCreated()
                 ->assertJsonPath('data.status', $status);

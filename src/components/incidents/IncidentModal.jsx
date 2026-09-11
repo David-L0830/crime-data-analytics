@@ -370,6 +370,11 @@ function IncidentFormFields({
   categories,
   sitios,
   statuses,
+  // Set by IncidentEditModal when the incident being edited is Archived.
+  // `statuses` never contains 'Archived', so without this the select would
+  // fall back to its blank first option and a plain "fix a typo" save would
+  // read as a status change away from Archived.
+  statusLocked = false,
 }) {
   // These fields are rendered twice in this file — once inside
   // IncidentCreateModal and once inside IncidentEditModal — and IncidentFeed
@@ -459,14 +464,27 @@ function IncidentFormFields({
           id={`${uid}-status`}
           value={form.status}
           onChange={set('status')}
+          disabled={statusLocked}
         >
-          <option value="">Select…</option>
-          {statuses.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
+          {statusLocked ? (
+            <option value={form.status}>{form.status}</option>
+          ) : (
+            <>
+              <option value="">Select…</option>
+              {statuses.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </>
+          )}
         </select>
+        {statusLocked && (
+          <p className="form-hint">
+            An archived incident keeps its status while you edit it. Use Restore
+            to return it to its previous status.
+          </p>
+        )}
       </div>
       <div className="form-group">
         <label htmlFor={`${uid}-date`}>Date *</label>
@@ -954,6 +972,15 @@ export function IncidentEditModal({
           item.evidenceId.trim() !== '' || item.description.trim() !== '',
       ),
     };
+    // 'Archived' is not an assignable status — PUT /api/incidents/{id}
+    // rejects it (UpdateIncidentRequest), and only the archive endpoint may
+    // write it, because only that endpoint also records previous_status.
+    // Omitting the key entirely leaves the column untouched
+    // (IncidentController::mapToColumns copies only keys that are present),
+    // so an archived incident can still have its details corrected.
+    if (incident?.status === 'Archived') {
+      delete data.status;
+    }
     const validationErrors = validate(data, incident?.id);
     if (validationErrors.length) {
       setErrors(validationErrors);
@@ -1014,6 +1041,7 @@ export function IncidentEditModal({
           categories={categories}
           sitios={sitios}
           statuses={statuses}
+          statusLocked={shown.status === 'Archived'}
         />
         <div className="modal-footer">
           <Button type="button" variant="ghost" onClick={onClose}>

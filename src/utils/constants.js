@@ -114,12 +114,32 @@ export const TYPE_CATEGORY_MAP = {
   Cybercrime: 'Cybercrime',
 };
 
+// The full incident status vocabulary — what the Status filters on the
+// Dashboard, Incident Feed, Analytics, Trends and Mapping pages offer, and
+// what a record may display. Mirrors Incident::STATUSES on the server.
 export const STATUSES = [
   'Open',
   'Under Investigation',
   'Solved',
   'Closed',
   'Archived',
+];
+
+// The statuses an encoder may ASSIGN in the incident create/edit form.
+//
+// 'Archived' is absent on purpose: archiving is the Archive action, which is
+// the only path that also records previous_status so Restore can put the
+// incident back. Offering it in the form let a save reach 'Archived' with no
+// previous_status, no ARCHIVE audit event, and no way back except the
+// 'Open' fallback. Mirrors Incident::ASSIGNABLE_STATUSES, which is what
+// Store/UpdateIncidentRequest now validate against — the server is the
+// enforcing side; removing it here is what stops the 422 being the first
+// time anyone hears about it.
+export const ASSIGNABLE_STATUSES = [
+  'Open',
+  'Under Investigation',
+  'Solved',
+  'Closed',
 ];
 export const CRIMINAL_STATUSES = [
   'Active',

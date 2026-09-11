@@ -16,11 +16,11 @@ import {
   filterRecords,
   countBy,
   movingAverage,
-  linearRegression,
-  forecastNext,
+  buildRegressionSeries,
   continuousMonths,
   hotspotRisk,
   monthLabelToRange,
+  repeatLocationKey,
 } from '../utils/helpers';
 import {
   buildDailyPatternInsight,
@@ -166,7 +166,11 @@ export default function Trends() {
         msg: `Repeat offender: ${name} linked to ${count} incidents`,
       });
     });
-  const locCountsForAlerts = countBy(filtered, (r) => `${r.sitio}|${r.street}`);
+  // Keyed through the shared helper rather than the raw `street`. Keying on the
+  // raw value made every house number its own location, so this page reported
+  // repeat locations that Dashboard — which has always stripped the number —
+  // did not. Both now group identical data identically.
+  const locCountsForAlerts = countBy(filtered, repeatLocationKey);
   Object.entries(locCountsForAlerts)
     .filter(([, c]) => c >= 2)
     .slice(0, 3)
@@ -238,22 +242,13 @@ export default function Trends() {
   const ma = movingAverage(counts, 3);
   const forecastResult = buildCrimeTrendInsight(monthKeys, counts, 'Month');
 
-  const points = monthKeys.map((m, i) => [i, byMonth[m] ?? 0]);
-  const { slope, intercept } = linearRegression(points);
-  const regression = monthKeys.map(
-    (_, i) => +(slope * i + intercept).toFixed(1),
-  );
-  const nextLabel = monthKeys.length
-    ? `Forecast (${monthKeys[monthKeys.length - 1].slice(0, 4)}-${String((parseInt(monthKeys[monthKeys.length - 1].slice(5), 10) % 12) + 1).padStart(2, '0')})`
-    : 'Forecast';
-  const forecast = [...regression];
-  if (monthKeys.length)
-    forecast.push(forecastNext(slope, intercept, monthKeys.length));
-  const regLabels = [...monthKeys, nextLabel];
+  const { hasRegression, slope, forecast, regLabels, regActual, nextLabel } =
+    buildRegressionSeries(monthKeys, counts);
   const regressionResult = buildRegressionInsight(
     slope,
     nextLabel,
     forecast[forecast.length - 1],
+    monthKeys.length,
   );
 
   // One definition, used by the printed report header so the document says
@@ -512,17 +507,21 @@ export default function Trends() {
               datasets={[
                 {
                   label: 'Actual',
-                  data: [...counts, null],
+                  data: regActual,
                   borderColor: COLORS.green,
                   tension: 0.3,
                 },
-                {
-                  label: 'Regression',
-                  data: forecast,
-                  borderColor: COLORS.black,
-                  borderDash: [3, 3],
-                  tension: 0.3,
-                },
+                ...(hasRegression
+                  ? [
+                      {
+                        label: 'Regression',
+                        data: forecast,
+                        borderColor: COLORS.black,
+                        borderDash: [3, 3],
+                        tension: 0.3,
+                      },
+                    ]
+                  : []),
               ]}
             />
             <ChartPrintSummary
@@ -530,8 +529,16 @@ export default function Trends() {
               rowLabel="Period"
               labels={regLabels}
               series={[
-                { key: 'actual', label: 'Actual', values: [...counts, null] },
-                { key: 'regression', label: 'Regression', values: forecast },
+                { key: 'actual', label: 'Actual', values: regActual },
+                ...(hasRegression
+                  ? [
+                      {
+                        key: 'regression',
+                        label: 'Regression',
+                        values: forecast,
+                      },
+                    ]
+                  : []),
               ]}
               insight={regressionResult.insight}
             />
@@ -633,7 +640,9 @@ export default function Trends() {
                   variant="secondary"
                   size="sm"
                   onClick={handleMarkHotspotsRead}
-                  disabled={markingHotspotsRead || unreadHotspotAlertCount === 0}
+                  disabled={
+                    markingHotspotsRead || unreadHotspotAlertCount === 0
+                  }
                 >
                   <Icons.CheckCircle2 size={14} strokeWidth={2} />
                   {markingHotspotsRead ? 'Marking…' : 'Mark All as Read'}
@@ -701,7 +710,6 @@ export default function Trends() {
         </Modal>
 
         <PrintDocumentEnd />
-
       </PrintReport>
 
       <div className="export-bar">

@@ -10,6 +10,17 @@ import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { Icons } from '../components/icons';
 import logo from '../assets/images/barangay178-logo.png';
 
+// The client-side minimum length below is a fast, non-authoritative UX gate,
+// not a security boundary — Supabase Auth's password policy (Authentication
+// -> Policies -> minimum password length) is the enforcement point that
+// actually matters, and its rejection already surfaces through the
+// AuthWeakPasswordError branch in passwordUpdateMessage() below regardless of
+// what this constant says. Keeping the number in one named constant instead
+// of duplicating it in the validation check and the placeholder text means
+// that when that Supabase setting is finally configured, updating this one
+// value keeps both in sync instead of letting them drift independently.
+const MIN_PASSWORD_LENGTH = 8;
+
 // Final auth migration — reached via the link in the Supabase password-
 // reset email. Supabase's own client (detectSessionInUrl: true — see
 // supabaseClient.js) parses that link's recovery token on page load and
@@ -85,8 +96,8 @@ export default function ResetPassword() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (password !== confirmPassword) {
@@ -202,7 +213,7 @@ export default function ResetPassword() {
                     <input
                       type={showPassword ? 'text' : 'password'}
                       id="new-password"
-                      placeholder="At least 8 characters"
+                      placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                       autoComplete="new-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}

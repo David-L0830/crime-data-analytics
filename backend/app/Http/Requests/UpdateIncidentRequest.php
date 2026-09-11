@@ -63,7 +63,10 @@ class UpdateIncidentRequest extends FormRequest
             'investigatingOfficer' => ['nullable', 'string', 'max:100'],
             'badgeNumber' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', 'string', 'max:100'],
-            'status' => ['string', Rule::in(Incident::STATUSES)],
+            // ASSIGNABLE_STATUSES, not STATUSES: 'Archived' is reachable only
+            // through PUT /incidents/{incident}/archive, which is the only
+            // writer that also captures previous_status. See Incident.
+            'status' => ['string', Rule::in(Incident::ASSIGNABLE_STATUSES)],
             // See StoreIncidentRequest for why this is 'sometimes' rather than
             // 'nullable': incidents.priority is NOT NULL DEFAULT 'Normal', so
             // an explicit null was a 500 rather than a 422.
@@ -77,6 +80,7 @@ class UpdateIncidentRequest extends FormRequest
     {
         return [
             'caseNumber.unique' => 'Case number already exists.',
+            'status.in' => 'Status cannot be set to Archived here — use the Archive action instead.',
             'date.before_or_equal' => 'Incident date cannot be in the future.',
             'complainantName.required_if' => 'Complainant full name is required when the complainant is not the victim.',
         ];

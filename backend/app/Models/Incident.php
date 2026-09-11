@@ -32,6 +32,27 @@ class Incident extends Model
     ];
 
     /**
+     * Statuses a client may ASSIGN through POST /incidents and
+     * PUT /incidents/{incident}.
+     *
+     * 'Archived' is excluded on purpose. Archiving is a two-column write —
+     * previous_status must capture the status being left at the same moment
+     * status becomes 'Archived' — and only IncidentController::archive()
+     * performs it. A create or update carrying status: 'Archived' would reach
+     * 'Archived' without ever setting previous_status, leaving a row that
+     * restore() can only send back to DEFAULT_STATUS, and it would bypass the
+     * already-archived guard and the ARCHIVE audit event as well.
+     * Store/UpdateIncidentRequest validate against this set; STATUSES stays
+     * the full vocabulary for filtering and display.
+     */
+    public const ASSIGNABLE_STATUSES = [
+        'Open',
+        'Under Investigation',
+        'Solved',
+        'Closed',
+    ];
+
+    /**
      * Statuses a record may be restored TO.
      *
      * 'Archived' is excluded on purpose: it is the state being left, so

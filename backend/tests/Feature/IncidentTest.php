@@ -144,6 +144,147 @@ class IncidentTest extends TestCase
         $this->assertDatabaseHas('incidents', ['id' => $incident->id, 'crime_type' => 'Theft']);
     }
 
+    // ===== 'Archived' is not a client-assignable status =====
+    //
+    // Archiving is a two-column write: previous_status must capture the status
+    // being left at the same moment status becomes 'Archived'. Only
+    // IncidentController::archive() does that, and it also refuses a second
+    // archive and writes the ARCHIVE audit event. A create or update carrying
+    // status: 'Archived' reached the same column through
+    // Rule::in(Incident::STATUSES) while doing none of it, leaving a row that
+    // restore() could only send back to DEFAULT_STATUS. Store/Update now
+    // validate against Incident::ASSIGNABLE_STATUSES instead; STATUSES stays
+    // the full vocabulary the Status filters display.
+
+    public function test_creating_an_incident_with_status_archived_is_rejected(): void
+    {
+        $this->actingUser();
+
+        $this->postJson('/api/incidents', [
+            'caseNumber' => 'CN-2025-9997',
+            'crimeType' => 'Theft',
+            'date' => '2025-06-01',
+            'sitio' => 'Sitio 1',
+            'status' => 'Archived',
+        ])->assertUnprocessable()->assertJsonValidationErrors(['status']);
+
+        $this->assertDatabaseMissing('incidents', ['case_number' => 'CN-2025-9997']);
+    }
+
+    public function test_updating_an_incident_to_status_archived_is_rejected(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Open']);
+
+        $this->putJson("/api/incidents/{$incident->id}", ['status' => 'Archived'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status']);
+
+        // Neither column moved: the row is still Open, and nothing wrote a
+        // previous_status behind the archive endpoint's back.
+        $this->assertDatabaseHas('incidents', [
+            'id' => $incident->id,
+            'status' => 'Open',
+            'previous_status' => null,
+        ]);
+    }
+
+    public function test_the_other_statuses_are_still_assignable(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Open']);
+
+        // Guard against over-tightening: only 'Archived' was removed.
+        foreach (Incident::ASSIGNABLE_STATUSES as $status) {
+            $this->putJson("/api/incidents/{$incident->id}", ['status' => $status])
+                ->assertOk()
+                ->assertJsonPath('data.status', $status);
+        }
+    }
+
+    public function test_editing_an_archived_incident_without_a_status_leaves_it_archived(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Archived', 'previous_status' => 'Solved']);
+
+        // What the edit form now sends for an archived record: the status key
+        // is omitted entirely, so mapToColumns() never touches the column and
+        // the details can still be corrected.
+        $this->putJson("/api/incidents/{$incident->id}", ['description' => 'Corrected narrative.'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Archived');
+
+        $this->assertDatabaseHas('incidents', [
+            'id' => $incident->id,
+            'status' => 'Archived',
+            'previous_status' => 'Solved',
+            'description' => 'Corrected narrative.',
+        ]);
+    }
+
+    // ===== previous_status is server-controlled =====
+    //
+    // It is absent from Store/UpdateIncidentRequest::rules() and from
+    // IncidentController::mapToColumns(), so a client-supplied value never
+    // reaches validated() and never reaches the column. These pin that: the
+    // restore target is decided by what archive() recorded, not by whatever
+    // the caller claims the record used to be.
+
+    public function test_previous_status_cannot_be_set_when_creating_an_incident(): void
+    {
+        $this->actingUser();
+
+        $this->postJson('/api/incidents', [
+            'caseNumber' => 'CN-2025-9996',
+            'crimeType' => 'Theft',
+            'date' => '2025-06-01',
+            'sitio' => 'Sitio 1',
+            'status' => 'Open',
+            'previous_status' => 'Solved',
+            'previousStatus' => 'Solved',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('incidents', [
+            'case_number' => 'CN-2025-9996',
+            'previous_status' => null,
+        ]);
+    }
+
+    public function test_previous_status_cannot_be_forged_when_updating_an_incident(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Archived', 'previous_status' => 'Open']);
+
+        $this->putJson("/api/incidents/{$incident->id}", [
+            'previous_status' => 'Solved',
+            'previousStatus' => 'Solved',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('incidents', [
+            'id' => $incident->id,
+            'previous_status' => 'Open',
+        ]);
+    }
+
+    public function test_a_forged_previous_status_cannot_change_where_restore_sends_an_incident(): void
+    {
+        $this->actingUser();
+        $incident = Incident::factory()->create(['status' => 'Under Investigation']);
+
+        $this->putJson("/api/incidents/{$incident->id}/archive")->assertOk();
+
+        // The caller tries to rewrite history before restoring.
+        $this->putJson("/api/incidents/{$incident->id}", [
+            'previous_status' => 'Solved',
+            'previousStatus' => 'Solved',
+        ])->assertOk();
+
+        // Restore still uses what archive() captured.
+        $this->putJson("/api/incidents/{$incident->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Under Investigation');
+    }
+
     public function test_can_archive_an_incident(): void
     {
         $this->actingUser();

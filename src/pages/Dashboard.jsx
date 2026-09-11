@@ -24,6 +24,7 @@ import {
   monthLabelToRange,
   SOLVED_STATUSES,
   PENDING_STATUSES,
+  repeatLocationKey,
 } from '../utils/helpers';
 import {
   buildCrimeTrendInsight,
@@ -306,17 +307,10 @@ export default function Dashboard() {
         (b.time || '').localeCompare(a.time || ''),
     )
     .slice(0, 8);
-  // Group by STREET, not by exact address. `street` is stored house-number
-  // first ("116 Tupas St."), and in practice every incident has a different
-  // number, so keying on the raw value put every incident in its own group and
-  // the table could only ever show a column of 1s — never an actual hotspot.
-  // Stripping the leading house number groups the whole street together. No
-  // street name spans more than one sitio, so the Sitio column stays coherent.
-  // `street` is nullable in the schema, hence the `|| ''` guard before replace.
-  const locCounts = countBy(
-    filtered,
-    (r) => `${r.sitio}|${(r.street || '').replace(/^\s*\d+[A-Za-z]?\s+/, '')}`,
-  );
+  // Group by STREET, not by exact address — see repeatLocationKey() for why the
+  // house number is stripped. Trends counts its Repeat Locations through the
+  // same helper, so both pages group identical data identically.
+  const locCounts = countBy(filtered, repeatLocationKey);
   const hotspots = Object.entries(locCounts)
     // Alphabetical tie-break so equal counts render in a stable, predictable
     // order instead of whatever order the records happened to arrive in.
