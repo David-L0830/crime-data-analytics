@@ -14,15 +14,37 @@ class AnalyticsController extends Controller
     }
 
     // GET /api/analytics — general overview used by the Analytics page.
+    //
+    // Aggregates in PostgreSQL rather than loading every non-archived
+    // incident into PHP and counting there (Section 6 Phase 2 audit
+    // finding) — same `select(...)->groupBy(...)->pluck('total', ...)`
+    // shape DashboardController::index() already uses for `bySitio`/
+    // `byCrimeType`, which produces the same {value: count} map shape the
+    // frontend previously received from Collection::countBy().
     public function index()
     {
-        $incidents = $this->baseQuery()->get();
+        $total = $this->baseQuery()->count();
+
+        $byCategory = $this->baseQuery()
+            ->select('category', DB::raw('count(*) as total'))
+            ->groupBy('category')
+            ->pluck('total', 'category');
+
+        $byStatus = $this->baseQuery()
+            ->select('status', DB::raw('count(*) as total'))
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $bySitio = $this->baseQuery()
+            ->select('sitio', DB::raw('count(*) as total'))
+            ->groupBy('sitio')
+            ->pluck('total', 'sitio');
 
         return response()->json([
-            'total' => $incidents->count(),
-            'byCategory' => $incidents->countBy('category'),
-            'byStatus' => $incidents->countBy('status'),
-            'bySitio' => $incidents->countBy('sitio'),
+            'total' => $total,
+            'byCategory' => $byCategory,
+            'byStatus' => $byStatus,
+            'bySitio' => $bySitio,
         ]);
     }
 

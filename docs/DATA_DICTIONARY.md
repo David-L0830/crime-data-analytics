@@ -90,7 +90,7 @@ The core domain record: one row per reported crime incident.
 | `incident_code` | varchar(255) | No | — | — | Yes | — | — | Human-facing incident identifier (e.g. `INC-00001`). |
 | `case_number` | varchar(255) | No | — | — | Yes | — | — | Human-facing case identifier (e.g. `CN-2025-0001`). |
 | `crime_type` | varchar(255) | No | — | — | — | — | — | Crime type name. Indexed. Validated against `crime_types.name` in application code. |
-| `category` | varchar(255) | Yes | — | — | — | — | — | Crime category. |
+| `category` | varchar(255) | Yes | — | — | — | — | — | Crime category. Indexed (`incidents_category_index`, added by `2026_09_13_000001`). |
 | `incident_date` | date | No | — | — | — | — | — | Date of the incident. Indexed. |
 | `incident_time` | time | Yes | — | — | — | — | — | Time of the incident. |
 | `street` | varchar(255) | Yes | — | — | — | — | — | Street / location text. |
@@ -116,13 +116,15 @@ The core domain record: one row per reported crime incident.
 | `complainant_relationship` | varchar(100) | Yes | — | — | — | — | — | Complainant's relationship to the victim. |
 | `complainant_contact` | varchar(50) | Yes | — | — | — | — | — | Complainant contact number. |
 | `complainant_address` | varchar(255) | Yes | — | — | — | — | — | Complainant address. |
-| `reported_by` | bigint | Yes | — | — | — | `users.id` | `SET NULL` | Account that recorded the incident. |
+| `reported_by` | bigint | Yes | — | — | — | `users.id` | `SET NULL` | Account that recorded the incident. Not indexed — the application only ever reads it on an already-loaded single row (an ownership check), never as a query WHERE-clause filter. |
 | `synced_at` | timestamp | Yes | — | — | — | — | — | Timestamp column present in the schema. |
 | `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
-**Indexes:** `sitio`, `crime_type`, `status`, `incident_date` (plus the unique
-constraints on `incident_code` and `case_number`).
+**Indexes:** `sitio`, `crime_type`, `status`, `incident_date`, `category`
+(`incidents_category_index`, added by `2026_09_13_000001`) (plus the unique
+constraints on `incident_code` and `case_number`). `reported_by` is a foreign
+key but is deliberately not indexed — see its row above.
 
 ---
 
@@ -222,11 +224,19 @@ same victim may appear on more than one case.
 |---|---|---|---|---|---|---|---|---|
 | `id` | bigint (auto-increment) | No | — | Yes | — | — | — | Primary key. |
 | `incident_id` | bigint | No | — | — | Composite | `incidents.id` | `CASCADE` | The case. |
-| `victim_id` | bigint | No | — | — | Composite | `victims.id` | `CASCADE` | The victim. |
+| `victim_id` | bigint | No | — | — | Composite, Indexed | `victims.id` | `CASCADE` | The victim. Also has its own single-column index (`incident_victim_victim_id_index`, added by `2026_09_13_000002`) — see note below. |
 | `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
 **Constraints:** `UNIQUE (incident_id, victim_id)`.
+
+**Indexes:** the unique composite above serves lookups that filter on
+`incident_id` (its leading column) but cannot efficiently serve a
+`victim_id`-only filter. `Victim::relatedIncidents()` does exactly that — it
+eager-loads with `WHERE victim_id IN (...)` on every victim list/detail load
+— so a separate, single-column, non-unique index on `victim_id`
+(`incident_victim_victim_id_index`, added by `2026_09_13_000002`) exists
+alongside the composite unique. Neither index replaces the other.
 
 ---
 
@@ -241,11 +251,20 @@ and cases (`incidents`). Introduced by `2025_01_01_000016` to replace the single
 |---|---|---|---|---|---|---|---|---|
 | `id` | bigint (auto-increment) | No | — | Yes | — | — | — | Primary key. |
 | `criminal_id` | bigint | No | — | — | Composite | `criminals.id` | `CASCADE` | The criminal. |
-| `incident_id` | bigint | No | — | — | Composite | `incidents.id` | `CASCADE` | The case. |
+| `incident_id` | bigint | No | — | — | Composite, Indexed | `incidents.id` | `CASCADE` | The case. Also has its own single-column index (`criminal_incident_incident_id_index`, added by `2026_09_13_000003`) — see note below. |
 | `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
 **Constraints:** `UNIQUE (criminal_id, incident_id)`.
+
+**Indexes:** the unique composite above serves lookups that filter on
+`criminal_id` (its leading column) but cannot efficiently serve an
+`incident_id`-only filter. `Incident::relatedCriminals()` does exactly that
+— it is eager-loaded transitively via `VictimController`'s
+`relatedIncidents.relatedCriminals`, running `WHERE incident_id IN (...)` —
+so a separate, single-column, non-unique index on `incident_id`
+(`criminal_incident_incident_id_index`, added by `2026_09_13_000003`) exists
+alongside the composite unique. Neither index replaces the other.
 
 ---
 
