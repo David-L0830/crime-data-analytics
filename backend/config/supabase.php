@@ -70,4 +70,41 @@ return [
     // that have NOT completed a second factor.
     'mfa_status_cache_ttl' => 60,
 
+    // Email one-time-code MFA, for accounts explicitly configured with
+    // users.mfa_method = 'email_otp' (see EmailMfaService).
+    //
+    //   code_ttl_seconds     - how long a sent code can be entered.
+    //   max_attempts         - wrong entries allowed against one code before
+    //                          it is dead and a new one must be sent.
+    //   verified_ttl_seconds - absolute ceiling on how long one session's
+    //                          verification counts. The Supabase session
+    //                          itself is also re-checked with GoTrue on every
+    //                          use, so sign-out or revocation ends it sooner.
+    //
+    // max_attempts is PER CODE and is reset when a new code is sent, so on its
+    // own it never bounded the total number of guesses — resending simply
+    // bought five more. The two cumulative settings below are that bound
+    // (audit finding M1). They are per user, survive resends and sign-outs,
+    // and are enforced in EmailMfaService::verifyCode():
+    //
+    //   max_failures_per_window - wrong codes an account may submit in one
+    //                             window before verification is refused
+    //                             outright, correct codes included.
+    //   failure_window_seconds  - how long that budget takes to recover. The
+    //                             window is rolling and self-healing: waiting
+    //                             it out is the recovery path, which is why
+    //                             this is not a permanent lockout counter.
+    //
+    // Ten an hour leaves ample room for genuine mistyping (two full codes'
+    // worth and then some) while capping an attacker who already holds the
+    // password at ten guesses an hour against a one-in-a-million code, no
+    // matter how often they resend.
+    'email_mfa' => [
+        'code_ttl_seconds' => 300,
+        'max_attempts' => 5,
+        'verified_ttl_seconds' => 43200,
+        'max_failures_per_window' => 10,
+        'failure_window_seconds' => 3600,
+    ],
+
 ];

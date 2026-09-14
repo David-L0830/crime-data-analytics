@@ -34,6 +34,12 @@ class User extends Authenticatable
         self::ROLE_BADAC_READONLY => 'BADAC',
     ];
 
+    // users.mfa_method — the one alternative to Supabase TOTP an account can
+    // be explicitly configured for. Deliberately NOT in $fillable: it changes
+    // how an owed second factor is satisfied, so no request payload may
+    // mass-assign it.
+    public const MFA_METHOD_EMAIL_OTP = 'email_otp';
+
     // Final auth migration — 'password' deliberately removed from
     // $fillable. This application no longer authenticates against a local
     // password (Supabase Auth owns every credential now — see
@@ -105,6 +111,13 @@ class User extends Authenticatable
             : $this->auditLogs()->where('action', 'LOGIN')->max('created_at');
 
         return $value ? Carbon::parse($value) : null;
+    }
+
+    // Strict comparison on purpose: only the exact configured value opts an
+    // account into email MFA. Nothing is inferred from having an email address.
+    public function usesEmailOtpMfa(): bool
+    {
+        return $this->mfa_method === self::MFA_METHOD_EMAIL_OTP;
     }
 
     public function getRoleLabelAttribute(): string

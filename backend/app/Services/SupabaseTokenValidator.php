@@ -82,6 +82,17 @@ class SupabaseTokenValidator
             // `aal` above: it is a per-token fact, never a property of the
             // account.
             $request->attributes->set('supabase_auth_time', $this->authTimeFromClaims($claims));
+
+            // The signed `session_id` claim identifies THIS Supabase session
+            // (each sign-in gets its own; a token refresh keeps it). Email
+            // MFA state is bound to it — see EmailMfaService — so a code
+            // verified by one session can never stand in for another. Only a
+            // non-empty string is accepted; anything else leaves the
+            // attribute unset, which email MFA treats as "cannot be verified".
+            $sessionId = $claims['session_id'] ?? null;
+            if (is_string($sessionId) && $sessionId !== '') {
+                $request->attributes->set('supabase_session_id', $sessionId);
+            }
         }
 
         return $user;

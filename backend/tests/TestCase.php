@@ -7,12 +7,32 @@ use Firebase\JWT\JWT;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 abstract class TestCase extends BaseTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
+
+        // NO TEST MAY REACH THE NETWORK.
+        //
+        // phpunit.xml points SUPABASE_URL at https://test-project.supabase.co,
+        // and SupabaseTokenValidator fetches that project's JWKS on every
+        // token check. Most test classes never fake that call, so without this
+        // line each of them attempted a real HTTPS request to a Supabase host.
+        //
+        // With stray requests prevented, any HTTP call that no Http::fake()
+        // in the test answers throws StrayRequestException inside Laravel's
+        // client, before Guzzle's transport ever opens a connection or
+        // resolves a hostname. Explicit fakes keep working exactly as before:
+        // a request a fake answers is not a stray. The validator already
+        // treats a failed JWKS fetch as "no JWKS" and falls back to the test
+        // HS256 secret, so un-faked tests still authenticate — locally.
+        //
+        // See tests/Feature/HttpIsolationTest.php for the proof, including a
+        // real asymmetric (ES256) JWKS verification against a local fake.
+        Http::preventStrayRequests();
 
         $this->registerSqliteToCharForTests();
     }

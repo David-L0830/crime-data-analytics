@@ -3,6 +3,12 @@ import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { userService } from '../services/userService';
 import { ApiError } from '../services/api';
+import {
+  emailMfaRemainsNotice,
+  hasSecondFactor,
+  mfaStatusLabel,
+  usesEmailOtpMfa,
+} from '../utils/mfaStatus';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
@@ -101,8 +107,11 @@ export default function UserManagement() {
       if (roleFilter && user.role !== roleFilter) return false;
       if (statusFilter === 'active' && !user.isActive) return false;
       if (statusFilter === 'inactive' && user.isActive) return false;
-      if (twoFactorFilter === 'enabled' && !user.twoFactorEnabled) return false;
-      if (twoFactorFilter === 'disabled' && user.twoFactorEnabled) return false;
+      // hasSecondFactor, not twoFactorEnabled: an email_otp account has no
+      // Supabase factor but is challenged for an emailed code at every
+      // sign-in, so filtering it into "disabled" would be wrong.
+      if (twoFactorFilter === 'enabled' && !hasSecondFactor(user)) return false;
+      if (twoFactorFilter === 'disabled' && hasSecondFactor(user)) return false;
       return true;
     });
   }, [users, search, roleFilter, statusFilter, twoFactorFilter]);
@@ -235,7 +244,8 @@ export default function UserManagement() {
       if (type === 'two-factor') {
         replaceUser(await userService.disableTwoFactor(user.id));
         showToast(
-          'Two-factor authentication cleared for this account.',
+          'Two-factor authentication cleared for this account.' +
+            emailMfaRemainsNotice(user),
           'success',
         );
       }
@@ -251,7 +261,14 @@ export default function UserManagement() {
       if (type === 'two-factor-cancel') {
         replaceUser(await userService.setTwoFactorRequired(user.id, false));
         showToast(
-          'Two-factor authentication is no longer required for this account.',
+          // For an email_otp account this action lifts only the AUTHENTICATOR
+          // requirement; the emailed code stays mandatory (it follows
+          // users.mfa_method, which nothing here changes). Claiming MFA was
+          // switched off would be false.
+          usesEmailOtpMfa(user)
+            ? 'The authenticator requirement was removed.' +
+                emailMfaRemainsNotice(user)
+            : 'Two-factor authentication is no longer required for this account.',
           'success',
         );
       }
@@ -483,9 +500,11 @@ export default function UserManagement() {
                 {
                   key: 'twoFactorEnabled',
                   label: '2FA',
-                  render: (v) => (
-                    <Badge status={v ? 'Enrolled' : 'Not enrolled'} />
-                  ),
+                  // Reads the whole row, not just twoFactorEnabled: an
+                  // email_otp account has no Supabase factor yet is required
+                  // to enter an emailed code, and must not be badged
+                  // "Not enrolled". See src/utils/mfaStatus.js.
+                  render: (_v, row) => <Badge status={mfaStatusLabel(row)} />,
                 },
                 {
                   key: 'lastLoginAt',
@@ -644,11 +663,24 @@ export default function UserManagement() {
           <strong>{confirm?.user?.fullName}</strong>
           <span>Username: {confirm?.user?.username}</span>
         </div>
-        <p className="confirm-note">
-          This account has not finished setting up an authenticator yet.
-          Cancelling lets them sign in with their password alone again. They can
-          still choose to enrol one themselves at any time.
-        </p>
+        {/* The generic wording promises sign-in with a password alone, which
+            is true only when the authenticator requirement is the account's
+            only second factor. An email_otp account keeps its emailed-code
+            requirement regardless — that follows users.mfa_method, which this
+            action does not touch. */}
+        {usesEmailOtpMfa(confirm?.user) ? (
+          <p className="confirm-note">
+            This account signs in with an emailed one-time code, and that stays
+            required — cancelling here only lifts the separate authenticator-app
+            requirement. It does not let them sign in with their password alone.
+          </p>
+        ) : (
+          <p className="confirm-note">
+            This account has not finished setting up an authenticator yet.
+            Cancelling lets them sign in with their password alone again. They
+            can still choose to enrol one themselves at any time.
+          </p>
+        )}
       </ConfirmActionModal>
 
       <ConfirmActionModal

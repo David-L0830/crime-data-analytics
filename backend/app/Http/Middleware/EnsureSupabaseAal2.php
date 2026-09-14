@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\EmailMfaService;
 use App\Services\SupabaseAdminService;
 use Closure;
 use Illuminate\Http\Request;
@@ -43,6 +44,14 @@ use Symfony\Component\HttpFoundation\Response;
 //      distinguishable {mfaRequired: true} body, so the frontend can route to
 //      the step-up challenge instead of showing a generic auth failure (see
 //      src/services/api.js, which turns this into type 'mfa_required').
+//   0. EXCEPTION, checked before 2: an account explicitly configured for
+//      email MFA (users.mfa_method = 'email_otp') follows its own rule — see
+//      handleEmailOtpAccount(). If it owes a second factor, its session must
+//      be `email_mfa_verified` whatever the JWT `aal` says (so a genuine aal2
+//      token from a self-enrolled authenticator is not enough), plus aal2 if
+//      it also holds a verified factor. Unverified gets
+//      {mfaRequired: true, mfaMethod: 'email_otp'}. `email_mfa_verified` is an
+//      application-level state, never Supabase aal2.
 //
 // FAIL-CLOSED ON AN UNANSWERABLE LOOKUP
 // -------------------------------------
@@ -65,6 +74,17 @@ class EnsureSupabaseAal2
     {
         if (! $request->attributes->has('supabase_aal')) {
             return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        // Accounts explicitly configured for email MFA are decided entirely by
+        // their own rule, and that rule runs BEFORE the aal2 short-circuit
+        // below. It has to: a password-only attacker can enrol a TOTP factor
+        // of their own at aal1 (Supabase permits a first enrolment there) and
+        // receive a genuine aal2 token, so for these accounts aal2 alone must
+        // never be enough. Every other account skips this line and runs the
+        // unchanged logic that follows.
+        if ($request->user()?->usesEmailOtpMfa()) {
+            return $this->handleEmailOtpAccount($request, $next);
         }
 
         if ($request->attributes->get('supabase_aal') === 'aal2') {
@@ -106,5 +126,65 @@ class EnsureSupabaseAal2
             'mfaRequired' => true,
             'message' => 'This action requires a completed second-factor sign-in.',
         ], 401);
+    }
+
+    /**
+     * The rule for an account with users.mfa_method = 'email_otp'.
+     *
+     * The configured method IS the obligation (see EmailMfaService::appliesTo):
+     * it does not depend on Supabase's `mfa_required` flag, so no
+     * authenticator administration action can turn it off. The request is
+     * admitted only if:
+     *
+     *   1. this token's session is `email_mfa_verified` — a server-side
+     *      verification row for its signed session_id, confirmed live with
+     *      GoTrue — REGARDLESS of the JWT's `aal`; and
+     *   2. if the account also holds a verified Supabase factor, the token is
+     *      genuinely aal2 as well.
+     *
+     * Both, never either. A genuine aal2 token cannot stand in for the email
+     * code (a self-enrolled authenticator would otherwise defeat it), and the
+     * email code cannot stand in for an enrolled authenticator. An attacker
+     * who enrols a factor therefore only ADDS a requirement; the email code
+     * for their own session is still owed. The JWT is read, never altered.
+     */
+    private function handleEmailOtpAccount(Request $request, Closure $next): Response
+    {
+        $user = $request->user();
+
+        if (! $user->supabase_user_id) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $emailMfa = app(EmailMfaService::class);
+
+        try {
+            $hasVerifiedFactor = app(SupabaseAdminService::class)->hasVerifiedFactor($user->supabase_user_id);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Two-factor authentication status could not be verified. Please try again.',
+            ], 401);
+        }
+
+        // Deliberately no "nothing owed" exit here: an email_otp account always
+        // owes the email code, whatever Supabase's mfa_required flag says.
+        if (! $emailMfa->isSessionVerified($request, $user)) {
+            return response()->json([
+                'mfaRequired' => true,
+                'mfaMethod' => 'email_otp',
+                'message' => 'This action requires a completed second-factor sign-in.',
+            ], 401);
+        }
+
+        if ($hasVerifiedFactor && $request->attributes->get('supabase_aal') !== 'aal2') {
+            return response()->json([
+                'mfaRequired' => true,
+                'message' => 'This action requires a completed second-factor sign-in.',
+            ], 401);
+        }
+
+        $request->attributes->set('email_mfa_verified', true);
+
+        return $next($request);
     }
 }

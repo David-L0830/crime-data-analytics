@@ -31,6 +31,9 @@ export default function Login() {
     currentUser,
     pendingMfa,
     pendingMfaEnrollment,
+    pendingEmailMfa,
+    sendEmailMfaCode,
+    verifyEmailMfaCode,
     startMfaEnrollment,
     verifyMfaChallenge,
     cancelMfaChallenge,
@@ -60,6 +63,28 @@ export default function Login() {
   const [enrollLoading, setEnrollLoading] = useState(false);
   const [enrollCode, setEnrollCode] = useState('');
   const [enrollError, setEnrollError] = useState('');
+
+  // Step two(c) — email MFA, for an account configured to receive a one-time
+  // code by email instead of using an authenticator app. The code itself is
+  // never held here beyond the input's own value.
+  const [emailCode, setEmailCode] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emailInfo, setEmailInfo] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  // Resend cooldown mirrors the server's one-code-a-minute limit so the
+  // button is not offered when the server would refuse it anyway. The server
+  // remains the authority — a 429 is still handled.
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!resendAt || resendAt <= Date.now()) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [resendAt]);
+
+  const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
 
   useEffect(() => {
     if (currentUser) {
@@ -187,7 +212,58 @@ export default function Login() {
     }
   };
 
+  const handleSendEmailCode = async () => {
+    setEmailSending(true);
+    setEmailError('');
+    const result = await sendEmailMfaCode();
+    setEmailSending(false);
+    if (result.success) {
+      setEmailCodeSent(true);
+      setEmailCode('');
+      setEmailInfo(
+        `A 6-digit code was sent to your email address. It expires in ${Math.round(
+          result.expiresInSeconds / 60,
+        )} minutes.`,
+      );
+      setResendAt(Date.now() + 60_000);
+      setNow(Date.now());
+    } else {
+      if (result.rateLimited) {
+        setResendAt(Date.now() + 60_000);
+        setNow(Date.now());
+      }
+      setEmailError(result.error);
+    }
+  };
+
+  const handleVerifyEmailCode = async (e) => {
+    e.preventDefault();
+    const code = emailCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setEmailError('Enter the 6-digit code from your email.');
+      return;
+    }
+    setVerifying(true);
+    const result = await verifyEmailMfaCode(code);
+    setVerifying(false);
+    if (result.success) {
+      setEmailError('');
+      setEmailInfo('');
+      setEmailCode('');
+      setEmailCodeSent(false);
+      showToast(`Welcome back, ${result.user.fullName}!`, 'success');
+    } else {
+      setEmailCode('');
+      setEmailError(result.error);
+    }
+  };
+
   const handleCancelMfa = async () => {
+    setEmailCode('');
+    setEmailError('');
+    setEmailInfo('');
+    setEmailCodeSent(false);
+    setResendAt(0);
     setTotpCode('');
     setTotpError('');
     setEnrollCode('');
@@ -523,6 +599,106 @@ export default function Login() {
                 {totpError && (
                   <div className="login-error" role="alert" id="totp-error">
                     {totpError}
+                  </div>
+                )}
+                <div className="two-factor-actions">
+                  <button
+                    type="button"
+                    className="two-factor-link login-forgot-link"
+                    onClick={handleCancelMfa}
+                    disabled={verifying}
+                  >
+                    Cancel and sign in as someone else
+                  </button>
+                </div>
+              </form>
+            ) : pendingEmailMfa ? (
+              /* STEP TWO(c) — EMAIL MFA. Same placement rule as the other
+                 second-factor steps: rendered instead of the password form.
+                 Every rejected code shows the same message, because the
+                 server deliberately does not distinguish wrong, expired,
+                 reused or locked-out codes either. */
+              <form
+                className="login-form"
+                autoComplete="off"
+                onSubmit={handleVerifyEmailCode}
+              >
+                <div className="two-factor-heading">
+                  <Icons.ShieldCheck size={18} strokeWidth={2} />
+                  <h2>Email Verification</h2>
+                </div>
+                <p className="two-factor-instructions">
+                  Your password was accepted. To finish signing in, send a
+                  one-time code to the email address on this account and enter
+                  it below.
+                </p>
+
+                <button
+                  type="button"
+                  className="btn-login"
+                  onClick={handleSendEmailCode}
+                  disabled={emailSending || verifying || resendSeconds > 0}
+                  aria-busy={emailSending}
+                >
+                  <span>
+                    {emailSending
+                      ? 'Sending...'
+                      : resendSeconds > 0
+                        ? `Resend code in ${resendSeconds}s`
+                        : emailCodeSent
+                          ? 'Resend code'
+                          : 'Send code'}
+                  </span>
+                </button>
+
+                {emailInfo && (
+                  <p
+                    className="two-factor-instructions"
+                    role="status"
+                    style={{ marginTop: 12 }}
+                  >
+                    {emailInfo}
+                  </p>
+                )}
+
+                <div className="form-group" style={{ marginTop: 12 }}>
+                  <label htmlFor="email-mfa-code">Verification code</label>
+                  <div className="input-wrapper">
+                    <span className="input-icon">
+                      <Icons.Lock size={16} strokeWidth={2} />
+                    </span>
+                    <input
+                      type="text"
+                      id="email-mfa-code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="123456"
+                      autoComplete="one-time-code"
+                      value={emailCode}
+                      onChange={(e) => setEmailCode(e.target.value)}
+                      aria-invalid={emailError ? true : undefined}
+                      aria-describedby={
+                        emailError ? 'email-mfa-error' : undefined
+                      }
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="btn-login"
+                  disabled={verifying}
+                  aria-busy={verifying}
+                  style={{ marginTop: 8 }}
+                >
+                  <span>{verifying ? 'Verifying...' : 'Verify'}</span>
+                </button>
+                {emailError && (
+                  <div
+                    className="login-error"
+                    role="alert"
+                    id="email-mfa-error"
+                  >
+                    {emailError}
                   </div>
                 )}
                 <div className="two-factor-actions">

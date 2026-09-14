@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Services\SupabaseTokenValidator;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
@@ -33,6 +35,29 @@ class AppServiceProvider extends ServiceProvider
         // and no fallback.
         Auth::viaRequest('supabase', function (Request $request) {
             return app(SupabaseTokenValidator::class)->resolveUser($request);
+        });
+
+        // Email MFA throttles (routes/api.php, EmailMfaController). Keyed on
+        // the authenticated user — these routes sit behind 'auth:supabase', so
+        // there is always one — and each Limit carries its own key, because
+        // limits sharing a key would share a counter.
+        //
+        // Sending: one code a minute, five an hour, which caps mail volume.
+        // Verifying: ten tries a minute across requests, on top of the five
+        // wrong entries each individual code tolerates (EmailMfaService).
+        // Together that bounds guessing to roughly 25 attempts an hour against
+        // a 1-in-1,000,000 code, for someone who already holds the password.
+        RateLimiter::for('email-mfa-send', function (Request $request) {
+            $key = (string) $request->user()?->id;
+
+            return [
+                Limit::perMinute(1)->by('email-mfa-send:minute:'.$key),
+                Limit::perHour(5)->by('email-mfa-send:hour:'.$key),
+            ];
+        });
+
+        RateLimiter::for('email-mfa-verify', function (Request $request) {
+            return Limit::perMinute(10)->by('email-mfa-verify:'.$request->user()?->id);
         });
 
         // Password reset (like login, MFA, and Google OAuth) is handled

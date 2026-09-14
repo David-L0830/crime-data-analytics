@@ -581,6 +581,8 @@ class MfaEnforcementTest extends TestCase
         $exempt = [
             'api/user',   // must answer at aal1 so the challenge is discoverable
             'api/logout', // an unfinished session must still be able to end itself
+            'api/mfa/email/send',   // how an aal1 session that owes email MFA gets its code
+            'api/mfa/email/verify', // ...and completes it (see EmailMfaTest)
         ];
 
         $ungated = [];

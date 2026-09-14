@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\EmailMfaService;
 use App\Services\SupabaseAdminService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -103,6 +104,12 @@ class UserResource extends JsonResource
             // enrolled, and enrolled. Fails soft to false like the badge
             // beside it - it labels a menu item and gates nothing.
             'mfaRequiredByAdmin' => $this->mfaRequiredByAdmin(),
+            // How an owed second factor is satisfied for this account: null
+            // for Supabase TOTP (the default), or 'email_otp' when an
+            // administrator explicitly configured email MFA. Lets the login
+            // flow show the email-code step instead of authenticator setup.
+            // Informational only — EnsureSupabaseAal2 enforces.
+            'mfaMethod' => $this->mfa_method,
             // Checkpoint 6 — Supabase MFA coexistence. Only present (non-
             // null) when this request was authenticated via the 'supabase'
             // guard — see SupabaseTokenValidator::resolveUser(), the only
@@ -184,6 +191,14 @@ class UserResource extends JsonResource
             return null;
         }
 
+        // Email-MFA accounts are answered BEFORE the aal2 line below, with the
+        // exact rule EnsureSupabaseAal2::handleEmailOtpAccount enforces, so
+        // the login flow can never be told "nothing owed" just because the
+        // JWT is aal2 while the email code for this session is still missing.
+        if ($this->resource->usesEmailOtpMfa()) {
+            return $this->emailOtpMfaRequiredForSelf($request, $aal);
+        }
+
         if ($aal === 'aal2') {
             return false;
         }
@@ -194,6 +209,33 @@ class UserResource extends JsonResource
 
         try {
             return app(SupabaseAdminService::class)->requiresAal2($this->supabase_user_id);
+        } catch (\Throwable $e) {
+            return true;
+        }
+    }
+
+    /**
+     * mfaRequiredForSelf for an account configured with 'email_otp'. Fails
+     * closed like its caller.
+     */
+    protected function emailOtpMfaRequiredForSelf(Request $request, string $aal): bool
+    {
+        if (! $this->supabase_user_id) {
+            return true;
+        }
+
+        try {
+            $emailMfa = app(EmailMfaService::class);
+
+            // No "nothing owed" answer for these accounts, matching the
+            // middleware: the configured method is itself the obligation,
+            // independent of Supabase's mfa_required flag.
+            if (! $emailMfa->isSessionVerified($request, $this->resource)) {
+                return true;
+            }
+
+            return app(SupabaseAdminService::class)->hasVerifiedFactor($this->supabase_user_id)
+                && $aal !== 'aal2';
         } catch (\Throwable $e) {
             return true;
         }

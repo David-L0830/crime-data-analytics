@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useState } from 'react';
 import { ROLES, PERMISSIONS } from '../utils/constants';
 import { authService } from '../services/authService';
 import { supabaseMfaService } from '../services/supabaseMfaService';
+import { emailMfaService } from '../services/emailMfaService';
 import { ApiError } from '../services/api';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
@@ -100,6 +101,12 @@ export function AuthProvider({ children }) {
   // security lookup failed and the reason cannot be established). Both are
   // truthy, so this stays a drop-in for the boolean it replaced.
   const [pendingMfaEnrollment, setPendingMfaEnrollment] = useState(false);
+  // True when the server reports this session owes EMAIL MFA — the account is
+  // configured for the 'email_otp' method and the session has not entered a
+  // code yet. Login.jsx renders the email-code step. Like the two states
+  // above, it lives in React state only and keeps currentUser null, and the
+  // real gate is server-side (EnsureSupabaseAal2).
+  const [pendingEmailMfa, setPendingEmailMfa] = useState(false);
 
   // Does this session still owe a TOTP challenge?
   //
@@ -158,11 +165,29 @@ export function AuthProvider({ children }) {
       if (factor) {
         setCurrentUser(null);
         setPendingMfaEnrollment(false);
+        setPendingEmailMfa(false);
         setPendingMfa({ factorId: factor.id });
         return { success: true, mfaRequired: true };
       }
 
       const user = await authService.currentUserViaSupabaseToken(accessToken);
+
+      // Email MFA owed. Checked before the enrolment branch below because an
+      // email-configured account has no authenticator to enrol — sending it
+      // to TOTP setup would be wrong. An account with a verified TOTP factor
+      // never reaches here: the check above already challenged it, and the
+      // backend refuses email MFA for it regardless.
+      //
+      // This is also what makes a reload safe: the mount-time resync runs
+      // this same path, and only the server's mfaRequired decides whether the
+      // session is still waiting for a code.
+      if (user.mfaRequired && user.mfaMethod === 'email_otp') {
+        setCurrentUser(null);
+        setPendingMfa(null);
+        setPendingMfaEnrollment(false);
+        setPendingEmailMfa(true);
+        return { success: true, mfaRequired: true, mfaMethod: 'email_otp' };
+      }
 
       if (user.mfaRequired) {
         // A second factor is owed and the authoritative listFactors() lookup
@@ -194,6 +219,7 @@ export function AuthProvider({ children }) {
         // check on pendingMfaEnrollment behaves exactly as before.
         setCurrentUser(null);
         setPendingMfa(null);
+        setPendingEmailMfa(false);
         setPendingMfaEnrollment(
           user.mfaRequiredByAdmin === true ? 'admin_required' : 'status_unknown',
         );
@@ -202,6 +228,7 @@ export function AuthProvider({ children }) {
 
       setPendingMfa(null);
       setPendingMfaEnrollment(false);
+      setPendingEmailMfa(false);
       setCurrentUser(user);
       return { success: true, user };
     },
@@ -264,6 +291,7 @@ export function AuthProvider({ children }) {
       if (event === 'SIGNED_OUT') {
         setPendingMfa(null);
         setPendingMfaEnrollment(false);
+        setPendingEmailMfa(false);
         setCurrentUser(null);
         return;
       }
@@ -440,6 +468,7 @@ export function AuthProvider({ children }) {
 
         setPendingMfa(null);
         setPendingMfaEnrollment(false);
+        setPendingEmailMfa(false);
         setCurrentUser(user);
         return { success: true, user };
       } catch (err) {
@@ -456,6 +485,78 @@ export function AuthProvider({ children }) {
     },
     [pendingMfa],
   );
+
+  // Asks the backend to email a one-time code to this account (email MFA).
+  // The server decides the recipient from the session's own account, and the
+  // code never passes through this app — only the confirmation does.
+  const sendEmailMfaCode = useCallback(async () => {
+    try {
+      const result = await emailMfaService.sendCode();
+      return {
+        success: true,
+        expiresInSeconds: result?.expiresInSeconds ?? 300,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        rateLimited: err instanceof ApiError && err.status === 429,
+        error:
+          err instanceof ApiError && err.status === 429
+            ? 'A code was sent recently. Please wait a minute before requesting another.'
+            : err instanceof ApiError && err.status === 401
+              ? 'Your session has ended. Please sign in again.'
+              : 'The verification code could not be sent. Please try again.',
+      };
+    }
+  }, []);
+
+  // Completes the email MFA step shown by Login.jsx.
+  //
+  // Same shape as verifyMfaChallenge: the backend checks the code, and then
+  // GET /user is re-read and must report that no second factor is still owed
+  // before anybody is let in. A resolved verify call is never, by itself,
+  // treated as "signed in".
+  const verifyEmailMfaCode = useCallback(async (code) => {
+    try {
+      await emailMfaService.verifyCode(String(code).trim());
+
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) {
+        return {
+          success: false,
+          error: 'Your session ended during verification. Please sign in again.',
+        };
+      }
+
+      const user = await authService.currentUserViaSupabaseToken(accessToken);
+      if (user.mfaRequired !== false) {
+        return {
+          success: false,
+          error: 'Verification did not complete. Please try again.',
+        };
+      }
+
+      setPendingMfa(null);
+      setPendingMfaEnrollment(false);
+      setPendingEmailMfa(false);
+      setCurrentUser(user);
+      return { success: true, user };
+    } catch (err) {
+      // One generic message for every rejected code: the server does not say
+      // whether a code was wrong, expired, reused or locked out, and neither
+      // does this screen.
+      return {
+        success: false,
+        error:
+          err instanceof ApiError && err.status === 429
+            ? 'Too many attempts. Please wait a minute and try again.'
+            : err instanceof ApiError && err.status === 401
+              ? 'Your session has ended. Please sign in again.'
+              : 'The code is invalid or has expired. Request a new code and try again.',
+      };
+    }
+  }, []);
 
   // Begins TOTP enrolment for an account an administrator has required MFA
   // of. Returns what the screen needs to draw — { id, totp: { qr_code, secret,
@@ -486,6 +587,7 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut().catch(() => {});
     setPendingMfa(null);
     setPendingMfaEnrollment(false);
+    setPendingEmailMfa(false);
     setCurrentUser(null);
   }, []);
 
@@ -501,6 +603,7 @@ export function AuthProvider({ children }) {
       setCurrentUser(null);
       setPendingMfa(null);
       setPendingMfaEnrollment(false);
+      setPendingEmailMfa(false);
       setAuthInitError('');
     }
   }, []);
@@ -524,6 +627,7 @@ export function AuthProvider({ children }) {
       setCurrentUser(null);
       setPendingMfa(null);
       setPendingMfaEnrollment(false);
+      setPendingEmailMfa(false);
       setAuthInitError(message);
     }
   }, []);
@@ -568,6 +672,11 @@ export function AuthProvider({ children }) {
     // True when MFA is required of this account but nothing is enrolled yet,
     // so the way forward is enrolment rather than a challenge.
     pendingMfaEnrollment,
+    // True when this session owes an emailed one-time code (the account is
+    // configured for email MFA). currentUser is null while this is set.
+    pendingEmailMfa,
+    sendEmailMfaCode,
+    verifyEmailMfaCode,
     startMfaEnrollment,
     verifyMfaChallenge,
     cancelMfaChallenge,

@@ -1,5 +1,6 @@
 import Card from '../ui/Card';
 import { Icons } from '../icons';
+import { hasSecondFactor } from '../../utils/mfaStatus';
 
 // The Security panel under the account table.
 //
@@ -14,7 +15,10 @@ import { Icons } from '../icons';
 export default function SecuritySummary({ users }) {
   const alerts = [];
 
-  const withoutFactor = users.filter((u) => !u.twoFactorEnabled);
+  // hasSecondFactor, not twoFactorEnabled: an email_otp account is challenged
+  // for an emailed code at every sign-in, so warning that it "has no second
+  // factor enrolled" would be a false alarm about a protected account.
+  const withoutFactor = users.filter((u) => !hasSecondFactor(u));
   const adminsWithoutFactor = withoutFactor.filter(
     (u) => u.role === 'badac_admin',
   );

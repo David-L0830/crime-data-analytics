@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CrimeTypeController;
 use App\Http\Controllers\Api\CriminalController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\EmailMfaController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\MetabaseEmbedController;
 use App\Http\Controllers\Api\NotificationController;
@@ -71,6 +72,19 @@ use Illuminate\Support\Facades\Route;
 // endpoint the login flow reads to discover that a second factor is still
 // owed, so it must answer at aal1.
 Route::middleware('auth:supabase')->get('/user', [AuthController::class, 'user']);
+
+// POST /mfa/email/send, POST /mfa/email/verify — NO 'supabase.mfa', for the
+// same reason as GET /user: they are how an aal1 session that owes EMAIL MFA
+// (users.mfa_method = 'email_otp') completes it, so gating them behind that
+// requirement would make it unsatisfiable. They act only on the token's own
+// user and signed session_id, refuse every account email MFA does not apply
+// to, and are rate limited (see AppServiceProvider). A successful verify never
+// changes the JWT: it records `email_mfa_verified` for that one Supabase
+// session, which EnsureSupabaseAal2 then honours for that account only.
+Route::middleware(['auth:supabase', 'throttle:email-mfa-send'])
+    ->post('/mfa/email/send', [EmailMfaController::class, 'send']);
+Route::middleware(['auth:supabase', 'throttle:email-mfa-verify'])
+    ->post('/mfa/email/verify', [EmailMfaController::class, 'verify']);
 
 Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
     Route::put('/me', [ProfileController::class, 'update']);

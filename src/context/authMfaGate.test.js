@@ -256,3 +256,58 @@ describe('Login challenge step', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Email one-time-code MFA. Same source-level caveat as the rest of this file:
+// the enforceable proof is backend/tests/Feature/EmailMfaTest.php. These pin
+// the structural shape that would silently let an email-MFA session in.
+// ---------------------------------------------------------------------------
+describe('Email MFA gate', () => {
+  const emailService = read('../services/emailMfaService.js');
+
+  it('routes a session owing email MFA to the code step with no user set', () => {
+    const start = authContext.indexOf(
+      "if (user.mfaRequired && user.mfaMethod === 'email_otp')",
+    );
+    expect(start).toBeGreaterThan(-1);
+
+    const branch = authContext.slice(start, start + 400);
+    expect(branch).toContain('setCurrentUser(null)');
+    expect(branch).toContain('setPendingEmailMfa(true)');
+
+    // Decided before the enrolment branch, so an email-configured account is
+    // never sent to authenticator setup instead.
+    expect(start).toBeLessThan(authContext.indexOf('if (user.mfaRequired)'));
+  });
+
+  it('requires the server to report no factor owed before completing email verification', () => {
+    const start = authContext.indexOf('const verifyEmailMfaCode');
+    expect(start).toBeGreaterThan(-1);
+
+    const body = authContext.slice(start, authContext.indexOf('const startMfaEnrollment'));
+    const serverCheck = body.indexOf('user.mfaRequired !== false');
+    expect(serverCheck).toBeGreaterThan(-1);
+    expect(serverCheck).toBeLessThan(body.indexOf('setCurrentUser(user)'));
+  });
+
+  it('clears email MFA state when the challenge is abandoned', () => {
+    const cancelStart = authContext.indexOf('const cancelMfaChallenge');
+    expect(authContext.slice(cancelStart, cancelStart + 400)).toContain(
+      'setPendingEmailMfa(false)',
+    );
+  });
+
+  it('renders the email step instead of the password form', () => {
+    expect(login).toContain(') : pendingEmailMfa ? (');
+    expect(login).toContain('verifyEmailMfaCode(code)');
+  });
+
+  it('never tells the server which account or address to send a code to', () => {
+    const code = emailService
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(code).toContain("api.post('/mfa/email/send')");
+    expect(code).toContain("api.post('/mfa/email/verify', { code })");
+    expect(code).not.toMatch(/email\s*:|userId|user_id|session/i);
+  });
+});
