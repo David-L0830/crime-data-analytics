@@ -66,8 +66,48 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ showToast, showNotificationToast }}>
       {children}
-      <div className={`toast ${toast?.type || ''} ${toast ? '' : 'hidden'}`}>
-        {toast?.message}
+      {/* The plain toast is the acknowledgement surface for almost everything
+          the user does — "Settings saved", "Could not export report." — and it
+          carried no role and no live region at all, so a screen reader user
+          performed an action and was told nothing about whether it worked.
+
+          Two regions rather than one, and this is the reason: a live region's
+          politeness is read from the container at the moment content is
+          inserted into it, so a single container whose aria-live flipped
+          between polite and assertive would be unreliable — the change and the
+          insertion land in the same commit and the announcement can be made
+          against the previous value. Two containers that never change their
+          politeness cannot have that problem. The message is rendered into
+          whichever one matches its type, and only ever into one of them, so
+          nothing is announced twice.
+
+          Errors are assertive because they report that something the user
+          asked for did not happen, and that should interrupt; successes and
+          information are polite and wait their turn.
+
+          Both containers are always mounted, so the live region is established
+          before anything is put inside it — a region that appears at the same
+          moment as its content is frequently missed entirely. The visible
+          styling is unchanged: .toast still carries the same classes and the
+          same .hidden toggle, so nothing about how this looks or behaves for a
+          sighted user is different. */}
+      <div
+        className={`toast ${toast && toast.type !== 'error' ? toast.type || '' : ''} ${
+          toast && toast.type !== 'error' ? '' : 'hidden'
+        }`}
+        role="status"
+        aria-live="polite"
+      >
+        {toast && toast.type !== 'error' ? toast.message : ''}
+      </div>
+      <div
+        className={`toast ${toast?.type === 'error' ? 'error' : ''} ${
+          toast?.type === 'error' ? '' : 'hidden'
+        }`}
+        role="alert"
+        aria-live="assertive"
+      >
+        {toast?.type === 'error' ? toast.message : ''}
       </div>
 
       {/* BOTTOM-RIGHT. It used to sit under the topbar, where it overlapped the

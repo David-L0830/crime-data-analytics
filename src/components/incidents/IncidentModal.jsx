@@ -6,6 +6,7 @@ import { formatDate, formatTime, today } from '../../utils/helpers';
 import { exportWorkbook } from '../../utils/exportWorkbook';
 import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
+import { usePendingAction } from '../../hooks/usePendingAction';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
 import {
@@ -56,7 +57,11 @@ export function IncidentViewModal({
   const lastIncident = useRef(incident);
   if (incident) lastIncident.current = incident;
   const r = incident || lastIncident.current;
-  if (!r) return null;
+  // The `if (!r) return null` that used to sit here has moved below the export
+  // handler: that handler is now built with a hook (usePendingAction), and a
+  // hook cannot be called after a conditional return without changing the hook
+  // order between renders. Nothing else changes — the component still renders
+  // null when there is no record, it just decides to a few lines later.
 
   // Single-record export, matching the Field / Value sheet that Criminal
   // Profile and Victim Profile produce - one shared exportWorkbook helper
@@ -66,7 +71,13 @@ export function IncidentViewModal({
   // This replaces a CSV of the raw API object, which carried the internal
   // database id, reportedBy and synced_at as reporting columns and laid a
   // single record out as one very wide row.
-  const handleExportRecord = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportRecord] = usePendingAction(async () => {
+    // Unreachable in practice — the button that calls this only exists once
+    // there is a record — but the hook now runs on the empty render too.
+    if (!r) return;
     const rows = [
       ['Case Number', r.caseNumber],
       ['Incident ID', r.incidentId],
@@ -133,7 +144,10 @@ export function IncidentViewModal({
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('incident-record');
     }
-  };
+  });
+
+  // Every hook has now run, so the conditional return is safe from here on.
+  if (!r) return null;
 
   return (
     <Modal
@@ -179,8 +193,22 @@ export function IncidentViewModal({
           >
             <Icons.Printer size={15} strokeWidth={2} /> Print Record
           </Button>
-          <Button variant="secondary" onClick={handleExportRecord}>
-            <Icons.Download size={15} strokeWidth={2} /> Export Excel
+          <Button
+            variant="secondary"
+            onClick={handleExportRecord}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? (
+              <>
+                <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Icons.Download size={15} strokeWidth={2} /> Export Excel
+              </>
+            )}
           </Button>
         </>
       }
@@ -771,6 +799,14 @@ export function IncidentCreateModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState([]);
+  // Focus target for a rejected submission — see the error summary in the
+  // markup below. An effect rather than a call inside handleSubmit, because
+  // setErrors does not apply synchronously and the element does not exist yet
+  // at the point the handler decides there are errors.
+  const errorSummaryRef = useRef(null);
+  useEffect(() => {
+    if (errors.length) errorSummaryRef.current?.focus();
+  }, [errors]);
   // Guards against a double-click submitting the form twice. Without it two
   // POST /api/incidents fire before the first resolves; the case_number and
   // incident_code UNIQUE constraints stop a duplicate row being written, but
@@ -843,11 +879,27 @@ export function IncidentCreateModal({
       <form onSubmit={handleSubmit}>
         {errors.length > 0 && (
           <div className="form-errors">
-            <ul>
-              {errors.map((err) => (
-                <li key={err}>{err}</li>
-              ))}
-            </ul>
+            {/* role="alert" makes a rejected submission audible. Before this,
+                the summary appeared silently at the top of a form that is
+                long enough to scroll, so a screen reader user pressed Save
+                and was told nothing at all — not that it failed, and not why.
+
+                The alert region is nested inside .form-errors rather than
+                being the same element, so the list keeps its own list
+                semantics ("list, 3 items") instead of having them replaced by
+                the alert role.
+
+                tabIndex={-1} plus the focus effect above is the other half:
+                being told there are errors is only useful if you are also put
+                where they are. The summary is the one place that holds all of
+                them, and it sits directly above the fields they refer to. */}
+            <div role="alert" ref={errorSummaryRef} tabIndex={-1}>
+              <ul>
+                {errors.map((err) => (
+                  <li key={err}>{err}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
         <IncidentFormFields
@@ -886,6 +938,14 @@ export function IncidentEditModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState([]);
+  // Focus target for a rejected submission — see the error summary in the
+  // markup below. An effect rather than a call inside handleSubmit, because
+  // setErrors does not apply synchronously and the element does not exist yet
+  // at the point the handler decides there are errors.
+  const errorSummaryRef = useRef(null);
+  useEffect(() => {
+    if (errors.length) errorSummaryRef.current?.focus();
+  }, [errors]);
   // Same in-flight guard as IncidentCreateModal above — a double-click here
   // fired two PUT /api/incidents/{id} requests for one edit.
   const [submitting, setSubmitting] = useState(false);
@@ -1026,11 +1086,27 @@ export function IncidentEditModal({
       <form onSubmit={handleSubmit}>
         {errors.length > 0 && (
           <div className="form-errors">
-            <ul>
-              {errors.map((err) => (
-                <li key={err}>{err}</li>
-              ))}
-            </ul>
+            {/* role="alert" makes a rejected submission audible. Before this,
+                the summary appeared silently at the top of a form that is
+                long enough to scroll, so a screen reader user pressed Save
+                and was told nothing at all — not that it failed, and not why.
+
+                The alert region is nested inside .form-errors rather than
+                being the same element, so the list keeps its own list
+                semantics ("list, 3 items") instead of having them replaced by
+                the alert role.
+
+                tabIndex={-1} plus the focus effect above is the other half:
+                being told there are errors is only useful if you are also put
+                where they are. The summary is the one place that holds all of
+                them, and it sits directly above the fields they refer to. */}
+            <div role="alert" ref={errorSummaryRef} tabIndex={-1}>
+              <ul>
+                {errors.map((err) => (
+                  <li key={err}>{err}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
         <IncidentFormFields

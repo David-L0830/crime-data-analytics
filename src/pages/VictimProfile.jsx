@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
@@ -50,28 +51,25 @@ export default function VictimProfile() {
     [victims, id],
   );
 
-  if (!victim) {
-    return (
-      <section className="module">
-        <div className="empty-state" style={{ padding: 60 }}>
-          <p style={{ color: 'var(--text-muted)' }}>Victim record not found.</p>
-          <Button
-            variant="secondary"
-            onClick={() => navigate('/criminal-records')}
-          >
-            <Icons.Back size={15} strokeWidth={2} /> Back to Records
-          </Button>
-        </div>
-      </section>
-    );
-  }
-
-  const age = computeAge(victim.dateOfBirth);
+  // The "record not found" early return has moved below the export handler:
+  // that handler is now built with a hook (usePendingAction), and a hook
+  // cannot be called after a conditional return. `age` is optional-chained so
+  // it is safe to evaluate on the render where there is no record, and the
+  // early return still happens before anything is drawn — the not-found screen
+  // itself is unchanged.
+  const age = computeAge(victim?.dateOfBirth);
 
   // Same shared exportWorkbook helper and same two-column Field / Value sheet
   // as Criminal Profile, so both record exports are one implementation. See
   // the note there on what the previous raw-object CSV contained.
-  const handleExportProfile = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportProfile] = usePendingAction(async () => {
+    // Unreachable in practice — the button that calls this is only rendered
+    // once there is a record — but the hook now runs on the not-found render
+    // too, so the guard states the precondition rather than relying on it.
+    if (!victim) return;
     const rows = [
       ['Victim ID', victim.victimId],
       ['Full Name', victim.fullName],
@@ -125,7 +123,24 @@ export default function VictimProfile() {
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('victim-profile');
     }
-  };
+  });
+
+  // Every hook has now run, so the conditional return is safe from here on.
+  if (!victim) {
+    return (
+      <section className="module">
+        <div className="empty-state" style={{ padding: 60 }}>
+          <p style={{ color: 'var(--text-muted)' }}>Victim record not found.</p>
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/criminal-records')}
+          >
+            <Icons.Back size={15} strokeWidth={2} /> Back to Records
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="module criminal-profile print-root">
@@ -147,8 +162,22 @@ export default function VictimProfile() {
             <Icons.Back size={15} strokeWidth={2} /> Back
           </Button>
           <div className="toolbar-actions">
-            <Button variant="secondary" onClick={handleExportProfile}>
-              <Icons.Download size={15} strokeWidth={2} /> Export Profile
+            <Button
+              variant="secondary"
+              onClick={handleExportProfile}
+              disabled={exporting}
+              aria-busy={exporting}
+            >
+              {exporting ? (
+                <>
+                  <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                  Exporting…
+                </>
+              ) : (
+                <>
+                  <Icons.Download size={15} strokeWidth={2} /> Export Profile
+                </>
+              )}
             </Button>
             <Button variant="secondary" onClick={() => window.print()}>
               <Icons.Printer size={15} strokeWidth={2} /> Print Profile

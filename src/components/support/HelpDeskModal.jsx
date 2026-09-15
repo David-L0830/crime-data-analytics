@@ -114,8 +114,14 @@ export default function HelpDeskModal({ open, onClose }) {
                 value={form.name}
                 onChange={update('name')}
                 placeholder="Juan Dela Cruz"
+                aria-invalid={Boolean(errors.name)}
+                aria-describedby={errors.name ? 'hd-name-error' : undefined}
               />
-              {errors.name && <div className="field-error">{errors.name}</div>}
+              {errors.name && (
+                <div className="field-error" id="hd-name-error">
+                  {errors.name}
+                </div>
+              )}
             </div>
             <div className="form-group">
               <label htmlFor="hd-contact">Email or Phone</label>
@@ -125,9 +131,15 @@ export default function HelpDeskModal({ open, onClose }) {
                 value={form.contact}
                 onChange={update('contact')}
                 placeholder="you@example.com"
+                aria-invalid={Boolean(errors.contact)}
+                aria-describedby={
+                  errors.contact ? 'hd-contact-error' : undefined
+                }
               />
               {errors.contact && (
-                <div className="field-error">{errors.contact}</div>
+                <div className="field-error" id="hd-contact-error">
+                  {errors.contact}
+                </div>
               )}
             </div>
             <div className="form-group full">
@@ -136,6 +148,10 @@ export default function HelpDeskModal({ open, onClose }) {
                 id="hd-category"
                 value={form.category}
                 onChange={update('category')}
+                aria-invalid={Boolean(errors.category)}
+                aria-describedby={
+                  errors.category ? 'hd-category-error' : undefined
+                }
               >
                 <option value="">Select an issue type…</option>
                 {CATEGORIES.map((c) => (
@@ -145,7 +161,9 @@ export default function HelpDeskModal({ open, onClose }) {
                 ))}
               </select>
               {errors.category && (
-                <div className="field-error">{errors.category}</div>
+                <div className="field-error" id="hd-category-error">
+                  {errors.category}
+                </div>
               )}
             </div>
             <div className="form-group full">
@@ -156,9 +174,15 @@ export default function HelpDeskModal({ open, onClose }) {
                 value={form.message}
                 onChange={update('message')}
                 placeholder="Tell us what happened, what you expected, and any error messages you saw."
+                aria-invalid={Boolean(errors.message)}
+                aria-describedby={
+                  errors.message ? 'hd-message-error' : undefined
+                }
               />
               {errors.message && (
-                <div className="field-error">{errors.message}</div>
+                <div className="field-error" id="hd-message-error">
+                  {errors.message}
+                </div>
               )}
             </div>
           </div>

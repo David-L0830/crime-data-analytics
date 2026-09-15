@@ -72,8 +72,9 @@ export default function UserActivityModal({ user, open, onClose }) {
       <p className="user-activity-subject">{user?.fullName}</p>
 
       {loading ? (
-        <div className="empty-state" style={{ padding: 40 }}>
-          <div className="spinner" />
+        <div className="empty-state" style={{ padding: 40 }} role="status">
+          <div className="spinner" aria-hidden="true" />
+          <span className="sr-only">Loading account activity…</span>
         </div>
       ) : error ? (
         <div className="login-error">{error}</div>

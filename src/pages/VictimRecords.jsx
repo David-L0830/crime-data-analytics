@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import { useDebounce } from '../hooks/useDebounce';
 import FilterBar from '../components/ui/FilterBar';
 import useTableSort from '../hooks/useTableSort';
@@ -118,7 +119,10 @@ export default function VictimRecords() {
     onError: () => showToast('Could not export report.', 'error'),
   });
 
-  const handleExportExcel = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportExcel] = usePendingAction(async () => {
     const ok = await exportWorkbook({
       filename: `victim_records_${today()}.xlsx`,
       ...exportSpec(),
@@ -130,7 +134,7 @@ export default function VictimRecords() {
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('victim-records');
     }
-  };
+  });
 
   // Same projection, same filtered rows, comma-separated. Synchronous because
   // exportCsv needs no dynamic import — see the note there.
@@ -209,8 +213,22 @@ export default function VictimRecords() {
           />
         </div>
         <div className="toolbar-actions">
-          <Button variant="secondary" onClick={handleExportExcel}>
-            <Icons.Download size={15} strokeWidth={2} /> Export Excel
+          <Button
+            variant="secondary"
+            onClick={handleExportExcel}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? (
+              <>
+                <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Icons.Download size={15} strokeWidth={2} /> Export Excel
+              </>
+            )}
           </Button>
           <Button variant="secondary" onClick={handleExportCsv}>
             <Icons.Download size={15} strokeWidth={2} /> Export CSV

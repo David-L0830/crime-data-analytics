@@ -92,7 +92,12 @@
 }
 
 .landing-nav-links a:hover {
-  color: var(--accent);
+  /* Small body text, so it needs the 4.5:1 text token rather than the fill
+     green, which measures 4.29:1 on this background. The headline and icon
+     uses of --accent below are large text and non-text glyphs, where 4.29:1
+     already clears the 3:1 threshold that applies to them — those keep the
+     brand green deliberately. */
+  color: var(--accent-text);
 }
 
 .landing-navbar-controls {
@@ -910,7 +915,7 @@
 
 .landing-footer-col a:hover,
 .landing-footer-link:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .landing-footer-contact-line {

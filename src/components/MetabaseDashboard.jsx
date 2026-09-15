@@ -152,7 +152,15 @@ export default function MetabaseDashboard({
           justifyContent: 'center',
         }}
       >
-        <div className="spinner" />
+        {/* The spinner is a purely visual signal, so it is hidden from
+            assistive technology and the status is carried as real text
+            instead. role="status" makes that text a polite live region, so it
+            is announced when it appears rather than only when someone happens
+            to navigate onto it. */}
+        <div className="spinner" aria-hidden="true" />
+        <span className="sr-only" role="status">
+          Loading {title || 'analytics dashboard'}…
+        </span>
       </div>
     );
   }
@@ -201,7 +209,17 @@ export default function MetabaseDashboard({
         // key forces a fresh element, and therefore a real load.
         key={theme}
         src={themedUrl}
-        title={title || dashboardKey}
+        // An iframe's accessible name is its title, and it is the only thing
+        // that tells a screen reader user what the frame they have just
+        // entered contains. The explicit `title` prop is used when a page
+        // supplies one; the fallback is no longer the bare dashboard key,
+        // which is an internal slug ("dashboard-2") and describes nothing.
+        // Nothing about the embed URL, the signing, or the sizing is touched.
+        title={
+          title
+            ? `${title} (analytics dashboard)`
+            : 'Embedded analytics dashboard'
+        }
         width="100%"
         height={height}
         style={{ border: 'none' }}

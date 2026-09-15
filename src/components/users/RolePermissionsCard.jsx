@@ -68,8 +68,9 @@ export default function RolePermissionsCard() {
           directly from the route authorization rules.
         </p>
       ) : loading ? (
-        <div className="empty-state" style={{ padding: 32 }}>
-          <div className="spinner" />
+        <div className="empty-state" style={{ padding: 32 }} role="status">
+          <div className="spinner" aria-hidden="true" />
+          <span className="sr-only">Loading role permissions…</span>
         </div>
       ) : error ? (
         <div className="login-error">{error}</div>

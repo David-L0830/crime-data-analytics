@@ -669,10 +669,10 @@ export default function Trends() {
                         style={{
                           color:
                             v === 'High'
-                              ? 'var(--danger)'
+                              ? 'var(--danger-text)'
                               : v === 'Medium'
-                                ? 'var(--warning)'
-                                : 'var(--success)',
+                                ? 'var(--warning-text)'
+                                : 'var(--success-text)',
                           fontWeight: 600,
                         }}
                       >

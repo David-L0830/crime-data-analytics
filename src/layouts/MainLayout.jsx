@@ -24,9 +24,33 @@ import { notificationTarget } from '../utils/notificationRouting';
 // (re-adding a class that is already present does not restart an animation).
 const TOPLINE_PULSE_MS = 1200;
 
+// The one breakpoint at which the sidebar stops being a permanent column and
+// becomes an overlay drawer. It has to be known in JavaScript as well as CSS,
+// because "is the sidebar currently a drawer" decides three things the
+// stylesheet cannot: whether the hamburger toggles the drawer or the desktop
+// rail, whether the drawer's contents should be inert, and whether Escape and
+// the backdrop should close anything. Kept identical to the `max-width: 768px`
+// block in global.css — if one moves, the other must move with it.
+const MOBILE_QUERY = '(max-width: 768px)';
+
 export default function MainLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Tracked as state rather than read from window.innerWidth at click time.
+  // The old reading was only ever taken inside the toggle handler, so a drawer
+  // opened on a phone stayed flagged open after a rotation or a resize to
+  // desktop width, and nothing in the layout knew the sidebar had stopped
+  // being a drawer.
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia(MOBILE_QUERY).matches,
+  );
+  // The control that opens the drawer, so focus can be handed back to it when
+  // the drawer closes. Without this, dismissing the drawer drops focus to the
+  // document body and a keyboard user restarts from the top of the page.
+  const menuButtonRef = useRef(null);
   const {
     loading,
     error,
@@ -233,8 +257,54 @@ export default function MainLayout() {
     };
   }, []);
 
+  // Keeps `isMobile` honest for the life of the session — a rotation, a window
+  // resize or a devtools viewport change all fire this.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function')
+      return undefined;
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const onChange = (e) => {
+      setIsMobile(e.matches);
+      // Leaving mobile width turns the drawer back into a permanent column.
+      // The overlay state has no meaning there, and leaving it set would keep
+      // the backdrop mounted over a desktop layout.
+      if (!e.matches) setMobileOpen(false);
+    };
+    setIsMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // Escape closes the drawer, the same key that closes every other overlay in
+  // the application (see Modal). Bound only while the drawer is actually open
+  // so it can never swallow an Escape meant for a dialog on the page behind.
+  useEffect(() => {
+    if (!isMobile || !mobileOpen) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isMobile, mobileOpen]);
+
+  // Focus goes back to the hamburger when the drawer closes, so the keyboard
+  // user resumes from the control they opened it with rather than from the top
+  // of the document. Deliberately not run on the first render — only on a real
+  // open→closed transition — so loading a page at phone width does not steal
+  // focus to the menu button.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !mobileOpen) {
+      const btn = menuButtonRef.current;
+      // isConnected guards the case where the button has been unmounted (a
+      // sign-out, say) between the drawer closing and this effect running.
+      if (btn && btn.isConnected) btn.focus();
+    }
+    wasOpen.current = mobileOpen;
+  }, [mobileOpen]);
+
   const handleMenuToggle = () => {
-    if (window.innerWidth <= 768) {
+    if (isMobile) {
       setMobileOpen((o) => !o);
     } else {
       setSidebarCollapsed((c) => !c);
@@ -254,23 +324,67 @@ export default function MainLayout() {
         className={`badac-topline ${toplinePulsing ? 'pulsing' : ''}`}
         aria-hidden="true"
       />
+      {/* First focusable thing in the document, so the very first Tab press on
+          any page offers it. Without it a keyboard user re-traverses the whole
+          sidebar — a dozen links plus the account control — on every single
+          navigation before reaching the page they just opened. Visually hidden
+          until it takes focus (see .skip-link in global.css). */}
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <Sidebar
         open={mobileOpen}
         collapsed={sidebarCollapsed}
+        isMobile={isMobile}
         onNavigate={() => setMobileOpen(false)}
       />
+      {/* Mobile only, and only while the drawer is open. It is what makes
+          tapping away from the drawer close it, which is the gesture people
+          expect from an overlay panel and which the drawer previously did not
+          answer at all. aria-hidden because it carries no information a screen
+          reader needs — Escape and the menu button are the accessible ways to
+          dismiss the drawer, and a focusable backdrop would just be one more
+          stop with nothing to announce. */}
+      {isMobile && mobileOpen && (
+        <div
+          className="sidebar-backdrop"
+          aria-hidden="true"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
       <main className="main-content">
         {/* The bell pulses on the same signal as the top-edge line, so the
             two read as one arrival rather than two unrelated events. */}
-        <Header onMenuToggle={handleMenuToggle} bellPulse={toplinePulsing} />
-        <div className="content-area">
+        <Header
+          onMenuToggle={handleMenuToggle}
+          menuButtonRef={menuButtonRef}
+          bellPulse={toplinePulsing}
+        />
+        {/* id is the skip link's destination, and tabIndex={-1} is what makes
+            it a valid one: without it the browser moves the scroll position
+            but leaves focus where it was, so the next Tab continues from the
+            skip link and the jump accomplishes nothing for the keyboard. -1
+            makes the region programmatically focusable without adding it to
+            the tab order. aria-busy tells assistive technology that this
+            region's content is still being fetched, which is the same fact the
+            visible message below carries. */}
+        <div className="content-area" id="main-content" tabIndex={-1} aria-busy={loading}>
           {errorMessage && (
-            <div className="login-error" style={{ margin: '0 0 16px' }}>
+            // role="alert" so a failure that appears after the page has
+            // rendered is spoken rather than sitting silently at the top of
+            // the screen.
+            <div className="login-error" role="alert" style={{ margin: '0 0 16px' }}>
               {errorMessage}
             </div>
           )}
           {loading ? (
             <div
+              // The message is the status, so the element that holds it is the
+              // live region. polite rather than assertive: the arrival of data
+              // is not an emergency and should not cut off whatever is being
+              // read.
+              role="status"
+              aria-live="polite"
               style={{
                 padding: '48px',
                 textAlign: 'center',

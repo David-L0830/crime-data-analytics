@@ -48,6 +48,44 @@
   --danger-rgb: 192, 57, 43;
   --info: #0ea5e9;
 
+  /* ===== Status colours as TEXT (WCAG 2.1 AA) =====
+     The tokens above are the palette's *fill* colours — the ones that paint a
+     KPI card's accent bar, the nav indicator, a solid button. At those sizes
+     and as a fill they are fine, and they are the visual identity, so they are
+     deliberately left exactly as they are.
+
+     As TEXT on a light surface they are not fine. Measured against the real
+     backdrops they land on (white card, page background, the translucent
+     status-badge tints, and those same tints sitting in a hovered table row,
+     which is the worst case because the row tint darkens the backdrop under an
+     already low-contrast colour), the fill colours came out at 2.09:1 for
+     "Under Investigation", 2.46:1 for Incarcerated/Released and 2.35:1 for the
+     orange KPI value — all far below the 4.5:1 AA needs for body text, and the
+     orange KPI below even the 3:1 large-text threshold.
+
+     So text gets its own tokens. Every value below was chosen by calculating
+     the ratio against each backdrop it actually appears on and keeping the
+     worst one at or above 4.5:1, while staying in the same hue family so the
+     green/orange/blue status language is unchanged:
+
+       --accent-text  #20693a  worst 4.70:1  (green tint .18 on hovered row)
+       --success-text #20693a  worst 4.70:1
+       --warning-text #9a4a08  worst 4.87:1  (orange tint on hovered row)
+       --orange-text  #9a4a08  worst 4.87:1
+       --info-text    #07658f  worst 4.98:1  (blue tint on hovered row)
+       --danger-text  #b02e21  worst 4.69:1  (red tint on hovered row)
+
+     Splitting fill from text rather than darkening the shared token is what
+     keeps this safe: --orange also paints the decorative top-edge line and
+     --accent paints buttons, borders, focus rings and gradients, and darkening
+     those would change the interface's colour identity to fix a text problem. */
+  --accent-text: #20693a;
+  --success-text: #20693a;
+  --warning-text: #9a4a08;
+  --orange-text: #9a4a08;
+  --info-text: #07658f;
+  --danger-text: #b02e21;
+
   /* Layout */
   --sidebar-width: 272px;
   --sidebar-width-collapsed: 72px;
@@ -103,7 +141,12 @@
   --login-input-bg: rgba(34, 41, 31, 0.04);
   --login-input-border: rgba(34, 41, 31, 0.14);
   --login-input-text: var(--color-black);
-  --login-placeholder: rgba(34, 41, 31, 0.4);
+  /* 0.40 alpha put the placeholder at 2.33:1 against the login input's own
+     tinted background — unreadable for anyone with reduced contrast
+     sensitivity, and placeholder text here names what each field wants. 0.65
+     measures 4.63:1 and still reads as placeholder rather than entered text,
+     which is the distinction the lower alpha was there to make. */
+  --login-placeholder: rgba(34, 41, 31, 0.65);
   --login-icon-color: rgba(34, 41, 31, 0.55);
   --login-tagline: rgba(34, 41, 31, 0.6);
   --login-seal-ring: rgba(34, 41, 31, 0.08);
@@ -145,6 +188,25 @@
   --warning: #ff9955;
   --danger: #e4573d;
   --danger-rgb: 228, 87, 61;
+
+  /* Dark-theme text tokens. These are set to the SAME values the dark theme
+     already used for status text, so switching the rules below over to the
+     -text tokens changes nothing at all about how dark mode renders — the
+     light theme was the one with the failures. Calculated against the dark
+     card, page and tint backdrops, the orange lands at 5.80:1 and the blue at
+     4.60:1 in the worst case, both clear of AA.
+
+     Two pre-existing dark-theme cases sit marginally below 4.5:1 and are
+     deliberately NOT changed here, because they were not part of the approved
+     fix list: the green on a .18 tint in a hovered row (4.40:1) and the red
+     status text on a hovered row (3.48:1). They are reported rather than
+     quietly altered. */
+  --accent-text: #4caf6b;
+  --success-text: #4caf6b;
+  --warning-text: #ff9955;
+  --orange-text: #ff9955;
+  --info-text: #0ea5e9;
+  --danger-text: #e4573d;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
@@ -307,6 +369,110 @@ h6 {
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
+}
+
+/* The base .spinner is white, which is right on a dark or brand-coloured
+   surface and invisible on a secondary button. This variant borrows
+   currentColor so it is legible inside whichever button it is placed in, and
+   is sized to sit on a line of button text rather than stand alone. */
+.spinner-inline {
+  width: 13px;
+  height: 13px;
+  border-color: currentColor;
+  border-top-color: transparent;
+  opacity: 0.85;
+  vertical-align: -2px;
+}
+
+/* Available to assistive technology, not shown on screen.
+   Used for the text equivalents of things that are conveyed visually — a
+   spinner's meaning, a chart's summary, the skip link before it takes focus.
+   The 1px clipped box rather than display:none or visibility:hidden because
+   those two remove the element from the accessibility tree as well, which is
+   the opposite of what is wanted here. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Skip to main content =====
+   The first focusable element in the document. It is positioned off the top of
+   the viewport rather than hidden with display/visibility, because an element
+   removed from the accessibility tree cannot receive focus and a skip link
+   that cannot receive focus is not a skip link. Pressing Tab on a fresh page
+   brings it down into view; anything else leaves it exactly where it was, so a
+   mouse user never encounters it. */
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 12px;
+  z-index: 1000;
+  transform: translateY(-120%);
+  padding: 10px 18px;
+  background: var(--bg-card);
+  color: var(--accent-text);
+  border: 2px solid var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: var(--shadow-md);
+  transition: transform var(--transition);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* The skip link's target. Focused programmatically via tabIndex={-1}, so it
+   must not draw a focus ring — the point of moving focus here is to relocate
+   the keyboard, not to outline the entire page. */
+.content-area:focus {
+  outline: none;
+}
+
+/* ===== Focus indicator baseline =====
+   Buttons and nav items previously had no focus rule of their own and fell
+   back to whatever ring the browser draws, which differs between engines and
+   is easily lost against a coloured button. This gives every interactive
+   control one consistent, deliberately visible ring.
+
+   :focus-visible rather than :focus, so it appears for keyboard and
+   assistive-technology focus and not on a mouse click — the reason the
+   original CSS omitted these rules is almost certainly that a plain :focus
+   ring on click looked wrong, and this is the selector that solves that
+   without leaving keyboard users with nothing.
+
+   outline-offset pushes the ring clear of the control and onto the page
+   behind it, which is what keeps it legible on a filled button: the ring is
+   then --accent against the page background (4.29:1 in light, 6.67:1 in dark,
+   both above the 3:1 that non-text contrast requires) rather than green on
+   green. Rules that already declare their own focus treatment are untouched —
+   this only fills in the controls that had none. */
+.btn:focus-visible,
+.nav-item:focus-visible,
+.nav-subitem:focus-visible,
+.nav-expand-btn:focus-visible,
+.menu-toggle:focus-visible,
+.theme-toggle:focus-visible,
+.notif-bell-btn:focus-visible,
+.account-menu-btn:focus-visible,
+.account-menu-dropdown button:focus-visible,
+.icon-btn:focus-visible,
+.notif-toast-close:focus-visible,
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  /* Nothing here is a colour change, so a control that already signals focus
+     some other way keeps doing so; this only adds the ring. */
 }
 
 .animate-fade-in {
@@ -661,7 +827,7 @@ h6 {
 }
 
 .forgot-link:hover {
-  color: var(--orange);
+  color: var(--orange-text);
 }
 
 .login-form .btn-login {
@@ -807,7 +973,7 @@ h6 {
 }
 
 .login-forgot-link:hover {
-  color: var(--orange);
+  color: var(--orange-text);
 }
 
 /* Phase 4 — Feature #4: login-time 2FA challenge screen. Reuses the same
@@ -1033,7 +1199,7 @@ h6 {
 
 .nav-item.active {
   background: var(--accent-light);
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -1133,7 +1299,7 @@ h6 {
 
 .nav-subitem.active {
   background: var(--accent-light);
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -1271,7 +1437,7 @@ h6 {
 
 .permission-row-head > svg {
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .permission-row-title {
@@ -1302,11 +1468,11 @@ h6 {
 }
 
 .permission-status-granted {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .permission-status-denied {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .permission-status-prompt {
@@ -1335,7 +1501,7 @@ h6 {
   margin: 8px 0 0;
   font-size: 0.72rem;
   line-height: 1.5;
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .profile-settings-avatar-row {
@@ -1395,7 +1561,7 @@ h6 {
 .sidebar-footer .btn-logout:hover {
   background: var(--brand-red-light);
   border-color: var(--danger);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .logout-label {
@@ -1806,42 +1972,42 @@ h6 {
   background: var(--accent);
 }
 .kpi-card.accent .kpi-value {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .kpi-card.success::after {
   background: var(--success);
 }
 .kpi-card.success .kpi-value {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .kpi-card.warning::after {
   background: var(--warning);
 }
 .kpi-card.warning .kpi-value {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .kpi-card.danger::after {
   background: var(--danger);
 }
 .kpi-card.danger .kpi-value {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .kpi-card.info::after {
   background: var(--info);
 }
 .kpi-card.info .kpi-value {
-  color: var(--info);
+  color: var(--info-text);
 }
 
 .kpi-card.orange::after {
   background: var(--orange);
 }
 .kpi-card.orange .kpi-value {
-  color: var(--orange);
+  color: var(--orange-text);
 }
 
 /* ===== Charts ===== */
@@ -1882,7 +2048,7 @@ h6 {
   right: 22px;
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   opacity: 0;
@@ -2002,7 +2168,7 @@ th {
 }
 
 .th-sort-active {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* The neutral up/down glyph on an unsorted column is a hint, not information;
@@ -2049,7 +2215,7 @@ tbody tr:last-child td {
 
 .status-Open {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 .status-Solved,
 .status-Closed {
@@ -2058,7 +2224,7 @@ tbody tr:last-child td {
 }
 .status-Under-Investigation {
   background: var(--orange-light);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 .status-Archived {
   background: rgba(148, 163, 184, 0.15);
@@ -2066,19 +2232,19 @@ tbody tr:last-child td {
 }
 .status-Active {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 .status-Wanted {
   background: rgba(var(--danger-rgb), 0.12);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .status-Incarcerated {
   background: rgba(14, 165, 233, 0.12);
-  color: var(--info);
+  color: var(--info-text);
 }
 .status-Released {
   background: rgba(14, 165, 233, 0.12);
-  color: var(--info);
+  color: var(--info-text);
 }
 .status-Deceased,
 .status-Transferred,
@@ -2218,7 +2384,7 @@ select {
 }
 
 .form-errors {
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: 0.84rem;
   margin: 10px 0;
   padding: 12px;
@@ -2479,7 +2645,7 @@ select {
 }
 
 .map-caption-title svg {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Attribution, not a heading — deliberately quiet, but present: the ODbL
@@ -2529,11 +2695,11 @@ select {
 }
 
 .map-location-notice.warning {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .map-location-notice.error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 /* ===== Data-quality panel in the map sidebar ===== */
@@ -2621,7 +2787,7 @@ select {
   padding: 4px 6px;
   border-radius: 4px;
   background: var(--warning-bg, rgba(255, 138, 61, 0.14));
-  color: var(--warning, #ff8a3d);
+  color: var(--warning-text, #ff8a3d);
   font-weight: 700;
   font-size: 0.7rem;
 }
@@ -2896,7 +3062,7 @@ select {
 }
 
 .crime-type-row:not(.disabled) .crime-type-toggle {
-  color: var(--success);
+  color: var(--success-text);
   border-color: var(--success);
 }
 
@@ -2937,7 +3103,7 @@ select {
 .category-tag button {
   background: none;
   border: none;
-  color: var(--danger);
+  color: var(--danger-text);
   cursor: pointer;
   font-size: 0.9rem;
   padding: 0 2px;
@@ -3034,7 +3200,7 @@ select {
 }
 
 .modal-close:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   border-color: rgba(239, 68, 68, 0.3);
   background: rgba(239, 68, 68, 0.08);
 }
@@ -3110,7 +3276,7 @@ select {
 }
 
 .evidence-row-remove:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   border-color: var(--danger);
 }
 
@@ -3169,12 +3335,12 @@ select {
 
 .toast.error {
   border-left: 4px solid var(--danger);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .toast.info {
   border-left: 4px solid var(--info);
-  color: var(--info);
+  color: var(--info-text);
 }
 
 /* ===== Notification pop-up (upper right) =====
@@ -3246,11 +3412,11 @@ select {
 }
 
 .notif-toast.success .notif-toast-icon {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .notif-toast.warning .notif-toast-icon {
-  color: var(--warning, #ff8a3d);
+  color: var(--warning-text, #ff8a3d);
 }
 
 .notif-toast-body {
@@ -3663,7 +3829,7 @@ select {
   }
   30% {
     transform: scale(1.18);
-    color: var(--accent);
+    color: var(--accent-text);
   }
   60% {
     transform: scale(0.97);
@@ -3758,7 +3924,7 @@ select {
 .notif-permission > svg {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .notif-permission-body {
@@ -3770,7 +3936,7 @@ select {
 }
 
 .notif-permission-granted > svg {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .notif-permission-muted > svg {
@@ -4019,11 +4185,46 @@ select {
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
+    /* The transform alone only moves where the drawer is PAINTED. Its links
+       stayed focusable and stayed in the accessibility tree, so tabbing on a
+       phone walked an invisible navigation. visibility: hidden is what
+       actually removes them from both, and unlike display: none it can be
+       transitioned — the 0.25s delay holds the drawer visible for exactly as
+       long as the slide-out animation runs, so nothing disappears mid-motion.
+
+       Sidebar.jsx sets the `inert` attribute on the same state, which is the
+       modern expression of the same intent and additionally blocks pointer
+       events. This rule is the fallback for engines without inert support; the
+       two are deliberately kept in agreement rather than one replacing the
+       other. */
+    visibility: hidden;
+    transition:
+      transform var(--transition),
+      visibility 0s linear 0.25s;
   }
 
   .sidebar.open {
     transform: translateX(0);
     box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+    visibility: visible;
+    /* No delay on the way in — the drawer must be reachable the instant it
+       starts sliding in, not a quarter second later. */
+    transition:
+      transform var(--transition),
+      visibility 0s linear 0s;
+  }
+
+  /* Mounted by MainLayout only while the drawer is open and only at this
+     width, so it can never sit over the desktop layout or intercept a click
+     when the drawer is closed. Below the sidebar's z-index (100) and above the
+     content, so it dims and catches taps on the page without covering the
+     panel itself. */
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(18, 22, 15, 0.45);
+    animation: fadeIn 0.2s ease;
   }
 
   .sidebar-collapse-btn {
@@ -4783,7 +4984,7 @@ select {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 
@@ -4806,7 +5007,7 @@ select {
   border-radius: 50%;
   background: var(--bl-security-bg);
   border: 1px solid var(--bl-security-border);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .badac-security-notice strong {
@@ -4916,7 +5117,7 @@ select {
   justify-content: center;
   border-radius: 50%;
   background: var(--bg-card);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .helpdesk-support-row strong {
@@ -4932,7 +5133,7 @@ select {
 }
 
 .helpdesk-support-row a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .field-error {
@@ -5017,12 +5218,21 @@ select {
    description of what Supabase reports. */
 .status-Enrolled {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .status-Not-enrolled {
   background: rgba(148, 163, 184, 0.15);
   color: var(--text-muted);
+}
+
+/* Email OTP MFA. Styled like .status-Enrolled because it is an ACTIVE second
+   factor — the account is challenged for an emailed code at every sign-in —
+   and must never read as the muted "no factor" state. See
+   src/utils/mfaStatus.js. */
+.status-Email-OTP {
+  background: var(--accent-light);
+  color: var(--success-text);
 }
 
 /* Row kebab menu. Shares .account-menu-btn / .account-menu-dropdown with the
@@ -5059,7 +5269,7 @@ select {
 /* The destructive item stays visually destructive without being a large red
    button sitting beside every row. */
 .row-menu-dropdown button.row-menu-danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .row-menu-dropdown button.row-menu-danger:hover:not(:disabled) {
@@ -5292,17 +5502,17 @@ select {
 
 .security-alert-ok {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .security-alert-warning {
   background: var(--orange-light);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .security-alert-danger {
   background: rgba(192, 57, 43, 0.1);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .security-alert-note {
@@ -5332,12 +5542,12 @@ select {
 
 .perm-full {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .perm-view {
   background: var(--orange-light);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .perm-none {

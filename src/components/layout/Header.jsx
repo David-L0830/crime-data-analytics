@@ -9,7 +9,11 @@ import NotificationPermissionControl from './NotificationPermissionControl';
 import { notificationTarget } from '../../utils/notificationRouting';
 import { relativeTime } from '../../utils/helpers';
 
-export default function Header({ onMenuToggle, bellPulse = false }) {
+export default function Header({
+  onMenuToggle,
+  menuButtonRef,
+  bellPulse = false,
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -23,6 +27,7 @@ export default function Header({ onMenuToggle, bellPulse = false }) {
   const { showToast } = useToast();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const wrapperRef = useRef(null);
+  const bellBtnRef = useRef(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
 
   const handleMarkAllRead = async () => {
@@ -59,6 +64,21 @@ export default function Header({ onMenuToggle, bellPulse = false }) {
     document.addEventListener('click', onClickOutside);
     return () => document.removeEventListener('click', onClickOutside);
   }, []);
+
+  // The notification panel could only be dismissed by clicking away from it,
+  // which is not something a keyboard user can do. Escape closes it and hands
+  // focus back to the bell, the same contract Modal and the sidebar's account
+  // menu already follow.
+  useEffect(() => {
+    if (!dropdownOpen) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key !== 'Escape') return;
+      setDropdownOpen(false);
+      bellBtnRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [dropdownOpen]);
 
   const currentDate = new Date().toLocaleDateString('en-PH', {
     weekday: 'long',
@@ -100,6 +120,7 @@ export default function Header({ onMenuToggle, bellPulse = false }) {
     <header className="topbar">
       <button
         className="menu-toggle"
+        ref={menuButtonRef}
         onClick={onMenuToggle}
         aria-label="Toggle sidebar"
       >
@@ -109,6 +130,7 @@ export default function Header({ onMenuToggle, bellPulse = false }) {
       <div className="topbar-actions">
         <div className="notif-bell-wrapper" ref={wrapperRef}>
           <button
+            ref={bellBtnRef}
             className={`notif-bell-btn ${bellPulse ? 'pulsing' : ''}`}
             title="Notifications"
             aria-label={
@@ -136,6 +158,7 @@ export default function Header({ onMenuToggle, bellPulse = false }) {
                 className="btn btn-sm btn-ghost"
                 onClick={handleMarkAllRead}
                 disabled={markingAllRead}
+                aria-busy={markingAllRead}
               >
                 {markingAllRead ? 'Marking…' : 'Mark all read'}
               </button>

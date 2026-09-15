@@ -26,8 +26,13 @@ const Settings = lazy(() => import('../pages/Settings'));
 
 function PageFallback() {
   return (
-    <div className="empty-state" style={{ padding: 60 }}>
-      <div className="spinner" />
+    <div className="empty-state" style={{ padding: 60 }} role="status">
+      {/* The spinner carries no text, so on its own it is silence to a screen
+          reader — the page simply appears to stop. aria-hidden on the graphic
+          and a visually hidden label beside it gives the same information in
+          the one form assistive technology can use. */}
+      <div className="spinner" aria-hidden="true" />
+      <span className="sr-only">Loading page…</span>
     </div>
   );
 }

@@ -96,9 +96,14 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           type="text"
           value={form.fullName}
           aria-invalid={Boolean(errors.fullName)}
+          aria-describedby={errors.fullName ? 'create-full-name-error' : undefined}
           onChange={(e) => set('fullName', e.target.value)}
         />
-        {errors.fullName && <p className="field-error">{errors.fullName}</p>}
+        {errors.fullName && (
+          <p className="field-error" id="create-full-name-error">
+            {errors.fullName}
+          </p>
+        )}
       </div>
 
       <div className="form-group">
@@ -108,9 +113,14 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           type="text"
           value={form.username}
           aria-invalid={Boolean(errors.username)}
+          aria-describedby={errors.username ? 'create-username-error' : undefined}
           onChange={(e) => set('username', e.target.value)}
         />
-        {errors.username && <p className="field-error">{errors.username}</p>}
+        {errors.username && (
+          <p className="field-error" id="create-username-error">
+            {errors.username}
+          </p>
+        )}
       </div>
 
       <div className="form-group">
@@ -120,9 +130,14 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           type="email"
           value={form.email}
           aria-invalid={Boolean(errors.email)}
+          aria-describedby={errors.email ? 'create-email-error' : undefined}
           onChange={(e) => set('email', e.target.value)}
         />
-        {errors.email && <p className="field-error">{errors.email}</p>}
+        {errors.email && (
+          <p className="field-error" id="create-email-error">
+            {errors.email}
+          </p>
+        )}
         <p className="form-hint">
           The account is created in Supabase with this address, and the person
           receives an email to set their own password.

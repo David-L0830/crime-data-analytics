@@ -406,8 +406,10 @@ export default function UserManagement() {
       </div>
 
       {loading ? (
-        <div className="empty-state" style={{ padding: 60 }}>
-          <div className="spinner" />
+        // The visible text is already the right message; role="status" is what
+        // makes it reach a screen reader when it appears.
+        <div className="empty-state" style={{ padding: 60 }} role="status">
+          <div className="spinner" aria-hidden="true" />
           <p style={{ color: 'var(--text-muted)' }}>Loading users…</p>
         </div>
       ) : loadError ? (
