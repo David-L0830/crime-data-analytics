@@ -238,7 +238,21 @@ class EmailMfaTest extends TestCase
         $this->assertStringContainsString('CDARS', $message->getSubject());
         $this->assertStringContainsString('expires in 5 minutes', $message->getTextBody());
         $this->assertStringContainsString('Do not share this code', $message->getTextBody());
-        $this->assertNull($message->getHtmlBody());
+
+        // The HTML part is the official CDARS notice layout. It carries the
+        // same code and warnings as the text part, and — the property that
+        // matters for security — still no link of any kind, so the secret can
+        // never end up in a URL, a browser history or a link scanner.
+        $html = $message->getHtmlBody();
+        $this->assertIsString($html);
+        $this->assertStringContainsString($code, $html);
+        $this->assertStringContainsString('Crime Data Analytics and Reporting System', $html);
+        $this->assertStringContainsString('Barangay 178 Public Safety and Security', $html);
+        $this->assertStringContainsString('Do not share this code with anyone.', $html);
+        $this->assertStringContainsString('If you did not attempt to sign in to CDARS, you can safely ignore this email.', $html);
+        $this->assertStringNotContainsStringIgnoringCase('href=', $html);
+        $this->assertStringNotContainsStringIgnoringCase('<img', $html);
+        $this->assertSame('[CDARS] Your sign-in verification code', $message->getSubject());
     }
 
     public function test_the_email_says_local_development_when_running_locally(): void

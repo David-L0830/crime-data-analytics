@@ -133,9 +133,9 @@ export default function VictimProfile() {
           <p style={{ color: 'var(--text-muted)' }}>Victim record not found.</p>
           <Button
             variant="secondary"
-            onClick={() => navigate('/criminal-records')}
+            onClick={() => navigate('/criminal-records/victim')}
           >
-            <Icons.Back size={15} strokeWidth={2} /> Back to Records
+            <Icons.Back size={15} strokeWidth={2} /> Back to Victim Records
           </Button>
         </div>
       </section>

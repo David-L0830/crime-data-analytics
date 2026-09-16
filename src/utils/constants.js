@@ -141,6 +141,18 @@ export const ASSIGNABLE_STATUSES = [
   'Solved',
   'Closed',
 ];
+// Record validation — a separate axis from the case STATUSES above. Keys are
+// the values the API returns in `validationStatus` (Incident::VALIDATION_* on
+// the server); labels are what the interface shows. Only the server ever sets
+// these: POST/PUT /incidents ignore them, and PUT /incidents/{id}/validate and
+// /return are role:badac_admin.
+export const VALIDATION_STATUS_LABELS = {
+  pending: 'Pending Validation',
+  validated: 'Validated',
+  returned: 'Returned for Correction',
+};
+export const VALIDATION_STATUSES = Object.keys(VALIDATION_STATUS_LABELS);
+
 export const CRIMINAL_STATUSES = [
   'Active',
   'Wanted',
@@ -202,6 +214,7 @@ export const ROLES = {
       'criminal-records',
       'audit-logs',
       'user-management',
+      'scheduled-reports',
       'settings',
     ],
   },
@@ -256,6 +269,10 @@ export const PERMISSIONS = {
     'archive_record',
     'view_audit_logs',
     'manage_settings',
+    // Record validation (approve / return for correction). UI gating only —
+    // the real control is role:badac_admin on PUT /incidents/{id}/validate
+    // and /return in backend/routes/api.php.
+    'validate_record',
   ],
   // badac_readonly intentionally has no entries here: view access is granted
   // entirely through ROLES.badac_readonly.modules above, and can() returns
@@ -299,8 +316,10 @@ export const NAV_ITEMS = [
   // Task 3/2 (Checkpoint 19): sidebar label changed from "Criminal Records"
   // to "Records" — the id/moduleId stays 'criminal-records' on purpose so
   // RBAC (ROLES[].modules, hasAccess, backend role checks) is untouched.
-  // Clicking it now lands on the Records module (pages/Records.jsx), which
-  // offers "Criminal Record" and "Victim Record" as the two sub-choices.
+  // "Records" is a sidebar navigation GROUP, not a page: it expands to
+  // Criminal Records and Victim Records (see Sidebar.jsx). The old landing
+  // page that only offered those two choices is gone; /criminal-records
+  // redirects to Criminal Records so existing bookmarks keep working.
   {
     id: 'criminal-records',
     label: 'Records',
@@ -339,6 +358,16 @@ export const NAV_ITEMS = [
     id: 'user-management',
     label: 'User Management',
     icon: 'userManagement',
+    section: 'administration',
+  },
+  // Scheduled Reports — its own module, no longer a section of System
+  // Settings. Listed only in ROLES.badac_admin.modules, so no other role sees
+  // it or can open the route; the real control is role:badac_admin on every
+  // /report-schedules and /report-email-logs endpoint.
+  {
+    id: 'scheduled-reports',
+    label: 'Scheduled Reports',
+    icon: 'scheduledReports',
     section: 'administration',
   },
   // System Settings is reachable from the sidebar again. It previously had no
@@ -381,6 +410,7 @@ export const PAGE_TITLES = {
   'criminal-records/victim': 'Victim Records',
   'audit-logs': 'Audit Logs',
   'user-management': 'User Management',
+  'scheduled-reports': 'Scheduled Reports',
   settings: 'System Settings',
 };
 

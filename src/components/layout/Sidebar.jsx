@@ -1,26 +1,30 @@
-import { useEffect, useRef, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useId, useRef, useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { NAV_ITEMS, NAV_SECTION_LABELS } from '../../utils/constants';
+import {
+  RECORDS_SUBITEMS,
+  CRIMINAL_RECORDS_PATH,
+  activeRecordsItem,
+  isRecordsPath,
+} from '../../utils/recordsNav';
 import { useAuth } from '../../hooks/useAuth';
 import { NAV_ICONS, Icons } from '../icons';
 import logo from '../../assets/images/barangay178-logo.png';
 import ProfileSettingsModal from './ProfileSettingsModal';
 
-// Checkpoint 19/25 — the Records nav item's id/moduleId is 'criminal-records'
-// (see constants.js's own comment on NAV_ITEMS), but Checkpoint 25 adds a
-// real sidebar submenu under it — Criminal Records / Victim Records — on
-// top of the existing Records landing page at that same route, without
-// touching AppRoutes.jsx's routing (all three routes already existed).
+// The Records nav item's id/moduleId is 'criminal-records' (see constants.js's
+// own comment on NAV_ITEMS), so RBAC is unchanged. It is a navigation GROUP:
+// its header is a disclosure button that expands Criminal Records and Victim
+// Records, which are the real destinations. There is no Records page to land
+// on any more; /criminal-records itself redirects to Criminal Records.
 const RECORDS_ITEM_ID = 'criminal-records';
-const RECORDS_SUBITEMS = [
-  { to: '/criminal-records/criminal', label: 'Criminal Records' },
-  { to: '/criminal-records/victim', label: 'Victim Records' },
-];
 
 export default function Sidebar({ open, collapsed, isMobile, onNavigate }) {
   const { currentUser, role, hasAccess, logout, avatarSrc } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const asideRef = useRef(null);
+  const recordsSubmenuId = useId();
   const [recordsExpanded, setRecordsExpanded] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -57,14 +61,13 @@ export default function Sidebar({ open, collapsed, isMobile, onNavigate }) {
     onBlur: hideNavTip,
   });
 
-  const onRecordsSubroute = RECORDS_SUBITEMS.some((s) =>
-    location.pathname.startsWith(s.to),
-  );
+  const activeRecords = activeRecordsItem(location.pathname);
+  const onRecordsSubroute = isRecordsPath(location.pathname);
 
-  // Auto-open the submenu when navigation (not a sidebar click) lands on a
-  // Criminal/Victim Records sub-route, e.g. a deep link or the "view record"
-  // links from other pages — otherwise the active sub-item would be hidden
-  // inside a collapsed submenu.
+  // Auto-open the submenu when navigation (not a sidebar click) lands inside
+  // Records, e.g. a refresh, a deep link to a profile, or a "view record" link
+  // from another page — otherwise the active sub-item would be hidden inside a
+  // collapsed submenu. It never auto-closes: the user decides that.
   useEffect(() => {
     if (onRecordsSubroute) setRecordsExpanded(true);
   }, [onRecordsSubroute]);
@@ -220,57 +223,70 @@ export default function Sidebar({ open, collapsed, isMobile, onNavigate }) {
               );
             }
 
+            // The group header is ONE button — the whole row, chevron
+            // included — with aria-expanded/aria-controls, which is the
+            // disclosure pattern screen readers and keyboards understand
+            // (Enter/Space toggle it). It is not a link, because there is no
+            // Records page for it to open.
+            //
+            // On the 72px collapsed rail the submenu cannot be shown, so the
+            // same button instead goes straight to Criminal Records, the
+            // group's first destination; Victim Records stays one click away
+            // from there and from the expanded sidebar.
+            const onRecordsHeaderClick = () => {
+              if (collapsed) {
+                navigate(CRIMINAL_RECORDS_PATH);
+                onNavigate?.();
+                return;
+              }
+              setRecordsExpanded((v) => !v);
+            };
+
             return (
               <div key={item.id}>
                 {sectionLabel}
                 <div className="nav-group">
-                  <NavLink
-                    to={`/${item.id}`}
-                    end
-                    className={({ isActive }) =>
-                      `nav-item nav-item-parent ${isActive || onRecordsSubroute ? 'active' : ''}`
-                    }
-                    onClick={onNavigate}
-                    title={collapsed ? undefined : item.label}
+                  <button
+                    type="button"
+                    className={`nav-item nav-item-parent nav-group-toggle ${onRecordsSubroute ? 'active' : ''}`}
+                    onClick={onRecordsHeaderClick}
+                    aria-expanded={recordsExpanded}
+                    aria-controls={recordsSubmenuId}
                     aria-label={item.label}
+                    title={collapsed ? undefined : item.label}
                     {...navTipHandlers(item.label)}
                   >
                     <span className="nav-icon">
                       <NavIcon size={19} strokeWidth={2} />
                     </span>
                     <span className="nav-label">{item.label}</span>
-                    <button
-                      type="button"
-                      className={`nav-expand-btn ${recordsExpanded ? 'expanded' : ''}`}
-                      aria-label={
-                        recordsExpanded ? 'Collapse Records' : 'Expand Records'
-                      }
-                      aria-expanded={recordsExpanded}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setRecordsExpanded((v) => !v);
-                      }}
+                    <span
+                      className={`nav-group-chevron ${recordsExpanded ? 'expanded' : ''}`}
+                      aria-hidden="true"
                     >
                       <Icons.ChevronRight size={15} strokeWidth={2.25} />
-                    </button>
-                  </NavLink>
-                  {recordsExpanded && (
-                    <div className="nav-submenu">
-                      {RECORDS_SUBITEMS.map((sub) => (
-                        <NavLink
-                          key={sub.to}
-                          to={sub.to}
-                          className={({ isActive }) =>
-                            `nav-subitem ${isActive ? 'active' : ''}`
-                          }
-                          onClick={onNavigate}
-                        >
-                          {sub.label}
-                        </NavLink>
-                      ))}
-                    </div>
-                  )}
+                    </span>
+                  </button>
+                  <ul
+                    id={recordsSubmenuId}
+                    className="nav-submenu"
+                    hidden={!recordsExpanded}
+                  >
+                    {RECORDS_SUBITEMS.map((sub) => {
+                      const current = activeRecords === sub.key;
+                      return (
+                        <li key={sub.to}>
+                          <NavLink
+                            to={sub.to}
+                            className={`nav-subitem ${current ? 'active' : ''}`}
+                            onClick={onNavigate}
+                          >
+                            {sub.label}
+                          </NavLink>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               </div>
             );

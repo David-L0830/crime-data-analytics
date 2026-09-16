@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '../layouts/MainLayout';
 import ProtectedRoute from './ProtectedRoute';
 import Landing from '../pages/Landing';
@@ -15,7 +15,6 @@ const IncidentFeed = lazy(() => import('../pages/IncidentFeed'));
 const Mapping = lazy(() => import('../pages/Mapping'));
 const Analytics = lazy(() => import('../pages/Analytics'));
 const Trends = lazy(() => import('../pages/Trends'));
-const Records = lazy(() => import('../pages/Records'));
 const CriminalRecords = lazy(() => import('../pages/CriminalRecords'));
 const VictimRecords = lazy(() => import('../pages/VictimRecords'));
 const CriminalProfile = lazy(() => import('../pages/CriminalProfile'));
@@ -23,6 +22,7 @@ const VictimProfile = lazy(() => import('../pages/VictimProfile'));
 const AuditLogs = lazy(() => import('../pages/AuditLogs'));
 const UserManagement = lazy(() => import('../pages/UserManagement'));
 const Settings = lazy(() => import('../pages/Settings'));
+const ScheduledReports = lazy(() => import('../pages/ScheduledReports'));
 
 function PageFallback() {
   return (
@@ -76,14 +76,20 @@ export default function AppRoutes() {
         <Route path="/mapping" element={guarded('mapping', Mapping)} />
         <Route path="/analytics" element={guarded('analytics', Analytics)} />
         <Route path="/trends" element={guarded('trends', Trends)} />
-        {/* Records module (Checkpoint 19, Tasks 2/3): landing page offers
-            Criminal Record / Victim Record. Both list routes below reuse the
-            existing CriminalRecords/VictimRecords implementations; the
-            detail routes are unchanged so any existing bookmarks/links to a
-            specific criminal or victim profile keep working. */}
+        {/* Records is a sidebar navigation group, not a page (see
+            Sidebar.jsx). The intermediate chooser page that used to live at
+            /criminal-records is gone; the bare path now redirects to Criminal
+            Records so existing bookmarks and links still arrive somewhere
+            useful. It stays behind the same 'criminal-records' guard, so a
+            role without Records access is still turned away. The list and
+            profile routes below are unchanged. */}
         <Route
           path="/criminal-records"
-          element={guarded('criminal-records', Records)}
+          element={
+            <ProtectedRoute moduleId="criminal-records">
+              <Navigate to="/criminal-records/criminal" replace />
+            </ProtectedRoute>
+          }
         />
         <Route
           path="/criminal-records/criminal"
@@ -105,6 +111,10 @@ export default function AppRoutes() {
         <Route
           path="/user-management"
           element={guarded('user-management', UserManagement)}
+        />
+        <Route
+          path="/scheduled-reports"
+          element={guarded('scheduled-reports', ScheduledReports)}
         />
         <Route path="/settings" element={guarded('settings', Settings)} />
         {/* Checkpoint 28 — /security route removed; its Two-Factor

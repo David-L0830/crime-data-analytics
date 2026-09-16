@@ -65,6 +65,9 @@ import {
   Map as MapIcon,
   Globe,
   Crosshair,
+  CalendarClock,
+  Send,
+  Undo2,
 } from 'lucide-react';
 
 // Login redesign (BADAC Analytics visual refresh) — small inline icon that
@@ -109,6 +112,7 @@ export const NAV_ICONS = {
   auditLogs: ScrollText,
   settings: SettingsIcon,
   userManagement: Users,
+  scheduledReports: CalendarClock,
 };
 
 export const Icons = {
@@ -194,6 +198,11 @@ export const Icons = {
   // the map itself, so a third meaning on the same glyph would make the one
   // button that is about the VIEWER look like one more thing about the data.
   Crosshair,
+  // Scheduled Reports module (Create / Run now) and record validation
+  // (Return for Correction).
+  CalendarClock,
+  Send,
+  Return: Undo2,
 };
 
 export default Icons;

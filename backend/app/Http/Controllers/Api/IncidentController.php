@@ -29,10 +29,21 @@ class IncidentController extends Controller
      */
     public const RESOLVED_STATUSES = ['Solved', 'Closed'];
 
+    /**
+     * Relations every IncidentResource response carries: the evidence list,
+     * and the names of whoever validated or returned the record. Loaded with
+     * only id + name so no other user column leaves the server.
+     */
+    private const DETAIL_RELATIONS = ['evidenceItems', 'validator:id,name', 'returner:id,name'];
+
     // GET /api/incidents
     public function index(Request $request)
     {
         $query = Incident::query();
+
+        if ($request->filled('validationStatus')) {
+            $query->where('validation_status', $request->string('validationStatus'));
+        }
 
         if ($request->filled('sitio')) {
             $query->where('sitio', $request->string('sitio'));
@@ -66,7 +77,7 @@ class IncidentController extends Controller
             });
         }
 
-        $incidents = $query->with('evidenceItems')->orderByDesc('incident_date')->orderByDesc('id')->get();
+        $incidents = $query->with(self::DETAIL_RELATIONS)->orderByDesc('incident_date')->orderByDesc('id')->get();
 
         return IncidentResource::collection($incidents);
     }
@@ -113,7 +124,7 @@ class IncidentController extends Controller
     // GET /api/incidents/{incident}
     public function show(Incident $incident)
     {
-        return new IncidentResource($incident->load('evidenceItems'));
+        return new IncidentResource($incident->load(self::DETAIL_RELATIONS));
     }
 
     // POST /api/incidents
@@ -122,6 +133,11 @@ class IncidentController extends Controller
         $validated = $request->validated();
         $data = $this->mapToColumns($validated);
         $data['reported_by'] = $request->user()?->id;
+
+        // Every new record, whoever submits it, awaits Administrator review.
+        // Set explicitly rather than left to the column default so the rule
+        // is visible here and cannot drift if that default ever changes.
+        $data['validation_status'] = Incident::VALIDATION_PENDING;
 
         // incident_code is NOT NULL UNIQUE and the id it names does not exist
         // until the insert has happened, so the row goes in carrying a
@@ -159,7 +175,7 @@ class IncidentController extends Controller
             return $incident;
         });
 
-        $created = $incident->fresh()->load('evidenceItems');
+        $created = $incident->fresh()->load(self::DETAIL_RELATIONS);
 
         // Announced only now, OUTSIDE and AFTER the transaction. That ordering
         // is the guarantee that a notification can never describe an incident
@@ -225,27 +241,68 @@ class IncidentController extends Controller
             return response()->json(['message' => 'Encoders may only update incidents they personally encoded.'], 403);
         }
 
-        // Read BEFORE the write — this is what makes "Case Resolved" a real
-        // transition rather than a re-announcement. Saving an already-Solved
-        // incident (e.g. correcting a typo in its description) must not emit a
-        // second notification, and nothing about an unrelated incident may
-        // change as a side effect of this request.
-        $statusBefore = $incident->status;
+        $columns = $this->mapToColumns($request->validated());
 
-        $incident->update($this->mapToColumns($request->validated()));
+        // The edit, its evidence and its audit entry are one unit of work, and
+        // the validation decision is made against the row as it is NOW, not as
+        // route model binding loaded it.
+        //
+        // Why the lock: `$incident` was read before this request reached the
+        // controller. If an Administrator validated the record in between, a
+        // decision taken from that stale copy would see "pending", skip the
+        // reset, and — because Eloquent writes only changed columns — leave
+        // the Administrator's 'validated' untouched on content they never
+        // reviewed. lockForUpdate() re-reads the row and holds it until commit,
+        // so approve()/returnForCorrection(), whose conditional UPDATEs need
+        // the same row lock, run strictly before (and are seen here) or
+        // strictly after (and then review the edited content).
+        [$incident, $statusBefore] = DB::transaction(function () use ($request, $incident, $user, $columns) {
+            $locked = Incident::whereKey($incident->getKey())->lockForUpdate()->firstOrFail();
 
-        $this->syncEvidence($request, $incident, $request->validated());
+            // Read BEFORE the write — this is what makes "Case Resolved" a real
+            // transition rather than a re-announcement. Saving an already-Solved
+            // incident (e.g. correcting a typo in its description) must not emit
+            // a second notification, and nothing about an unrelated incident may
+            // change as a side effect of this request.
+            $statusBefore = $locked->status;
 
-        $incident->refresh()->load('evidenceItems');
+            // An Encoder's edit is a (re)submission: whatever the record's
+            // validation state was, the changed record has not been reviewed,
+            // so it goes back to pending. Without this an Encoder could alter a
+            // validated record and it would stay "official". A returned record
+            // corrected this way is how it re-enters the review queue. The
+            // previous correction reason is kept so the reviewer can see what
+            // was asked for. Administrator edits leave the validation state
+            // alone — the Administrator is the reviewer. The validation columns
+            // are appended here, after mapToColumns(), so nothing the client
+            // sent can supply or override them.
+            $resubmitted = $user?->isEncoder()
+                && $locked->validation_status !== Incident::VALIDATION_PENDING;
+            if ($user?->isEncoder()) {
+                $columns['validation_status'] = Incident::VALIDATION_PENDING;
+                $columns['validated_by'] = null;
+                $columns['validated_at'] = null;
+            }
 
-        AuditLog::create([
-            'user_id' => $request->user()?->id,
-            'action' => 'UPDATE',
-            'module' => 'incidents',
-            'target_type' => 'incident',
-            'description' => "Updated incident {$incident->case_number}",
-            'ip_address' => $request->ip(),
-        ]);
+            $locked->update($columns);
+
+            $this->syncEvidence($request, $locked, $request->validated());
+
+            AuditLog::create([
+                'user_id' => $request->user()?->id,
+                'action' => 'UPDATE',
+                'module' => 'incidents',
+                'target_type' => 'incident',
+                'description' => $resubmitted
+                    ? "Updated incident {$locked->case_number} and resubmitted it for validation"
+                    : "Updated incident {$locked->case_number}",
+                'ip_address' => $request->ip(),
+            ]);
+
+            return [$locked, $statusBefore];
+        });
+
+        $incident->refresh()->load(self::DETAIL_RELATIONS);
 
         $this->announceResolutionIfNewlyResolved($incident, $statusBefore);
 
@@ -469,7 +526,7 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return new IncidentResource($incident->fresh()->load('evidenceItems'));
+        return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
     }
 
     // PUT /api/incidents/{incident}/restore — the exact inverse of archive(),
@@ -514,7 +571,125 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return new IncidentResource($incident->fresh()->load('evidenceItems'));
+        return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
+    }
+
+    // PUT /api/incidents/{incident}/validate — BADAC Administrator only.
+    //
+    // Authorization is the role:badac_admin middleware on the route (see
+    // routes/api.php); an Encoder or read-only BADAC account is refused with a
+    // 403 before this runs, whatever the frontend shows. The admin check below
+    // repeats it inside the action itself so the rule survives the route ever
+    // being regrouped.
+    //
+    // The transition is a single conditional UPDATE rather than read-then-
+    // write, so two Administrators acting at once cannot both "win": the
+    // second finds no row still in a validatable state and gets a 422.
+    public function approve(Request $request, Incident $incident)
+    {
+        $user = $request->user();
+        if (! $user?->isAdmin()) {
+            return response()->json(['message' => 'Only a BADAC Administrator may validate records.'], 403);
+        }
+
+        if ($incident->status === 'Archived') {
+            return response()->json(['message' => 'Archived incidents cannot be validated. Restore it first.'], 422);
+        }
+
+        $updated = DB::transaction(function () use ($request, $incident, $user) {
+            $changed = Incident::whereKey($incident->id)
+                ->where('status', '!=', 'Archived')
+                ->where('validation_status', '!=', Incident::VALIDATION_VALIDATED)
+                ->update([
+                    'validation_status' => Incident::VALIDATION_VALIDATED,
+                    'validated_by' => $user->id,
+                    'validated_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            if ($changed === 0) {
+                return false;
+            }
+
+            AuditLog::create([
+                'user_id' => $user->id,
+                'action' => 'VALIDATE',
+                'module' => 'incidents',
+                'target_type' => 'incident',
+                'description' => "Validated incident {$incident->case_number}",
+                'ip_address' => $request->ip(),
+            ]);
+
+            return true;
+        });
+
+        if (! $updated) {
+            return response()->json(['message' => 'This incident is already validated.'], 422);
+        }
+
+        return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
+    }
+
+    // PUT /api/incidents/{incident}/return — BADAC Administrator only.
+    //
+    // Sends a record back to its encoder with a required reason. Allowed from
+    // pending AND from validated: an Administrator who finds an error in an
+    // already-validated record must be able to withdraw that validation, and
+    // doing so clears validated_by/validated_at so the record stops presenting
+    // itself as official. The reason is stored on the row (so the encoder sees
+    // what to fix) and copied into the audit description (so the trail keeps
+    // it even after a later return overwrites the column).
+    public function returnForCorrection(Request $request, Incident $incident)
+    {
+        $user = $request->user();
+        if (! $user?->isAdmin()) {
+            return response()->json(['message' => 'Only a BADAC Administrator may return records for correction.'], 403);
+        }
+
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+        $reason = trim($data['reason']);
+
+        if ($incident->status === 'Archived') {
+            return response()->json(['message' => 'Archived incidents cannot be returned for correction. Restore it first.'], 422);
+        }
+
+        $updated = DB::transaction(function () use ($request, $incident, $user, $reason) {
+            $changed = Incident::whereKey($incident->id)
+                ->where('status', '!=', 'Archived')
+                ->where('validation_status', '!=', Incident::VALIDATION_RETURNED)
+                ->update([
+                    'validation_status' => Incident::VALIDATION_RETURNED,
+                    'validated_by' => null,
+                    'validated_at' => null,
+                    'returned_by' => $user->id,
+                    'returned_at' => now(),
+                    'correction_reason' => $reason,
+                    'updated_at' => now(),
+                ]);
+
+            if ($changed === 0) {
+                return false;
+            }
+
+            AuditLog::create([
+                'user_id' => $user->id,
+                'action' => 'RETURN',
+                'module' => 'incidents',
+                'target_type' => 'incident',
+                'description' => "Returned incident {$incident->case_number} for correction: {$reason}",
+                'ip_address' => $request->ip(),
+            ]);
+
+            return true;
+        });
+
+        if (! $updated) {
+            return response()->json(['message' => 'This incident has already been returned for correction.'], 422);
+        }
+
+        return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
     }
 
     private function mapToColumns(array $v): array

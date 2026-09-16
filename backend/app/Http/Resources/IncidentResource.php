@@ -59,6 +59,18 @@ class IncidentResource extends JsonResource
                 ])->values(),
                 []
             ),
+            // Record validation (separate from the case status above). The
+            // names are read only from relations the controller eager-loaded,
+            // so a caller that did not load them gets null rather than an
+            // extra query per row. validatedAt null on a 'validated' row means
+            // it was validated before the workflow existed — see the
+            // add_validation_workflow_to_incidents migration.
+            'validationStatus' => $this->validation_status,
+            'validatedBy' => $this->relationLoaded('validator') ? $this->validator?->name : null,
+            'validatedAt' => optional($this->validated_at)->toIso8601String(),
+            'returnedBy' => $this->relationLoaded('returner') ? $this->returner?->name : null,
+            'returnedAt' => optional($this->returned_at)->toIso8601String(),
+            'correctionReason' => $this->correction_reason,
             'reportedBy' => $this->reported_by ? (string) $this->reported_by : null,
             'synced_at' => optional($this->synced_at)->toIso8601String(),
         ];

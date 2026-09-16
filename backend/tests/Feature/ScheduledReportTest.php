@@ -513,4 +513,71 @@ class ScheduledReportTest extends TestCase
 
         $this->assertSame(ReportEmailLog::STATUS_FAILED, ReportEmailLog::first()->status);
     }
+
+    // ---------------------------------------------------------------
+    // Scheduled Reports module presentation fields
+    // ---------------------------------------------------------------
+
+    public function test_next_run_follows_the_schedulers_own_due_rule(): void
+    {
+        // Wednesday 2026-09-16 10:30.
+        $now = Carbon::parse('2026-09-16 10:30:00');
+
+        // Daily at 06:00 has passed today -> tomorrow 06:00.
+        $daily = $this->schedule(['frequency' => 'daily', 'hour' => 6, 'day_of_week' => null]);
+        $this->assertSame('2026-09-17 06:00:00', $daily->nextRunAt($now)->format('Y-m-d H:i:s'));
+
+        // Daily at 18:00 is still ahead today.
+        $evening = $this->schedule(['frequency' => 'daily', 'hour' => 18, 'day_of_week' => null]);
+        $this->assertSame('2026-09-16 18:00:00', $evening->nextRunAt($now)->format('Y-m-d H:i:s'));
+
+        // Weekly on Monday (1) at 06:00 -> next Monday.
+        $weekly = $this->schedule(['frequency' => 'weekly', 'hour' => 6, 'day_of_week' => 1]);
+        $this->assertSame('2026-09-21 06:00:00', $weekly->nextRunAt($now)->format('Y-m-d H:i:s'));
+
+        // Monthly on the 5th -> next month.
+        $monthly = $this->schedule(['frequency' => 'monthly', 'hour' => 6, 'day_of_week' => null, 'day_of_month' => 5]);
+        $this->assertSame('2026-10-05 06:00:00', $monthly->nextRunAt($now)->format('Y-m-d H:i:s'));
+
+        // The current hour counts only until it has run.
+        $thisHour = $this->schedule(['frequency' => 'daily', 'hour' => 10, 'day_of_week' => null]);
+        $this->assertSame('2026-09-16 10:00:00', $thisHour->nextRunAt($now)->format('Y-m-d H:i:s'));
+        $thisHour->last_run_at = Carbon::parse('2026-09-16 10:01:00');
+        $this->assertSame('2026-09-17 10:00:00', $thisHour->nextRunAt($now)->format('Y-m-d H:i:s'));
+
+        // A paused schedule has no next run.
+        $paused = $this->schedule(['is_active' => false]);
+        $this->assertNull($paused->nextRunAt($now));
+    }
+
+    public function test_the_list_reports_next_run_and_the_latest_delivery_result(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule();
+
+        $this->getJson('/api/report-schedules')
+            ->assertOk()
+            ->assertJsonPath('0.lastRunStatus', null)
+            ->assertJsonPath('0.lastRunError', null)
+            ->assertJsonPath('0.nextRunAt', $schedule->nextRunAt(now())->toIso8601String());
+
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP connection refused'));
+        $this->postJson("/api/report-schedules/{$schedule->id}/run")->assertOk();
+
+        $this->getJson('/api/report-schedules')
+            ->assertOk()
+            ->assertJsonPath('0.lastRunStatus', ReportEmailLog::STATUS_FAILED)
+            ->assertJsonPath('0.lastRunError', 'SMTP connection refused');
+    }
+
+    public function test_the_role_permissions_matrix_lists_scheduled_reports_as_administrator_only(): void
+    {
+        $this->admin();
+
+        $modules = collect($this->getJson('/api/role-permissions')->assertOk()->json('data.modules'))->keyBy('id');
+
+        $this->assertSame('full', $modules['scheduled-reports']['access'][User::ROLE_BADAC_ADMIN]);
+        $this->assertSame('none', $modules['scheduled-reports']['access'][User::ROLE_ENCODER]);
+        $this->assertSame('none', $modules['scheduled-reports']['access'][User::ROLE_BADAC_READONLY]);
+    }
 }

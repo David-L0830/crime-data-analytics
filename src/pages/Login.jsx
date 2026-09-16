@@ -11,6 +11,7 @@ import {
   resendSecondsRemaining,
 } from '../utils/emailMfaAutoSend';
 import { Icons } from '../components/icons';
+import OtpInput from '../components/auth/OtpInput';
 import logo from '../assets/images/barangay178-logo.png';
 import hallPhoto from '../assets/images/barangay178-hall.png';
 import PrivacyPolicyModal from '../components/legal/PrivacyPolicyModal';
@@ -706,26 +707,27 @@ export default function Login() {
                 )}
 
                 <div className="form-group" style={{ marginTop: 12 }}>
-                  <label htmlFor="email-mfa-code">Verification code</label>
-                  <div className="input-wrapper">
-                    <span className="input-icon">
-                      <Icons.Lock size={16} strokeWidth={2} />
-                    </span>
-                    <input
-                      type="text"
-                      id="email-mfa-code"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="123456"
-                      autoComplete="one-time-code"
-                      value={emailCode}
-                      onChange={(e) => setEmailCode(e.target.value)}
-                      aria-invalid={emailError ? true : undefined}
-                      aria-describedby={
-                        emailError ? 'email-mfa-error' : undefined
-                      }
-                    />
-                  </div>
+                  <label id="email-mfa-code-label" htmlFor="email-mfa-code">
+                    Verification code
+                  </label>
+                  {/* Six boxes, one per digit. Presentation only: the value
+                      is the same digit string the single input produced, and
+                      handleVerifyEmailCode validates and submits it exactly
+                      as before. */}
+                  <OtpInput
+                    id="email-mfa-code"
+                    value={emailCode}
+                    onChange={setEmailCode}
+                    labelledBy="email-mfa-code-label"
+                    describedBy={
+                      emailError ? 'email-mfa-error' : 'email-mfa-code-hint'
+                    }
+                    invalid={Boolean(emailError)}
+                    disabled={verifying}
+                  />
+                  <p className="otp-hint" id="email-mfa-code-hint">
+                    Enter or paste the 6-digit code from your email.
+                  </p>
                 </div>
                 <button
                   type="submit"

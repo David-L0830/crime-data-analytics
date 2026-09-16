@@ -1,4 +1,6 @@
-CDARS — Barangay 178 Crime Data Analytics and Reporting System
+CDARS
+Crime Data Analytics and Reporting System
+Barangay 178 Public Safety and Security
 @if ($isLocal)
 
 *** LOCAL DEVELOPMENT AUTHENTICATION CODE ***
@@ -13,4 +15,10 @@ This code expires in {{ $expiresInMinutes }} minutes (at {{ $expiresAt }}) and c
 
 Do not share this code with anyone. CDARS administrators will never ask you for it.
 
-If you did not just try to sign in, someone may know your password. Change your password and inform your administrator.
+SECURITY NOTICE
+If you did not attempt to sign in to CDARS, you can safely ignore this email. If this keeps happening, someone may know your password — change it and inform your administrator.
+
+--
+Barangay 178 Public Safety and Security
+Crime Data Analytics and Reporting System
+This is an automated security message.

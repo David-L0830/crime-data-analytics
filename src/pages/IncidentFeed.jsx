@@ -11,6 +11,7 @@ import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
+import ValidationBadge from '../components/ui/ValidationBadge';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import {
   IncidentViewModal,
@@ -28,8 +29,18 @@ import {
 import { exportWorkbook } from '../utils/exportWorkbook';
 import { exportCsv } from '../utils/exportCsv';
 import { auditLogService } from '../services/auditLogService';
-import { TYPE_CATEGORY_MAP, ASSIGNABLE_STATUSES } from '../utils/constants';
+import {
+  TYPE_CATEGORY_MAP,
+  ASSIGNABLE_STATUSES,
+  VALIDATION_STATUS_LABELS,
+} from '../utils/constants';
 import { Icons } from '../components/icons';
+
+// The Validation filter offers the human labels (FilterBar options are plain
+// strings); this maps a chosen label back to the API value it filters on.
+const VALIDATION_KEY_BY_LABEL = Object.fromEntries(
+  Object.entries(VALIDATION_STATUS_LABELS).map(([key, label]) => [label, key]),
+);
 
 export default function IncidentFeed() {
   const {
@@ -42,6 +53,8 @@ export default function IncidentFeed() {
     updateRecord,
     archiveRecord,
     restoreRecord,
+    approveRecord,
+    returnRecordForCorrection,
     addRecord,
   } = useData();
   const { can, currentUser } = useAuth();
@@ -75,6 +88,7 @@ export default function IncidentFeed() {
   const [creating, setCreating] = useState(false);
   const [archivingId, setArchivingId] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
+  const [reviewingId, setReviewingId] = useState(null);
 
   // Arriving from a notification click (e.g. "Case Resolved" / "Overdue
   // Case") carries the referenced case number in router state — pre-fill the
@@ -108,9 +122,16 @@ export default function IncidentFeed() {
     // Checkpoint 20, Task 14 — the default operational list should show
     // active records; Archived incidents remain stored and retrievable
     // by explicitly selecting "Archived" in the Status filter above.
-    const withArchiveRule = filters['inc-status']
+    const archiveRuled = filters['inc-status']
       ? results
       : results.filter((r) => r.status !== 'Archived');
+    // Validation is filtered here rather than in the shared filterRecords
+    // helper, which also drives the Metabase-backed analytics pages and must
+    // not change underneath them.
+    const validationKey = VALIDATION_KEY_BY_LABEL[filters['inc-validation']];
+    const withArchiveRule = validationKey
+      ? archiveRuled.filter((r) => r.validationStatus === validationKey)
+      : archiveRuled;
     const group = location.state?.statusGroup;
     if (group === 'solved')
       return withArchiveRule.filter((r) => SOLVED_STATUSES.includes(r.status));
@@ -224,6 +245,48 @@ export default function IncidentFeed() {
     }
   };
 
+  // Record validation — BADAC Administrator only. can('validate_record') is
+  // UI gating; PUT /incidents/{id}/validate and /return are role:badac_admin
+  // on the server and refuse everyone else with a 403.
+  const canValidate = can('validate_record');
+
+  // Active (non-archived) records awaiting action, for the review summary.
+  const validationCounts = useMemo(() => {
+    const active = records.filter((r) => r.status !== 'Archived');
+    return {
+      pending: active.filter((r) => r.validationStatus === 'pending').length,
+      returned: active.filter((r) => r.validationStatus === 'returned').length,
+    };
+  }, [records]);
+
+  const handleApprove = async (record) => {
+    if (!canValidate || reviewingId) return;
+    setReviewingId(record.id);
+    try {
+      const updated = await approveRecord(record.id);
+      showToast(`Case ${record.caseNumber} validated`, 'success');
+      if (viewing?.id === record.id) setViewing(updated);
+    } catch (err) {
+      showToast(err.message || 'Could not validate the record', 'error');
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const handleReturn = async (record, reason) => {
+    if (!canValidate || reviewingId) return;
+    setReviewingId(record.id);
+    try {
+      const updated = await returnRecordForCorrection(record.id, reason);
+      showToast(`Case ${record.caseNumber} returned for correction`, 'success');
+      if (viewing?.id === record.id) setViewing(updated);
+    } catch (err) {
+      showToast(err.message || 'Could not return the record', 'error');
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
   const handleSave = async (id, data) => {
     try {
       await updateRecord(id, data);
@@ -249,6 +312,7 @@ export default function IncidentFeed() {
     `Category: ${filters['inc-category'] || 'All'}`,
     `Sitio: ${filters['inc-sitio'] || 'All'}`,
     `Status: ${filters['inc-status'] || 'All'}`,
+    `Validation: ${filters['inc-validation'] || 'All'}`,
     `Search: ${debouncedSearch || 'None'}`,
   ].join(' \u00B7 ');
 
@@ -280,6 +344,14 @@ export default function IncidentFeed() {
       { header: 'Sitio', key: 'sitio', width: 14 },
       { header: 'Street / Location', key: 'street', width: 28, wrap: true },
       { header: 'Status', key: 'status', width: 18, align: 'center' },
+      {
+        header: 'Validation',
+        key: 'validationStatus',
+        width: 22,
+        align: 'center',
+        value: (r) =>
+          VALIDATION_STATUS_LABELS[r.validationStatus] || r.validationStatus,
+      },
       { header: 'Priority', key: 'priority', width: 12, align: 'center' },
       { header: 'Reporting Officer', key: 'reportingOfficer', width: 22 },
       {
@@ -439,6 +511,12 @@ export default function IncidentFeed() {
               type: 'select',
               options: STATUSES,
             },
+            {
+              id: 'inc-validation',
+              label: 'Validation',
+              type: 'select',
+              options: Object.values(VALIDATION_STATUS_LABELS),
+            },
             { id: 'inc-dateFrom', label: 'From', type: 'date' },
             { id: 'inc-dateTo', label: 'To', type: 'date' },
           ]}
@@ -452,6 +530,27 @@ export default function IncidentFeed() {
           // not interfere.
           onClear={() => setSearch('')}
         />
+
+        {/* Validation queue summary. Shown to the Administrator, who acts on
+            pending records, and to the Encoder, who acts on returned ones.
+            role="status" so a change after a review is announced politely. */}
+        {(canValidate || can('create_incident')) &&
+          (validationCounts.pending > 0 || validationCounts.returned > 0) && (
+            <div className="validation-summary print-hidden" role="status">
+              <Icons.ShieldCheck size={16} strokeWidth={2} aria-hidden="true" />
+              <span>
+                <strong>{validationCounts.pending}</strong> pending validation
+                {' · '}
+                <strong>{validationCounts.returned}</strong> returned for
+                correction
+              </span>
+              <span className="validation-summary-hint">
+                {canValidate
+                  ? 'Open a record and use Record Validation to review it.'
+                  : 'Returned records show the reason when opened.'}
+              </span>
+            </div>
+          )}
 
         {/* Print-only section heading, so the printed table is introduced
             rather than beginning abruptly under the document header. */}
@@ -500,6 +599,11 @@ export default function IncidentFeed() {
                   </>
                 ),
               },
+              {
+                key: 'validationStatus',
+                label: 'Validation',
+                render: (v) => <ValidationBadge status={v} />,
+              },
             ]}
             rows={sorted}
             sort={sort}
@@ -510,8 +614,19 @@ export default function IncidentFeed() {
                   size="sm"
                   variant="secondary"
                   onClick={() => setViewing(row)}
+                  aria-label={
+                    canValidate &&
+                    row.validationStatus === 'pending' &&
+                    row.status !== 'Archived'
+                      ? `Review case ${row.caseNumber}`
+                      : `View case ${row.caseNumber}`
+                  }
                 >
-                  View
+                  {canValidate &&
+                  row.validationStatus === 'pending' &&
+                  row.status !== 'Archived'
+                    ? 'Review'
+                    : 'View'}
                 </Button>
                 {canArchiveRecord(row) && row.status !== 'Archived' && (
                   <Button
@@ -550,6 +665,9 @@ export default function IncidentFeed() {
         archiving={viewing && archivingId === viewing.id}
         onRestore={viewing && canArchiveRecord(viewing) ? handleRestore : null}
         restoring={viewing && restoringId === viewing.id}
+        onApprove={canValidate ? handleApprove : null}
+        onReturn={canValidate ? handleReturn : null}
+        reviewing={Boolean(viewing && reviewingId === viewing.id)}
       />
       <IncidentEditModal
         incident={editing}

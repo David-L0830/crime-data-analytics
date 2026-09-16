@@ -35,7 +35,7 @@ class ReportScheduleController extends Controller
     // GET /api/report-schedules
     public function index()
     {
-        return ReportSchedule::with('creator')
+        return ReportSchedule::with(['creator', 'latestEmailLog'])
             ->orderBy('name')
             ->get()
             ->map(fn (ReportSchedule $s) => $this->present($s));
@@ -211,6 +211,13 @@ class ReportScheduleController extends Controller
             'dayOfMonth' => $s->day_of_month,
             'isActive' => $s->is_active,
             'lastRunAt' => $s->last_run_at?->toIso8601String(),
+            // Additive, read-only presentation fields for the Scheduled
+            // Reports module. nextRunAt is computed with the scheduler's own
+            // isDue() rule (see ReportSchedule::nextRunAt); the last result
+            // comes from the email log, never from a separate status column.
+            'nextRunAt' => $s->nextRunAt(now())?->toIso8601String(),
+            'lastRunStatus' => $s->latestEmailLog?->status,
+            'lastRunError' => $s->latestEmailLog?->error,
             'createdBy' => $s->creator?->name,
         ];
     }

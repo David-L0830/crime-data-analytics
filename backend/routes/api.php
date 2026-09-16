@@ -294,6 +294,17 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/restore', [IncidentController::class, 'restore']);
 
+// PUT /incidents/{incident}/validate, PUT /incidents/{incident}/return —
+// record validation. ADMINISTRATOR ONLY, deliberately narrower than the
+// create/update/archive routes above: an Encoder submits records and must not
+// be able to approve them, including their own, and read-only BADAC changes
+// nothing. Both get a 403 here before the controller runs, regardless of what
+// the frontend shows. See IncidentController::approve()/returnForCorrection().
+Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+    Route::put('/incidents/{incident}/validate', [IncidentController::class, 'approve']);
+    Route::put('/incidents/{incident}/return', [IncidentController::class, 'returnForCorrection']);
+});
+
 Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/criminals', [CriminalController::class, 'store']);
     Route::put('/criminals/{criminal}', [CriminalController::class, 'update']);

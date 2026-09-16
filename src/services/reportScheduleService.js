@@ -3,8 +3,8 @@ import { api } from './api';
 // Automated reports (Reporting System checklist, "Scheduled Reports").
 //
 // Every endpoint here is administrator-only server-side — see the
-// role:badac_admin group in backend/routes/api.php. The Settings page that
-// calls this service is itself administrator-only, but that is a convenience,
+// role:badac_admin group in backend/routes/api.php. The Scheduled Reports page
+// that calls this service is itself administrator-only, but that is a convenience,
 // not the boundary: a non-administrator who called these directly is refused
 // by the middleware before the controller runs.
 //

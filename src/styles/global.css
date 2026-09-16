@@ -460,7 +460,6 @@ h6 {
 .btn:focus-visible,
 .nav-item:focus-visible,
 .nav-subitem:focus-visible,
-.nav-expand-btn:focus-visible,
 .menu-toggle:focus-visible,
 .theme-toggle:focus-visible,
 .notif-bell-btn:focus-visible,
@@ -1247,7 +1246,10 @@ h6 {
   padding-right: 8px;
 }
 
-.nav-expand-btn {
+/* The Records group header is a <button> (a disclosure, not a link); the
+   .nav-item rule already strips native button chrome, so it matches the links
+   around it without extra overrides. */
+.nav-group-chevron {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1255,30 +1257,44 @@ h6 {
   width: 22px;
   height: 22px;
   margin-left: auto;
-  border: none;
-  background: transparent;
-  color: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-  transition:
-    transform var(--transition),
-    background var(--transition);
+  color: var(--text-muted);
+  transition: transform var(--transition);
 }
 
-.nav-expand-btn:hover {
-  background: var(--bg-sidebar-hover);
-}
-
-.nav-expand-btn.expanded {
+.nav-group-chevron.expanded {
   transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-group-chevron {
+    transition: none;
+  }
 }
 
 .nav-submenu {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-left: 34px;
+  list-style: none;
+  padding: 0 0 0 34px;
   margin: 2px 0 4px;
+  position: relative;
+}
+
+/* A thin guide line ties the two destinations to their group. */
+.nav-submenu::before {
+  content: "";
+  position: absolute;
+  left: 21px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--border);
+}
+
+/* `hidden` must win over the display:flex above. */
+.nav-submenu[hidden] {
+  display: none;
 }
 
 .nav-subitem {
@@ -1303,10 +1319,10 @@ h6 {
   font-weight: 600;
 }
 
-/* Collapsed sidebar: the Records submenu and its expand chevron are
-   icon-navigation-breaking in icon-only mode, so they're hidden entirely —
-   the parent icon still routes to /criminal-records as normal. */
-.app.sidebar-collapsed .nav-expand-btn,
+/* Collapsed sidebar: the Records submenu and its chevron cannot fit the
+   icon-only rail, so they're hidden entirely — the group button goes straight
+   to Criminal Records instead (see Sidebar.jsx). */
+.app.sidebar-collapsed .nav-group-chevron,
 .app.sidebar-collapsed .nav-submenu {
   display: none;
 }
@@ -5586,5 +5602,427 @@ select {
   .row-menu-dropdown {
     width: 180px;
     min-width: 180px;
+  }
+}
+
+/* =====================================================================
+   Record validation (Crime Data Collection)
+   A separate pill family from .status-badge: a record's CASE status and its
+   VALIDATION state are independent, so they never share a colour class.
+   Every state carries its text label; colour is never the only signal.
+   ===================================================================== */
+.validation-badge,
+.schedule-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+.validation-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.validation-pending {
+  background: var(--orange-light);
+  color: var(--warning-text);
+}
+
+.validation-validated,
+.schedule-state-active {
+  background: var(--accent-light);
+  color: var(--success-text);
+}
+
+.validation-returned,
+.schedule-state-failed {
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-text);
+}
+
+.validation-unknown,
+.schedule-state-paused {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+}
+
+.validation-panel {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  padding: 14px 16px;
+  margin: 0 0 18px;
+}
+
+.validation-panel-pending {
+  border-left-color: var(--warning);
+}
+
+.validation-panel-validated {
+  border-left-color: var(--success);
+}
+
+.validation-panel-returned {
+  border-left-color: var(--danger);
+}
+
+.validation-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.validation-panel-title {
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.validation-meta {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.validation-reason {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.validation-reason-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.validation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.validation-return-form {
+  margin-top: 12px;
+}
+
+.validation-return-form label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.validation-return-form textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.validation-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  font-size: 0.84rem;
+  color: var(--text-primary);
+}
+
+.validation-summary svg {
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+
+.validation-summary-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* =====================================================================
+   Email verification code: six boxes
+   Scoped under .login-form so it outranks the generic login input rule.
+   ===================================================================== */
+.otp-input {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 360px;
+}
+
+.login-form .otp-input .otp-box {
+  width: 100%;
+  height: 54px;
+  padding: 0;
+  text-align: center;
+  font-family: var(--font-heading);
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--login-input-text);
+  background: var(--login-input-bg);
+  border: 1px solid var(--login-input-border);
+  border-radius: var(--radius-sm);
+  caret-color: var(--accent);
+}
+
+.login-form .otp-input .otp-box.otp-box-filled {
+  border-color: rgba(var(--accent-rgb), 0.45);
+}
+
+.login-form .otp-input .otp-box:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.login-form .otp-input.otp-input-invalid .otp-box {
+  border-color: var(--login-error-border);
+}
+
+.login-form .otp-input .otp-box:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.otp-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--login-text-label);
+}
+
+@media (max-width: 380px) {
+  .otp-input {
+    gap: 6px;
+  }
+
+  .login-form .otp-input .otp-box {
+    height: 48px;
+    font-size: 1.2rem;
+  }
+}
+
+/* =====================================================================
+   Scheduled Reports module
+   ===================================================================== */
+.module-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.module-intro-text {
+  margin: 0;
+  max-width: 68ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.module-intro .btn {
+  flex-shrink: 0;
+}
+
+.summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.summary-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--bg-card);
+  font-size: 0.86rem;
+  color: var(--text-primary);
+}
+
+.scheduled-reports .card + .card {
+  margin-top: 20px;
+}
+
+.module-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 8px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.module-state-error {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 16px;
+  border: 1px solid rgba(var(--danger-rgb), 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--danger-rgb), 0.06);
+  color: var(--text-primary);
+}
+
+.module-state-error svg {
+  color: var(--danger-text);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.module-state-error > div {
+  flex: 1;
+  min-width: 200px;
+}
+
+.module-state-error p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}
+
+.module-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--text-muted);
+}
+
+.module-empty svg {
+  opacity: 0.6;
+}
+
+.module-empty h3 {
+  margin: 12px 0 6px;
+  font-size: 1.02rem;
+  color: var(--text-primary);
+}
+
+.module-empty p {
+  max-width: 46ch;
+  margin: 0 auto 18px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cell-stack > span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.cell-stack > span.delivery-sent,
+.delivery-sent {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.cell-stack > span.delivery-failed,
+.delivery-failed {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.schedule-form .schedule-fieldset {
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 14px 0 2px;
+  margin: 0;
+  min-width: 0;
+}
+
+.schedule-form .schedule-fieldset:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.schedule-form legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-family: var(--font-heading);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.schedule-form .form-grid {
+  margin-bottom: 14px;
+}
+
+.schedule-form .form-grid .form-group {
+  margin-bottom: 0;
+}
+
+.schedule-form textarea {
+  resize: vertical;
+}
+
+.confirm-text {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+  .module-intro {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .schedule-form .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .validation-actions .btn {
+    flex: 1 1 auto;
   }
 }

@@ -4,7 +4,6 @@ import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
-import ScheduledReportsSection from '../components/settings/ScheduledReportsSection';
 
 // System Settings — Administrator only.
 //
@@ -264,13 +263,8 @@ export default function Settings() {
           </Button>
         </Card>
 
-        {/* Automated reports (Reporting System checklist, "Scheduled
-            Reports"). Lives here rather than on its own route because it is
-            system configuration an Administrator sets once, the same as the
-            crime-type vocabulary and the thresholds above — and because
-            Settings is already the administrator-only page. The endpoints it
-            calls enforce role:badac_admin independently. */}
-        <ScheduledReportsSection />
+        {/* Scheduled Reports moved to its own module (pages/ScheduledReports.jsx,
+            /scheduled-reports). The feature and its endpoints are unchanged. */}
       </div>
     </section>
   );

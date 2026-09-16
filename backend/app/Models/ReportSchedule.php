@@ -79,6 +79,48 @@ class ReportSchedule extends Model
     }
 
     /**
+     * The most recent run of this schedule, scheduled or manual — what the
+     * Scheduled Reports module shows as "Last result". Read from the email log
+     * rather than stored on the schedule, so it can never disagree with it.
+     */
+    public function latestEmailLog()
+    {
+        return $this->hasOne(ReportEmailLog::class)->latestOfMany('generated_at');
+    }
+
+    /**
+     * The next hour slot at which isDue() will return true, or null for a
+     * paused schedule.
+     *
+     * Derived from isDue() itself — each candidate slot is tested with the
+     * same method the hourly command uses — so this display value cannot
+     * describe a rule the scheduler does not actually follow. The current hour
+     * counts only while it has not already run in it. 62 days of hourly slots
+     * covers every monthly schedule (day 1-28) from any starting point.
+     */
+    public function nextRunAt(CarbonInterface $now): ?CarbonInterface
+    {
+        if (! $this->is_active) {
+            return null;
+        }
+
+        // Today's slot, or tomorrow's if today's hour has already passed.
+        $slot = $now->copy()->startOfDay()->setTime((int) $this->hour, 0);
+        if ($slot->lessThan($now->copy()->startOfHour())) {
+            $slot->addDay();
+        }
+
+        for ($i = 0; $i <= 62; $i++) {
+            if ($this->isDue($slot)) {
+                return $slot;
+            }
+            $slot = $slot->copy()->addDay();
+        }
+
+        return null;
+    }
+
+    /**
      * Should this schedule run at `$now`?
      *
      * Three conditions, all of which must hold:

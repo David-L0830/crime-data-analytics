@@ -10,7 +10,8 @@ use Illuminate\Mail\Mailables\Envelope;
 /**
  * Carries an email MFA sign-in code (see EmailMfaService::sendCode).
  *
- * Plain text, like ScheduledReportMail, and deliberately minimal: the code,
+ * Sent as HTML (an official CDARS notice layout) with a plain-text
+ * alternative carrying the same content, and deliberately minimal: the code,
  * when it expires, and a warning not to share it. No link of any kind — a
  * "click to verify" URL would put the secret in a URL, where it ends up in
  * browser history, proxies and mail scanners that pre-fetch links.
@@ -43,6 +44,7 @@ class EmailMfaCodeMail extends Mailable
     public function content(): Content
     {
         return new Content(
+            view: 'mail.email-mfa-code-html',
             text: 'mail.email-mfa-code',
             with: [
                 'code' => $this->code,

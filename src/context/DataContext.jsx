@@ -532,6 +532,30 @@ export function DataProvider({ children }) {
     [refreshAuditLogs],
   );
 
+  // Record validation. Same replace-in-place shape as archive/restore: the
+  // server decides the resulting state (and who/when), and the response row
+  // replaces the record in state. Returns the updated record so the open view
+  // modal can show the new state immediately.
+  const approveRecord = useCallback(
+    async (id) => {
+      const updated = await incidentService.validate(id);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+      return updated;
+    },
+    [refreshAuditLogs],
+  );
+
+  const returnRecordForCorrection = useCallback(
+    async (id, reason) => {
+      const updated = await incidentService.returnForCorrection(id, reason);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+      return updated;
+    },
+    [refreshAuditLogs],
+  );
+
   // ===== Victims =====
   // Checkpoint 20 — new. No page currently calls this (VictimRecords.jsx /
   // VictimProfile.jsx have no delete/archive button today), but it's
@@ -749,6 +773,8 @@ export function DataProvider({ children }) {
     updateRecord,
     archiveRecord,
     restoreRecord,
+    approveRecord,
+    returnRecordForCorrection,
     addRecord,
     archiveVictim,
     restoreVictim,

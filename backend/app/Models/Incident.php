@@ -74,6 +74,31 @@ class Incident extends Model
      */
     public const DEFAULT_STATUS = 'Open';
 
+    /**
+     * Record validation states — a separate axis from the case `status`.
+     *
+     * pending   — submitted, awaiting review by a BADAC Administrator.
+     * validated — reviewed and accepted as an official record.
+     * returned  — sent back to the encoder with a correction reason.
+     *
+     * Written ONLY by the server: IncidentController::store() (pending),
+     * approve() (validated), returnForCorrection() (returned) and an Encoder's
+     * update() (back to pending). None of these columns is in mapToColumns(),
+     * so no client payload can set them. Mirrors VALIDATION_STATUSES in
+     * src/utils/constants.js.
+     */
+    public const VALIDATION_PENDING = 'pending';
+
+    public const VALIDATION_VALIDATED = 'validated';
+
+    public const VALIDATION_RETURNED = 'returned';
+
+    public const VALIDATION_STATUSES = [
+        self::VALIDATION_PENDING,
+        self::VALIDATION_VALIDATED,
+        self::VALIDATION_RETURNED,
+    ];
+
     protected $fillable = [
         'incident_code',
         'case_number',
@@ -110,6 +135,14 @@ class Incident extends Model
         'evidence',
         'reported_by',
         'synced_at',
+        // Server-controlled only, like previous_status: absent from
+        // IncidentController::mapToColumns() and from the form requests.
+        'validation_status',
+        'validated_by',
+        'validated_at',
+        'returned_by',
+        'returned_at',
+        'correction_reason',
     ];
 
     protected function casts(): array
@@ -122,12 +155,24 @@ class Incident extends Model
             'victim_age' => 'integer',
             'suspect_age' => 'integer',
             'synced_at' => 'datetime',
+            'validated_at' => 'datetime',
+            'returned_at' => 'datetime',
         ];
     }
 
     public function reporter()
     {
         return $this->belongsTo(User::class, 'reported_by');
+    }
+
+    public function validator()
+    {
+        return $this->belongsTo(User::class, 'validated_by');
+    }
+
+    public function returner()
+    {
+        return $this->belongsTo(User::class, 'returned_by');
     }
 
     public function criminals()

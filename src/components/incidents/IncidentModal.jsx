@@ -1,8 +1,15 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
+import ValidationBadge from '../ui/ValidationBadge';
 import Button from '../ui/Button';
-import { formatDate, formatTime, today } from '../../utils/helpers';
+import {
+  formatDate,
+  formatDateTime,
+  formatTime,
+  today,
+} from '../../utils/helpers';
+import { VALIDATION_STATUS_LABELS } from '../../utils/constants';
 import { exportWorkbook } from '../../utils/exportWorkbook';
 import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
@@ -33,6 +40,179 @@ function evidenceSummary(r) {
   return items.map((e) => `${e.evidenceId}: ${e.description}`).join('\n');
 }
 
+// Record validation panel shown at the top of an incident's view.
+//
+// Everyone who can open the record sees its validation state, who reviewed it
+// and when, and — for a returned record — the reason, because the encoder is
+// the person who has to act on it. Only a caller that passes onApprove /
+// onReturn (IncidentFeed does so for the Administrator alone) gets the review
+// controls, and even then the server is the authority: both endpoints are
+// role:badac_admin.
+function ValidationPanel({ record, onApprove, onReturn, busy }) {
+  const [returning, setReturning] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
+  const reasonId = useId();
+
+  // A different record, or the same record in a new state, starts clean.
+  useEffect(() => {
+    setReturning(false);
+    setReason('');
+    setReasonError('');
+  }, [record.id, record.validationStatus]);
+
+  const status = record.validationStatus;
+  const archived = record.status === 'Archived';
+  const canReview = !archived && (onApprove || onReturn);
+
+  const submitReturn = async () => {
+    const trimmed = reason.trim();
+    if (trimmed.length < 5) {
+      setReasonError('Give the encoder a reason of at least 5 characters.');
+      return;
+    }
+    setReasonError('');
+    await onReturn(record, trimmed);
+  };
+
+  let detail = null;
+  if (status === 'validated') {
+    detail = record.validatedAt ? (
+      <p className="validation-meta">
+        Validated by <strong>{record.validatedBy || 'a former account'}</strong>{' '}
+        on {formatDateTime(record.validatedAt)}.
+      </p>
+    ) : (
+      <p className="validation-meta">
+        Recorded before record validation was introduced and accepted as part
+        of the existing official records.
+      </p>
+    );
+  } else if (status === 'returned') {
+    detail = (
+      <>
+        <p className="validation-meta">
+          Returned by <strong>{record.returnedBy || 'a former account'}</strong>
+          {record.returnedAt
+            ? ` on ${formatDateTime(record.returnedAt)}`
+            : ''}
+          . Edit the record to correct it and resubmit it for validation.
+        </p>
+        {record.correctionReason && (
+          <blockquote className="validation-reason">
+            <span className="validation-reason-label">Correction requested</span>
+            {record.correctionReason}
+          </blockquote>
+        )}
+      </>
+    );
+  } else {
+    detail = (
+      <>
+        <p className="validation-meta">
+          Awaiting review by a BADAC Administrator. This record is not yet an
+          official validated record.
+        </p>
+        {record.correctionReason && (
+          <blockquote className="validation-reason">
+            <span className="validation-reason-label">
+              Previously returned for correction
+            </span>
+            {record.correctionReason}
+          </blockquote>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <section
+      className={`validation-panel validation-panel-${status || 'unknown'}`}
+      aria-label="Record validation"
+    >
+      <div className="validation-panel-head">
+        <span className="validation-panel-title">Record Validation</span>
+        <ValidationBadge status={status} />
+      </div>
+      {detail}
+
+      {canReview && !returning && (
+        <div className="validation-actions print-hidden">
+          {onApprove && status !== 'validated' && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onApprove(record)}
+              disabled={busy}
+            >
+              <Icons.CheckCircle2 size={15} strokeWidth={2} />{' '}
+              {busy ? 'Saving…' : 'Validate Record'}
+            </Button>
+          )}
+          {onReturn && status !== 'returned' && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setReturning(true)}
+              disabled={busy}
+            >
+              <Icons.Return size={15} strokeWidth={2} /> Return for Correction
+            </Button>
+          )}
+        </div>
+      )}
+
+      {canReview && returning && (
+        <div className="validation-return-form print-hidden">
+          <label htmlFor={reasonId}>
+            Reason for returning <span aria-hidden="true">*</span>
+          </label>
+          <textarea
+            id={reasonId}
+            rows={3}
+            maxLength={1000}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="State what the encoder needs to correct."
+            aria-required="true"
+            aria-invalid={reasonError ? true : undefined}
+            aria-describedby={reasonError ? `${reasonId}-error` : undefined}
+            /* eslint-disable-next-line jsx-a11y/no-autofocus */
+            autoFocus
+          />
+          {reasonError && (
+            <div
+              className="field-error"
+              id={`${reasonId}-error`}
+              role="alert"
+            >
+              {reasonError}
+            </div>
+          )}
+          <div className="validation-actions print-hidden">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setReturning(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={submitReturn}
+              disabled={busy}
+            >
+              {busy ? 'Returning…' : 'Return Record'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function IncidentViewModal({
   incident,
   onClose,
@@ -41,6 +221,9 @@ export function IncidentViewModal({
   archiving,
   onRestore,
   restoring,
+  onApprove,
+  onReturn,
+  reviewing,
 }) {
   const { showToast } = useToast();
 
@@ -86,6 +269,10 @@ export function IncidentViewModal({
       ['Date', formatDate(r.date)],
       ['Time', formatTime(r.time)],
       ['Status', r.status],
+      [
+        'Validation',
+        VALIDATION_STATUS_LABELS[r.validationStatus] || r.validationStatus,
+      ],
       ['Priority', r.priority],
       ['Sitio', r.sitio],
       ['Location / Street', r.street],
@@ -214,6 +401,12 @@ export function IncidentViewModal({
       }
     >
       <PrintReport title={`Incident Report: ${r.caseNumber}`} />
+      <ValidationPanel
+        record={r}
+        onApprove={onApprove}
+        onReturn={onReturn}
+        busy={reviewing}
+      />
       <div className="detail-body">
         <div className="detail-grid">
           <div>
