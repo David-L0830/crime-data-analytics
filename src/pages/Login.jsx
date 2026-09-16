@@ -4,6 +4,12 @@ import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useToast } from '../hooks/useToast';
 import { defaultRouteForRole } from '../utils/constants';
+import {
+  RESEND_COOLDOWN_MS,
+  classifyEmailMfaSend,
+  emailMfaAutoSend,
+  resendSecondsRemaining,
+} from '../utils/emailMfaAutoSend';
 import { Icons } from '../components/icons';
 import logo from '../assets/images/barangay178-logo.png';
 import hallPhoto from '../assets/images/barangay178-hall.png';
@@ -84,7 +90,7 @@ export default function Login() {
     return () => clearInterval(timer);
   }, [resendAt]);
 
-  const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const resendSeconds = resendSecondsRemaining(resendAt, now);
 
   useEffect(() => {
     if (currentUser) {
@@ -145,6 +151,13 @@ export default function Login() {
     setVerifying(true);
     const result = await verifyMfaChallenge(code);
     setVerifying(false);
+    // TOTP accepted, but this account also owes an emailed code: AuthContext
+    // has moved to the email step, and nobody is signed in yet.
+    if (result.success && result.mfaRequired) {
+      setTotpError('');
+      setTotpCode('');
+      return;
+    }
     if (result.success) {
       setTotpError('');
       setTotpCode('');
@@ -201,6 +214,13 @@ export default function Login() {
     // really aal2 before anybody is signed in.
     const result = await verifyMfaChallenge(code, enrollData.id);
     setVerifying(false);
+    // Same handoff as the challenge step: an emailed code is still owed.
+    if (result.success && result.mfaRequired) {
+      setEnrollError('');
+      setEnrollCode('');
+      setEnrollData(null);
+      return;
+    }
     if (result.success) {
       setEnrollError('');
       setEnrollCode('');
@@ -212,12 +232,13 @@ export default function Login() {
     }
   };
 
-  const handleSendEmailCode = async () => {
+  const sendEmailCode = async ({ automatic }) => {
     setEmailSending(true);
     setEmailError('');
     const result = await sendEmailMfaCode();
     setEmailSending(false);
-    if (result.success) {
+    const outcome = classifyEmailMfaSend(result, { automatic });
+    if (outcome === 'sent') {
       setEmailCodeSent(true);
       setEmailCode('');
       setEmailInfo(
@@ -225,16 +246,40 @@ export default function Login() {
           result.expiresInSeconds / 60,
         )} minutes.`,
       );
-      setResendAt(Date.now() + 60_000);
+      setResendAt(Date.now() + RESEND_COOLDOWN_MS);
+      setNow(Date.now());
+    } else if (outcome === 'already_sent') {
+      // The automatic send met the server's send throttle: a code went out
+      // moments ago (typically just before a page reload) and is still valid.
+      setEmailCodeSent(true);
+      setEmailInfo(
+        'A verification code was sent to your email address moments ago. Enter it below, or request a new code when the timer ends.',
+      );
+      setResendAt(Date.now() + RESEND_COOLDOWN_MS);
       setNow(Date.now());
     } else {
       if (result.rateLimited) {
-        setResendAt(Date.now() + 60_000);
+        setResendAt(Date.now() + RESEND_COOLDOWN_MS);
         setNow(Date.now());
       }
       setEmailError(result.error);
     }
   };
+
+  // Manual send / resend. Deliberately NOT routed through emailMfaAutoSend,
+  // so the button always works; the server's throttle is the only limit.
+  const handleSendEmailCode = () => sendEmailCode({ automatic: false });
+
+  // Sends the first code as soon as the email step is reached, once per
+  // episode. emailMfaAutoSend absorbs re-renders, StrictMode's double effect
+  // run, and remounts of this page; AuthContext resets it when the step ends.
+  // No cancellation on cleanup: under StrictMode the first run is the one
+  // that sends, and its result must still reach the screen.
+  useEffect(() => {
+    if (!pendingEmailMfa) return;
+    emailMfaAutoSend.trigger(() => sendEmailCode({ automatic: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEmailMfa]);
 
   const handleVerifyEmailCode = async (e) => {
     e.preventDefault();
@@ -628,9 +673,8 @@ export default function Login() {
                   <h2>Email Verification</h2>
                 </div>
                 <p className="two-factor-instructions">
-                  Your password was accepted. To finish signing in, send a
-                  one-time code to the email address on this account and enter
-                  it below.
+                  Your password was accepted. To finish signing in, enter the
+                  one-time code sent to the email address on this account.
                 </p>
 
                 <button

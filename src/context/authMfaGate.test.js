@@ -311,3 +311,118 @@ describe('Email MFA gate', () => {
     expect(code).not.toMatch(/email\s*:|userId|user_id|session/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Email MFA automatic first send. The send-once guard itself is exercised
+// behaviourally in src/utils/emailMfaAutoSend.test.js; these pin that the app
+// is wired to it, and that no second sending path was introduced.
+// ---------------------------------------------------------------------------
+describe('Email MFA automatic send wiring', () => {
+  const stripComments = (source) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const loginCode = stripComments(login);
+  const authCode = stripComments(authContext);
+
+  it('sends automatically through the shared guard when the email step is reached', () => {
+    expect(loginCode).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!pendingEmailMfa\) return;\s*emailMfaAutoSend\.trigger\(\(\) => sendEmailCode\(\{ automatic: true \}\)\);\s*\}, \[pendingEmailMfa\]\);/,
+    );
+  });
+
+  it('resets the guard from the always-mounted provider when the step ends', () => {
+    expect(authCode).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!pendingEmailMfa\) emailMfaAutoSend\.reset\(\);\s*\}, \[pendingEmailMfa\]\);/,
+    );
+  });
+
+  it('keeps the manual resend outside the guard and on the button', () => {
+    expect(loginCode).toContain(
+      'const handleSendEmailCode = () => sendEmailCode({ automatic: false });',
+    );
+    expect(loginCode).toContain('onClick={handleSendEmailCode}');
+    expect(loginCode).toContain("'Resend code'");
+    expect(loginCode).toContain('resendSeconds > 0');
+  });
+
+  it('reuses the one existing send path rather than adding another', () => {
+    // Login reaches the backend only through AuthContext.sendEmailMfaCode,
+    // exactly once, and never talks to the API or the service directly.
+    expect(loginCode.match(/sendEmailMfaCode\(\)/g)).toHaveLength(1);
+    expect(loginCode).not.toMatch(/emailMfaService|\bapi\.(post|get)\(/);
+    expect(authCode.match(/emailMfaService\.sendCode\(\)/g)).toHaveLength(1);
+  });
+
+  it('only reports "already sent" for a throttled send, as flagged by AuthContext', () => {
+    expect(authCode).toContain(
+      'rateLimited: err instanceof ApiError && err.status === 429',
+    );
+    expect(loginCode).toContain('classifyEmailMfaSend(result, { automatic })');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TOTP → email handoff for an email_otp account that also holds a verified
+// authenticator. Both factors stay required — the enforceable proof is
+// EmailMfaTest::test_an_email_otp_account_with_a_verified_factor_needs_both_
+// the_email_code_and_aal2. These pin that the frontend moves on to the email
+// step instead of dead-ending, and that the move signs nobody in.
+// ---------------------------------------------------------------------------
+describe('TOTP to email MFA handoff', () => {
+  const start = authContext.indexOf('const verifyMfaChallenge');
+  const body = authContext.slice(
+    start,
+    authContext.indexOf('const sendEmailMfaCode'),
+  );
+  const handoffAt = body.indexOf("user.authAssuranceLevel === 'aal2' &&");
+  const refusalAt = body.indexOf(
+    "user.authAssuranceLevel !== 'aal2' || user.mfaRequired",
+  );
+  const signInAt = body.indexOf('setCurrentUser(user)');
+
+  it('hands off only once the server confirms aal2 and an emailed code is still owed', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(handoffAt).toBeGreaterThan(-1);
+    const condition = body.slice(handoffAt, body.indexOf(') {', handoffAt));
+    expect(condition).toContain("user.authAssuranceLevel === 'aal2'");
+    expect(condition).toContain('user.mfaRequired === true');
+    expect(condition).toContain("user.mfaMethod === 'email_otp'");
+  });
+
+  it('signs nobody in on the handoff', () => {
+    const branch = body.slice(handoffAt, body.indexOf('return', handoffAt));
+    expect(branch).toContain('setCurrentUser(null)');
+    expect(branch).toContain('setPendingMfa(null)');
+    expect(branch).toContain('setPendingEmailMfa(true)');
+    expect(branch).not.toContain('setCurrentUser(user)');
+  });
+
+  it('keeps the original refusal in front of every sign-in from a TOTP verification', () => {
+    expect(refusalAt).toBeGreaterThan(handoffAt);
+    expect(signInAt).toBeGreaterThan(refusalAt);
+  });
+
+  it('still challenges an aal1 session for TOTP before it can reach the email step', () => {
+    const resolver = authContext.slice(
+      authContext.indexOf('const resolveSupabaseSession'),
+    );
+    expect(resolver.indexOf('totpFactorOwedBySession()')).toBeLessThan(
+      resolver.indexOf("user.mfaMethod === 'email_otp'"),
+    );
+  });
+
+  it('lets the Login handlers stop before the welcome toast on a handoff', () => {
+    for (const handler of ['const handleVerify', 'const handleEnrollVerify']) {
+      const at = login.indexOf(handler);
+      const handlerBody = login.slice(at, login.indexOf('};', at));
+      const handoff = handlerBody.indexOf('if (result.success && result.mfaRequired)');
+      expect(handoff, handler).toBeGreaterThan(-1);
+      expect(handoff, handler).toBeLessThan(handlerBody.indexOf('showToast(`Welcome back'));
+    }
+  });
+
+  it('renders the email step once the TOTP challenge is cleared', () => {
+    expect(login.indexOf(') : pendingMfa ? (')).toBeLessThan(
+      login.indexOf(') : pendingEmailMfa ? ('),
+    );
+  });
+});

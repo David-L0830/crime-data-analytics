@@ -3,6 +3,7 @@ import { ROLES, PERMISSIONS } from '../utils/constants';
 import { authService } from '../services/authService';
 import { supabaseMfaService } from '../services/supabaseMfaService';
 import { emailMfaService } from '../services/emailMfaService';
+import { emailMfaAutoSend } from '../utils/emailMfaAutoSend';
 import { ApiError } from '../services/api';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
@@ -108,6 +109,14 @@ export function AuthProvider({ children }) {
   // real gate is server-side (EnsureSupabaseAal2).
   const [pendingEmailMfa, setPendingEmailMfa] = useState(false);
 
+  // Leaving the email step — verified, cancelled, signed out, however —
+  // ends the automatic-send episode, so the next time the step is reached
+  // Login.jsx sends a fresh code. Done here rather than in Login.jsx because
+  // this provider stays mounted: the step can end while the login page is not.
+  useEffect(() => {
+    if (!pendingEmailMfa) emailMfaAutoSend.reset();
+  }, [pendingEmailMfa]);
+
   // Does this session still owe a TOTP challenge?
   //
   // Returns the verified TOTP factor to challenge, or null for "nothing owed".
@@ -174,9 +183,11 @@ export function AuthProvider({ children }) {
 
       // Email MFA owed. Checked before the enrolment branch below because an
       // email-configured account has no authenticator to enrol — sending it
-      // to TOTP setup would be wrong. An account with a verified TOTP factor
-      // never reaches here: the check above already challenged it, and the
-      // backend refuses email MFA for it regardless.
+      // to TOTP setup would be wrong. An aal1 session of an account with a
+      // verified TOTP factor never reaches here: the check above challenges it
+      // first. That account still owes the email code too — the backend
+      // requires both — and verifyMfaChallenge hands off to this step once the
+      // TOTP code is accepted.
       //
       // This is also what makes a reload safe: the mount-time resync runs
       // this same path, and only the server's mfaRequired decides whether the
@@ -459,6 +470,26 @@ export function AuthProvider({ children }) {
         }
 
         const user = await authService.currentUserViaSupabaseToken(accessToken);
+
+        // TOTP → email handoff. An email_otp account that also holds a
+        // verified authenticator owes BOTH factors (EnsureSupabaseAal2::
+        // handleEmailOtpAccount). Once the server confirms this session really
+        // is aal2 and the only thing still owed is the emailed code, move to
+        // that step instead of reporting a failed verification. Nobody is
+        // signed in here: currentUser stays null, and verifyEmailMfaCode still
+        // requires the server to report mfaRequired === false.
+        if (
+          user.authAssuranceLevel === 'aal2' &&
+          user.mfaRequired === true &&
+          user.mfaMethod === 'email_otp'
+        ) {
+          setCurrentUser(null);
+          setPendingMfa(null);
+          setPendingMfaEnrollment(false);
+          setPendingEmailMfa(true);
+          return { success: true, mfaRequired: true, mfaMethod: 'email_otp' };
+        }
+
         if (user.authAssuranceLevel !== 'aal2' || user.mfaRequired) {
           return {
             success: false,
