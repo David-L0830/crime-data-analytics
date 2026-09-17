@@ -52,6 +52,11 @@ class StoreUserRequest extends FormRequest
             'email' => ['required', 'string', 'email', 'max:190', Rule::unique('users', 'email')],
             'role' => ['required', Rule::in(array_keys(User::ROLE_LABELS))],
             'isActive' => ['sometimes', 'boolean'],
+            // REQUIRED, and limited to the supported methods. Every account an
+            // administrator creates gets a second factor; there is no "none",
+            // and anything else (sms, totp, an array, a different case) is
+            // refused here rather than trusted from the form.
+            'mfaMethod' => ['required', 'string', Rule::in(User::MFA_METHOD_CHOICES)],
             // `sometimes` + `required`: omitting the key keeps the original
             // recovery-email path, but sending it empty or null is an error
             // rather than a silent fall-back to that other path.
@@ -75,6 +80,9 @@ class StoreUserRequest extends FormRequest
             'username.unique' => 'That username is already taken.',
             'email.unique' => 'An account with that email address already exists.',
             'role.in' => 'Choose a valid role.',
+            'mfaMethod.required' => 'Choose an MFA method: Email OTP or Authenticator App.',
+            'mfaMethod.string' => 'Choose an MFA method: Email OTP or Authenticator App.',
+            'mfaMethod.in' => 'Choose an MFA method: Email OTP or Authenticator App.',
             'temporaryPassword.required' => 'Enter a temporary password, or leave the field out to send a password setup email instead.',
             'temporaryPassword.string' => 'The temporary password must be text.',
             'temporaryPassword.min' => 'The temporary password must be at least '.User::TEMPORARY_PASSWORD_MIN_LENGTH.' characters.',

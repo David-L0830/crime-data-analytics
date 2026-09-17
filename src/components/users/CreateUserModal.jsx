@@ -4,6 +4,7 @@ import Button from '../ui/Button';
 import TemporaryPasswordInput from './TemporaryPasswordInput';
 import { ROLE_OPTIONS, validateAccountFields } from './userValidation';
 import { validateTemporaryPassword } from '../../utils/temporaryPassword';
+import { MFA_METHOD_OPTIONS } from '../../utils/mfaStatus';
 
 // Create New User.
 //
@@ -20,12 +21,13 @@ import { validateTemporaryPassword } from '../../utils/temporaryPassword';
 //     The value lives only in this form's local state and is cleared on
 //     success and whenever the dialog closes.
 //
-//  2. "Require 2FA" is present but disabled, and says why. Enrolling a factor
-//     is self-service in Supabase and this application does not challenge for
-//     a factor at sign-in, so there is nothing a checkbox here could switch
-//     on. Rendering it as a working control would be a promise the system
-//     cannot keep — showing it plainly unavailable is the honest version of
-//     the same information.
+//  2. MFA Method (required). Every account an administrator creates has a
+//     second factor, so the choice is Email OTP or Authenticator App and
+//     there is no "none". Nothing is pre-selected: the administrator makes the
+//     choice deliberately. The backend validates it (StoreUserRequest) and
+//     stores it — this form is not the control. Choosing Authenticator App
+//     does NOT enrol anything: the person scans their own QR code at first
+//     sign-in, so no administrator ever sees their secret.
 export default function CreateUserModal({
   open,
   onClose,
@@ -39,6 +41,7 @@ export default function CreateUserModal({
     email: '',
     role: 'encoder',
     isActive: true,
+    mfaMethod: '',
   });
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [errors, setErrors] = useState({});
@@ -51,6 +54,7 @@ export default function CreateUserModal({
       email: '',
       role: 'encoder',
       isActive: true,
+      mfaMethod: '',
     });
     setTemporaryPassword('');
     setErrors({});
@@ -71,6 +75,9 @@ export default function CreateUserModal({
 
   const handleSubmit = async () => {
     const found = validateAccountFields(form, { requireEmail: true });
+    if (!MFA_METHOD_OPTIONS.some((option) => option.value === form.mfaMethod)) {
+      found.mfaMethod = 'Choose an MFA method.';
+    }
     // Optional: only checked when something was entered.
     if (temporaryPassword !== '') {
       const problem = validateTemporaryPassword(temporaryPassword, {
@@ -89,6 +96,7 @@ export default function CreateUserModal({
       email: form.email.trim(),
       role: form.role,
       isActive: form.isActive,
+      mfaMethod: form.mfaMethod,
     };
     // Sent exactly as typed (never trimmed) and only when present, so a blank
     // field keeps the original setup-email path.
@@ -230,15 +238,44 @@ export default function CreateUserModal({
       </div>
 
       <div className="form-group">
-        <label className="checkbox-option checkbox-option-disabled">
-          <input type="checkbox" disabled checked={false} readOnly />
-          Require 2FA
-        </label>
-        <p className="form-hint">
-          Not available. Two-factor authentication IS enforced at sign-in once
-          enrolled, but enrolling means scanning a QR code with a device only
-          the account holder has, so it can only be done by them from their own
-          security panel — never provisioned from here.
+        <label id="create-mfa-method-label">MFA Method *</label>
+        <div
+          className="radio-row radio-row-stacked"
+          role="radiogroup"
+          aria-labelledby="create-mfa-method-label"
+          aria-required="true"
+          aria-invalid={Boolean(errors.mfaMethod)}
+          aria-describedby={
+            errors.mfaMethod ? 'create-mfa-method-error' : 'create-mfa-method-hint'
+          }
+        >
+          {MFA_METHOD_OPTIONS.map((option) => (
+            <label className="radio-option radio-option-described" key={option.value}>
+              <input
+                type="radio"
+                name="create-mfa-method"
+                value={option.value}
+                checked={form.mfaMethod === option.value}
+                onChange={() => set('mfaMethod', option.value)}
+                disabled={saving}
+              />
+              <span>
+                <span className="radio-option-title">{option.label}</span>
+                <span className="radio-option-description">
+                  {option.description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {errors.mfaMethod && (
+          <p className="field-error" id="create-mfa-method-error">
+            {errors.mfaMethod}
+          </p>
+        )}
+        <p className="form-hint" id="create-mfa-method-hint">
+          Required for every account. An authenticator app is set up by the
+          person on their own device — you never see its secret or QR code.
         </p>
       </div>
 

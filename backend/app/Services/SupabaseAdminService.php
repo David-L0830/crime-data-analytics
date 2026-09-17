@@ -132,18 +132,24 @@ class SupabaseAdminService
      *                          refuses the request. The caller is expected to
      *                          roll back its own local row.
      */
-    public function createUser(string $email, #[\SensitiveParameter] ?string $password = null): string
+    public function createUser(string $email, #[\SensitiveParameter] ?string $password = null, array $appMetadata = []): string
     {
-        $response = $this->send(
-            'creating an account',
-            'post',
-            '/users',
-            [
-                'email' => $email,
-                'password' => $password ?? Str::random(48),
-                'email_confirm' => true,
-            ],
-        );
+        $payload = [
+            'email' => $email,
+            'password' => $password ?? Str::random(48),
+            'email_confirm' => true,
+        ];
+
+        // Only sent when there is something to set (UserController::store
+        // passes ['mfa_required' => true] for an Authenticator App account),
+        // so the request for every other account is exactly as before.
+        // app_metadata can only be written with the service-role key, which is
+        // why an account cannot later clear the flag on itself.
+        if ($appMetadata !== []) {
+            $payload['app_metadata'] = $appMetadata;
+        }
+
+        $response = $this->send('creating an account', 'post', '/users', $payload);
 
         // Checked BEFORE the duplicate test below, which also treats a bare
         // 422 as a duplicate: Supabase answers a policy-rejected password with

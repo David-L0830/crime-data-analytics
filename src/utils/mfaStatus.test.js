@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+  MFA_METHOD_OPTIONS,
   emailMfaRemainsNotice,
   hasSecondFactor,
   mfaStatusDescription,
   mfaStatusLabel,
+  usesAuthenticatorAppMfa,
   usesEmailOtpMfa,
 } from './mfaStatus';
 
@@ -63,13 +65,12 @@ describe('MFA status derivation', () => {
     expect(mfaStatusDescription(emailOtpWithFactor)).toMatch(/both are required/i);
   });
 
-  it('leaves TOTP accounts exactly as they were', () => {
-    expect(mfaStatusLabel(totpUser)).toBe('Enrolled');
+  it('names an enrolled authenticator account by its method', () => {
+    expect(mfaStatusLabel(totpUser)).toBe('Authenticator App');
     expect(hasSecondFactor(totpUser)).toBe(true);
     expect(usesEmailOtpMfa(totpUser)).toBe(false);
-    expect(mfaStatusDescription(totpUser)).toBe(
-      'An authenticator factor is enrolled with Supabase.',
-    );
+    expect(usesAuthenticatorAppMfa(totpUser)).toBe(true);
+    expect(mfaStatusDescription(totpUser)).toMatch(/authenticator app is enrolled/i);
   });
 
   it('leaves accounts with no MFA exactly as they were', () => {
@@ -80,11 +81,14 @@ describe('MFA status derivation', () => {
     );
   });
 
-  // An admin-imposed requirement is not an enrolled factor, and this change
-  // deliberately does not start claiming it is one.
-  it('leaves the admin-required-but-not-enrolled state unchanged', () => {
-    expect(mfaStatusLabel(adminRequiredNotEnrolled)).toBe('Not enrolled');
+  // MFA Option B: a new Authenticator App account (or a reset one) is
+  // required to enrol but has not yet. That is shown as pending — not as
+  // "Not enrolled", which would read as unprotected, and not as an enrolled
+  // factor, which it is not.
+  it('reports a required-but-not-enrolled authenticator as pending enrollment', () => {
+    expect(mfaStatusLabel(adminRequiredNotEnrolled)).toBe('Pending Enrollment');
     expect(hasSecondFactor(adminRequiredNotEnrolled)).toBe(false);
+    expect(mfaStatusDescription(adminRequiredNotEnrolled)).toMatch(/next sign-in/i);
   });
 
   it('treats a missing or partial user object as having no second factor', () => {
@@ -92,6 +96,31 @@ describe('MFA status derivation', () => {
     expect(hasSecondFactor({})).toBe(false);
     expect(mfaStatusLabel(undefined)).toBe('Not enrolled');
     expect(usesEmailOtpMfa(undefined)).toBe(false);
+    expect(usesAuthenticatorAppMfa(undefined)).toBe(false);
+  });
+});
+
+describe('MFA method choices (Option B)', () => {
+  it('offers exactly Email OTP and Authenticator App, and never "none"', () => {
+    expect(MFA_METHOD_OPTIONS.map((o) => o.value)).toEqual([
+      'email_otp',
+      'authenticator_app',
+    ]);
+    expect(MFA_METHOD_OPTIONS.map((o) => o.label)).toEqual([
+      'Email OTP',
+      'Authenticator App',
+    ]);
+    for (const option of MFA_METHOD_OPTIONS) {
+      expect(option.value).not.toMatch(/none/i);
+      expect(option.label).not.toMatch(/none/i);
+    }
+  });
+
+  it('treats only email OTP accounts as not authenticator-only', () => {
+    expect(usesAuthenticatorAppMfa(emailOtpUser)).toBe(false);
+    expect(usesAuthenticatorAppMfa(emailOtpWithFactor)).toBe(false);
+    expect(usesAuthenticatorAppMfa(noMfaUser)).toBe(true);
+    expect(usesAuthenticatorAppMfa(adminRequiredNotEnrolled)).toBe(true);
   });
 });
 
@@ -117,6 +146,7 @@ describe('Admin screens use the shared derivation', () => {
   const userManagement = read('../pages/UserManagement.jsx');
   const securitySummary = read('../components/users/SecuritySummary.jsx');
   const userDetails = read('../components/users/UserDetailsModal.jsx');
+  const createModal = read('../components/users/CreateUserModal.jsx');
 
   it('badges the 2FA column from the whole row, not the boolean alone', () => {
     expect(userManagement).toContain('mfaStatusLabel(row)');
@@ -158,5 +188,36 @@ describe('Admin screens use the shared derivation', () => {
     const branchAt = code.indexOf('usesEmailOtpMfa(user)');
     expect(branchAt).toBeGreaterThan(-1);
     expect(branchAt).toBeLessThan(claimAt);
+  });
+
+  it('requires an MFA method on the create form and removes the disabled Require 2FA checkbox', () => {
+    expect(createModal).not.toContain('Require 2FA');
+    expect(createModal).not.toContain('checkbox-option-disabled');
+    expect(createModal).toContain('MFA_METHOD_OPTIONS.map');
+    expect(createModal).toContain('role="radiogroup"');
+    expect(createModal).toContain("found.mfaMethod = 'Choose an MFA method.'");
+    expect(createModal).toContain('mfaMethod: form.mfaMethod');
+    // Nothing is pre-selected.
+    expect(createModal.match(/mfaMethod: ''/g)?.length).toBe(2);
+    // The form never handles factor material.
+    // (The hint text may say "secret" in prose; this looks for code.)
+    expect(createModal).not.toMatch(/otpauth|qr_code|totp_secret|\.enroll\(|supabaseMfaService/i);
+  });
+
+  it('never offers to cancel the requirement for an authenticator-only account', () => {
+    const code = userManagement
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const menuStart = code.indexOf('...(user.twoFactorEnabled');
+    const menu = code.slice(menuStart, code.indexOf("key: 'status'", menuStart));
+
+    expect(menuStart).toBeGreaterThan(-1);
+    // The cancel item sits only inside the email-OTP branch.
+    const cancelAt = menu.indexOf("key: 'two-factor-cancel'");
+    const emailBranchAt = menu.indexOf('usesEmailOtpMfa(user)');
+    expect(emailBranchAt).toBeGreaterThan(-1);
+    expect(cancelAt).toBeGreaterThan(emailBranchAt);
+    expect(menu).toContain(": []");
+    expect(menu).toContain("'Reset Authenticator'");
   });
 });

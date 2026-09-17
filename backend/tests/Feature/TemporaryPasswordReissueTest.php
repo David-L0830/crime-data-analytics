@@ -821,6 +821,7 @@ class TemporaryPasswordReissueTest extends TestCase
             'username' => 'msantos2026',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
             'temporaryPassword' => self::TEMP,
         ])->assertCreated()
             ->assertJsonPath('data.temporaryCredentialStatus', 'pending')
@@ -842,6 +843,7 @@ class TemporaryPasswordReissueTest extends TestCase
             'username' => 'msantos2026',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertCreated()
             ->assertJsonPath('data.temporaryCredentialStatus', null)
             ->assertJsonPath('data.temporaryCredentialExpiresAt', null);

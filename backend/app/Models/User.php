@@ -40,6 +40,22 @@ class User extends Authenticatable
     // mass-assign it.
     public const MFA_METHOD_EMAIL_OTP = 'email_otp';
 
+    // The MFA methods an administrator may choose when creating an account
+    // (StoreUserRequest). There is deliberately no "none".
+    //
+    // 'authenticator_app' is a REQUEST value only and is never written to
+    // users.mfa_method: that column's CHECK constraint allows NULL or
+    // 'email_otp', and NULL is what EnsureSupabaseAal2 treats as a Supabase
+    // TOTP account. What makes such an account owe a factor is the
+    // `app_metadata.mfa_required` flag on its Supabase identity, which
+    // UserController::store() sets in the same call that creates it.
+    public const MFA_METHOD_AUTHENTICATOR_APP = 'authenticator_app';
+
+    public const MFA_METHOD_CHOICES = [
+        self::MFA_METHOD_EMAIL_OTP,
+        self::MFA_METHOD_AUTHENTICATOR_APP,
+    ];
+
     // How long an administrator-issued temporary password stays acceptable.
     public const TEMPORARY_PASSWORD_TTL_HOURS = 72;
 

@@ -25,9 +25,42 @@
 
 export const MFA_METHOD_EMAIL_OTP = 'email_otp';
 
+// A value the Create User form SENDS, never one the API returns: an
+// Authenticator App account is stored as users.mfa_method = NULL plus the
+// Supabase requirement flag (see UserController::store). The backend validates
+// the choice; these options only describe it.
+export const MFA_METHOD_AUTHENTICATOR_APP = 'authenticator_app';
+
+export const MFA_METHOD_OPTIONS = [
+  {
+    value: MFA_METHOD_EMAIL_OTP,
+    label: 'Email OTP',
+    description:
+      'A six-digit code is emailed to the account address at every sign-in.',
+  },
+  {
+    value: MFA_METHOD_AUTHENTICATOR_APP,
+    label: 'Authenticator App',
+    description:
+      'The person sets up an authenticator app at first sign-in and enters its code at every sign-in after that.',
+  },
+];
+
 /** Is this account configured for email one-time-code MFA? */
 export function usesEmailOtpMfa(user) {
   return user?.mfaMethod === MFA_METHOD_EMAIL_OTP;
+}
+
+/**
+ * Is the authenticator this account's only second factor?
+ *
+ * True for every account not configured for email OTP. For those accounts the
+ * backend refuses to lift the authenticator requirement and turns "clear the
+ * factor" into a reset that requires enrolling a new one, so the UI offers
+ * exactly those actions and no others.
+ */
+export function usesAuthenticatorAppMfa(user) {
+  return Boolean(user) && !usesEmailOtpMfa(user);
 }
 
 /**
@@ -51,12 +84,26 @@ export function hasSecondFactor(user) {
  * authenticator also exists — badging such an account "Enrolled" would hide
  * the mandatory requirement behind the optional one.
  */
+//
+// An authenticator account is reported by what Supabase actually holds:
+//   'Authenticator App'  a verified factor is enrolled
+//   'Pending Enrollment' an authenticator is required but none is enrolled yet
+//                        (a new Authenticator App account, or one whose
+//                        authenticator was reset)
+//   'Not enrolled'       neither — an older account created before an MFA
+//                        method had to be chosen
+//
+// mfaRequiredByAdmin fails SOFT to false on the server when Supabase cannot be
+// reached, so during an outage a pending account can briefly read
+// 'Not enrolled'. That is a label only; enforcement fails closed.
 export function mfaStatusLabel(user) {
   if (usesEmailOtpMfa(user)) {
     return 'Email OTP';
   }
 
-  return user?.twoFactorEnabled ? 'Enrolled' : 'Not enrolled';
+  if (user?.twoFactorEnabled) return 'Authenticator App';
+  if (user?.mfaRequiredByAdmin) return 'Pending Enrollment';
+  return 'Not enrolled';
 }
 
 /** The longer explanation shown beside the badge where there is room for it. */
@@ -67,8 +114,12 @@ export function mfaStatusDescription(user) {
       : 'A one-time code is emailed at every sign-in.';
   }
 
-  return user?.twoFactorEnabled
-    ? 'An authenticator factor is enrolled with Supabase.'
+  if (user?.twoFactorEnabled) {
+    return 'An authenticator app is enrolled with Supabase and required at every sign-in.';
+  }
+
+  return user?.mfaRequiredByAdmin
+    ? 'An authenticator app is required. It will be set up at the next sign-in, and the account cannot be used until it is.'
     : 'No authenticator factor is enrolled.';
 }
 

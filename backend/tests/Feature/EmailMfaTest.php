@@ -1039,9 +1039,11 @@ class EmailMfaTest extends TestCase
         }
     }
 
-    // The same administrator actions keep their existing effect on an account
-    // that is NOT configured for email MFA.
-    public function test_authenticator_administration_is_unchanged_for_a_non_email_account(): void
+    // Phase 1 (MFA Option B): on an account NOT configured for email MFA the
+    // authenticator is the only second factor, so neither administrator action
+    // may leave it with none. Cancelling the requirement is refused, and
+    // clearing the factor resets enrolment instead of opening the account.
+    public function test_authenticator_administration_never_leaves_a_non_email_account_without_mfa(): void
     {
         $target = User::factory()->create([
             'username' => 'totp-target',
@@ -1054,23 +1056,32 @@ class EmailMfaTest extends TestCase
         // Requirement on, nothing enrolled: refused at aal1 as before.
         $this->as($target, self::SESSION_A)->getJson('/api/incidents')->assertStatus(401);
 
-        // Cancelling it lets that account back in at aal1, as before.
+        // Cancelling it is refused, and the account is still refused at aal1.
         $this->as($admin, self::SESSION_B, 'aal2')
             ->postJson("/api/users/{$target->id}/two-factor/require", ['required' => false])
-            ->assertOk();
-        $this->as($target, self::SESSION_A)->getJson('/api/incidents')->assertOk();
+            ->assertStatus(422);
+        $this->assertTrue($this->mfaRequiredByAdmin);
+        $this->as($target, self::SESSION_A)->getJson('/api/incidents')->assertStatus(401);
 
-        // An enrolled authenticator is still demanded at aal1; clearing it
-        // (which also lifts the requirement) lets the account in, as before.
+        // An enrolled authenticator is demanded at aal1 and satisfied at aal2.
         $this->factors = $this->verifiedTotpFactor();
         Cache::flush();
         $this->as($target, self::SESSION_A)->getJson('/api/incidents')->assertStatus(401);
         $this->as($target, self::SESSION_A, 'aal2')->getJson('/api/incidents')->assertOk();
 
+        // Clearing it resets enrolment: the factor is gone, the requirement
+        // stays on, and an aal1 session is still refused until a new
+        // authenticator is enrolled.
         $this->as($admin, self::SESSION_B, 'aal2')
             ->postJson("/api/users/{$target->id}/two-factor/disable")
             ->assertOk();
-        $this->as($target, self::SESSION_A)->getJson('/api/incidents')->assertOk();
+        $this->assertSame([], $this->factors);
+        $this->assertTrue($this->mfaRequiredByAdmin);
+        $this->as($target, self::SESSION_A)
+            ->getJson('/api/incidents')
+            ->assertStatus(401)
+            ->assertJson(['mfaRequired' => true]);
+        $this->as($target, self::SESSION_A)->getJson('/api/user')->assertJsonPath('data.mfaRequired', true);
     }
 
     public function test_only_administrators_can_use_the_authenticator_administration_actions(): void

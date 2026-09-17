@@ -7,6 +7,7 @@ import {
   emailMfaRemainsNotice,
   hasSecondFactor,
   mfaStatusLabel,
+  usesAuthenticatorAppMfa,
   usesEmailOtpMfa,
 } from '../utils/mfaStatus';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
@@ -269,8 +270,13 @@ export default function UserManagement() {
       if (type === 'two-factor') {
         replaceUser(await userService.disableTwoFactor(user.id));
         showToast(
-          'Two-factor authentication cleared for this account.' +
-            emailMfaRemainsNotice(user),
+          // For an Authenticator App account the backend resets rather than
+          // removes: the requirement stays on and a new authenticator must be
+          // set up, so saying MFA was cleared would be false.
+          usesAuthenticatorAppMfa(user)
+            ? 'Authenticator reset. They must set up a new authenticator app at their next sign-in.'
+            : 'Two-factor authentication cleared for this account.' +
+                emailMfaRemainsNotice(user),
           'success',
         );
       }
@@ -379,33 +385,48 @@ export default function UserManagement() {
                 : undefined,
             onSelect: () => setReissueUser(user),
           },
-          // Three states, one slot. An account is either enrolled (the
-          // factor can be cleared), required-but-not-yet-enrolled (the
-          // requirement can be lifted), or neither (a requirement can be
-          // imposed). Requiring is NOT enrolling: it sets a flag on the
-          // Supabase identity and nothing else — the account holder still
-          // scans their own QR code, and no administrator ever sees the
-          // secret. See UserController::requireTwoFactor.
-          user.twoFactorEnabled
-            ? {
-                key: 'two-factor',
-                label: 'Clear 2FA',
-                icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-                onSelect: () => openConfirm('two-factor', user),
-              }
-            : user.mfaRequiredByAdmin
-              ? {
-                  key: 'two-factor-cancel',
-                  label: 'Cancel 2FA Requirement',
+          // One slot, by account state. Requiring is NOT enrolling: it sets a
+          // flag on the Supabase identity and nothing else — the account
+          // holder still scans their own QR code, and no administrator ever
+          // sees the secret. See UserController::requireTwoFactor.
+          //
+          // Authenticator App accounts (every account not on email OTP) can
+          // never be left without MFA, and the backend enforces that:
+          //   enrolled            -> Reset Authenticator (re-enrolment required)
+          //   pending enrolment   -> nothing to do; no cancel is offered
+          //   neither (older acct) -> Require 2FA
+          // Email OTP accounts keep their existing actions, because the emailed
+          // code stays mandatory whatever happens to the authenticator.
+          ...(user.twoFactorEnabled
+            ? [
+                {
+                  key: 'two-factor',
+                  label: usesAuthenticatorAppMfa(user)
+                    ? 'Reset Authenticator'
+                    : 'Clear 2FA',
                   icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-                  onSelect: () => openConfirm('two-factor-cancel', user),
-                }
-              : {
-                  key: 'two-factor-require',
-                  label: 'Require 2FA',
-                  icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-                  onSelect: () => openConfirm('two-factor-require', user),
+                  onSelect: () => openConfirm('two-factor', user),
                 },
+              ]
+            : user.mfaRequiredByAdmin
+              ? usesEmailOtpMfa(user)
+                ? [
+                    {
+                      key: 'two-factor-cancel',
+                      label: 'Cancel 2FA Requirement',
+                      icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                      onSelect: () => openConfirm('two-factor-cancel', user),
+                    },
+                  ]
+                : []
+              : [
+                  {
+                    key: 'two-factor-require',
+                    label: 'Require 2FA',
+                    icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                    onSelect: () => openConfirm('two-factor-require', user),
+                  },
+                ]),
           {
             key: 'status',
             separatorBefore: true,
@@ -753,18 +774,28 @@ export default function UserManagement() {
           </p>
         ) : (
           <p className="confirm-note">
-            This account has not finished setting up an authenticator yet.
-            Cancelling lets them sign in with their password alone again. They
-            can still choose to enrol one themselves at any time.
+            The authenticator requirement cannot be cancelled for an
+            Authenticator App account, because it would leave the account with
+            no two-factor authentication. The request will be refused.
           </p>
         )}
       </ConfirmActionModal>
 
       <ConfirmActionModal
         open={confirm?.type === 'two-factor'}
-        title="Clear Two-Factor Authentication"
-        confirmLabel="Clear Factor"
-        busyLabel="Clearing…"
+        title={
+          usesAuthenticatorAppMfa(confirm?.user)
+            ? 'Reset Authenticator'
+            : 'Clear Two-Factor Authentication'
+        }
+        confirmLabel={
+          usesAuthenticatorAppMfa(confirm?.user)
+            ? 'Reset Authenticator'
+            : 'Clear Factor'
+        }
+        busyLabel={
+          usesAuthenticatorAppMfa(confirm?.user) ? 'Resetting…' : 'Clearing…'
+        }
         variant="danger"
         busy={confirmBusy}
         error={confirmError}
@@ -778,11 +809,22 @@ export default function UserManagement() {
           <strong>{confirm?.user?.fullName}</strong>
           <span>Username: {confirm?.user?.username}</span>
         </div>
-        <p className="confirm-note">
-          This is the recovery path for someone who has lost their authenticator
-          device. They will be able to sign in without a code and can enrol a
-          new factor themselves. No secret or recovery code is ever displayed.
-        </p>
+        {usesAuthenticatorAppMfa(confirm?.user) ? (
+          <p className="confirm-note">
+            This is the recovery path for someone who has lost their
+            authenticator device. Two-factor authentication stays required:
+            at their next sign-in they must set up a new authenticator app
+            before they can use the system. No secret or recovery code is ever
+            displayed.
+          </p>
+        ) : (
+          <p className="confirm-note">
+            This is the recovery path for someone who has lost their
+            authenticator device. Removing the authenticator does not remove
+            email verification — a one-time code is still emailed at every
+            sign-in. No secret or recovery code is ever displayed.
+          </p>
+        )}
       </ConfirmActionModal>
     </section>
   );

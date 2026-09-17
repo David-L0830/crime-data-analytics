@@ -5251,6 +5251,19 @@ select {
   color: var(--success-text);
 }
 
+/* An enrolled authenticator: an active second factor, same state as above. */
+.status-Authenticator-App {
+  background: var(--accent-light);
+  color: var(--success-text);
+}
+
+/* Authenticator required but not yet set up. Warning-toned: the account is
+   protected (it cannot be used until enrolment) but still has a step owed. */
+.status-Pending-Enrollment {
+  background: var(--orange-light);
+  color: var(--warning-text);
+}
+
 /* Row kebab menu. Shares .account-menu-btn / .account-menu-dropdown with the
    sidebar account menu; these rules only re-anchor it, because the row menu
    is rendered in a portal with position: fixed (the table lives inside
@@ -5484,6 +5497,46 @@ select {
 .checkbox-option-disabled {
   color: var(--text-muted);
   cursor: not-allowed;
+}
+
+/* A radio group whose options each carry a one-line explanation (Create User >
+   MFA Method). Stacked, because the descriptions do not fit side by side on a
+   phone-width dialog. */
+.radio-row-stacked {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-option-described {
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.radio-option-described:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.radio-option-described input {
+  margin-top: 3px;
+}
+
+.radio-option-title {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.radio-option-description {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.45;
 }
 
 /* ----- Security summary ----- */

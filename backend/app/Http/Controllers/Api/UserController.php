@@ -123,6 +123,18 @@ class UserController extends Controller
         unset($data['temporaryPassword']);
         $issuedBy = $request->user()?->id;
 
+        // Validated to one of User::MFA_METHOD_CHOICES. The two methods are
+        // stored in the two places enforcement already reads:
+        //   email_otp         -> users.mfa_method = 'email_otp'
+        //                        (EnsureSupabaseAal2::handleEmailOtpAccount)
+        //   authenticator_app -> users.mfa_method stays NULL, and the Supabase
+        //                        identity is created with
+        //                        app_metadata.mfa_required = true, so the first
+        //                        sign-in is sent through authenticator
+        //                        enrolment (SupabaseAdminService::requiresAal2)
+        $mfaMethod = $data['mfaMethod'];
+        $usesAuthenticatorApp = $mfaMethod === User::MFA_METHOD_AUTHENTICATOR_APP;
+
         // Captured by reference so it survives the transaction being rolled
         // back. Supabase is a separate system: a database rollback undoes the
         // local row but cannot undo an account created over HTTP, so this
@@ -130,7 +142,7 @@ class UserController extends Controller
         $supabaseUserId = null;
 
         try {
-            $user = DB::transaction(function () use ($data, $supabaseAdmin, &$supabaseUserId, $temporaryPassword, $issuedBy) {
+            $user = DB::transaction(function () use ($data, $supabaseAdmin, &$supabaseUserId, $temporaryPassword, $issuedBy, $usesAuthenticatorApp) {
                 $user = User::create([
                     'name' => $data['fullName'],
                     'username' => $data['username'],
@@ -139,7 +151,11 @@ class UserController extends Controller
                     'is_active' => $data['isActive'] ?? true,
                 ]);
 
-                $supabaseUserId = $supabaseAdmin->createUser($data['email'], $temporaryPassword);
+                $supabaseUserId = $supabaseAdmin->createUser(
+                    $data['email'],
+                    $temporaryPassword,
+                    $usesAuthenticatorApp ? ['mfa_required' => true] : [],
+                );
 
                 // The compensating delete below is only ever allowed to touch
                 // an identity THIS operation created. Supabase is expected to
@@ -167,10 +183,28 @@ class UserController extends Controller
                     throw new RuntimeException('That email address is already registered in Supabase Auth.');
                 }
 
+                // An Authenticator App account whose requirement did not stick
+                // would be an account with no MFA at all, which is exactly what
+                // choosing a method is meant to rule out. So the flag is read
+                // back from Supabase itself, not assumed from the create call,
+                // and if it is not there the account is not created: the throw
+                // rolls back the local row and the catch below deletes the
+                // Supabase identity this operation just made. A failed lookup
+                // throws too, with the same effect.
+                if ($usesAuthenticatorApp && ! $supabaseAdmin->mfaRequiredByAdmin($supabaseUserId)) {
+                    throw new RuntimeException('Supabase did not confirm the authenticator app requirement, so the account was not created. Please try again.');
+                }
+
                 $state = [
                     'supabase_user_id' => $supabaseUserId,
                     'email_verified_at' => now(),
                 ];
+
+                // Not fillable (see User), so it is set here alongside the other
+                // state, in the same save and under the same rollback.
+                if (! $usesAuthenticatorApp) {
+                    $state['mfa_method'] = User::MFA_METHOD_EMAIL_OTP;
+                }
 
                 // Written in the SAME save as the Supabase link, so a failure
                 // here is covered by exactly the same rollback + compensating
@@ -225,9 +259,12 @@ class UserController extends Controller
             'target_type' => 'user',
             // Records THAT a temporary password was issued, never anything
             // about the password itself.
-            'description' => $temporaryPassword !== null
+            // The MFA method is recorded by name; nothing about a factor,
+            // secret or code exists at this point to record.
+            'description' => ($temporaryPassword !== null
                 ? "Created {$user->role_label} account {$user->username} with a temporary password"
-                : "Created {$user->role_label} account {$user->username}",
+                : "Created {$user->role_label} account {$user->username}")
+                .($usesAuthenticatorApp ? ' (MFA method: Authenticator App)' : ' (MFA method: Email OTP)'),
             'ip_address' => $request->ip(),
         ]);
 
@@ -362,11 +399,11 @@ class UserController extends Controller
      * it let an administrator get past somebody else's challenge - the flag
      * only ever adds an obligation to that account's own sessions.
      *
-     * Turning the requirement OFF is the same endpoint with required=false. It
-     * does not remove an enrolled factor: somebody who has already set up an
-     * authenticator keeps it, and keeps being challenged for it, because the
-     * factor itself is an obligation independent of this flag. Removing a
-     * factor is disableTwoFactor() below.
+     * Turning the requirement OFF (required=false) is accepted only for an
+     * email_otp account, whose emailed code stays mandatory regardless. Every
+     * other account is refused, because for it this flag is the second factor
+     * and lifting it would leave the account with no MFA. Replacing a lost
+     * authenticator is disableTwoFactor() below, which resets enrolment.
      */
     public function requireTwoFactor(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
     {
@@ -381,6 +418,21 @@ class UserController extends Controller
         }
 
         $required = (bool) $validated['required'];
+
+        // Lifting the requirement is refused for every account that is not
+        // configured for email OTP. For those accounts the Supabase
+        // requirement (or an enrolled factor) IS their second factor, so
+        // lifting it would leave an Authenticator App account with no MFA at
+        // all -- the "none" option account creation deliberately does not
+        // offer. Losing an authenticator is handled by disableTwoFactor(),
+        // which resets the enrolment instead. For an email_otp account the
+        // emailed code stays mandatory whatever this flag says, so lifting the
+        // separate authenticator requirement there is still allowed.
+        if (! $required && ! $user->usesEmailOtpMfa()) {
+            return response()->json([
+                'message' => 'Two-factor authentication cannot be switched off for an Authenticator App account. To replace a lost authenticator, use Reset Authenticator, which requires the person to set up a new one.',
+            ], 422);
+        }
 
         try {
             $supabaseAdmin->setMfaRequired($user->supabase_user_id, $required);
@@ -652,7 +704,8 @@ class UserController extends Controller
     // stepped up to aal2, gets rejected before this method ever runs. This
     // exists for the "lost my phone and my recovery codes" case: an Admin
     // can strip a user's enrolled Supabase MFA factor(s) so they can sign
-    // in and re-enroll, without needing the target's own code (that
+    // in and re-enroll (for a non-email_otp account that re-enrolment is
+    // REQUIRED -- see the reset note in the method), without needing the target's own code (that
     // self-service path — supabase.auth.mfa.unenroll() — lives entirely on
     // the frontend; see supabaseMfaService.js).
     //
@@ -672,34 +725,48 @@ class UserController extends Controller
             return response()->json(['message' => 'Two-factor authentication is not enabled for this account.'], 422);
         }
 
+        // For an account that is NOT configured for email OTP, the authenticator
+        // is its only second factor, so this is a RESET, not a removal: the
+        // requirement is switched on BEFORE any factor is deleted, and the
+        // person must enrol a new authenticator at their next sign-in. The
+        // lost-device case this action exists for is still unblocked -- they
+        // enrol the replacement device -- but the account is never left with
+        // no MFA. If the requirement cannot be written, nothing is deleted.
+        $isAuthenticatorReset = ! $user->usesEmailOtpMfa();
+
+        if ($isAuthenticatorReset) {
+            try {
+                $supabaseAdmin->setMfaRequired($user->supabase_user_id, true);
+            } catch (RuntimeException $e) {
+                return response()->json([
+                    'message' => 'Could not reset this account\'s authenticator right now, so nothing was changed. Please try again.',
+                ], 502);
+            }
+        }
+
         $removed = $supabaseAdmin->deleteAllFactors($user->supabase_user_id);
         if ($removed === 0) {
+            // For a reset the requirement is already on, which is the safe
+            // state to be left in: the existing factor still satisfies it.
             return response()->json(['message' => 'Could not remove this account\'s MFA factor(s) right now. Please try again.'], 502);
         }
 
-        // Login-time MFA enforcement reads a CACHED "has a verified factor"
-        // answer on every protected request (EnsureSupabaseAal2 ->
-        // SupabaseAdminService::hasVerifiedFactor). Without this line the
-        // account whose factor was just removed would keep being told a second
-        // factor is required for up to a full cache TTL -- which is exactly the
-        // lost-device lockout this administrator action exists to end. It also
-        // makes the twoFactorEnabled badge in the response below current,
-        // rather than a stale read of the value we just made wrong.
-        // Clearing an account's second factor must leave it genuinely without
-        // one, so any administrator-imposed requirement is lifted at the same
-        // time. Leaving the flag set would force the person straight back into
-        // enrolment on their very next sign-in, which is the opposite of what
-        // this break-glass action is for - they have just lost their device.
-        // Requiring it again afterwards is one deliberate click away.
-        try {
-            $supabaseAdmin->setMfaRequired($user->supabase_user_id, false);
-        } catch (RuntimeException $e) {
-            // The factors are already gone, which is the part that unblocks
-            // the person. Reporting failure now would misdescribe what
-            // happened; the requirement flag is reconciled on the next
-            // deliberate change, and the cache is dropped below either way.
+        // Email OTP accounts keep their previous behaviour: the emailed code
+        // stays mandatory (it follows users.mfa_method), so removing the
+        // authenticator also lifts the separate authenticator requirement.
+        if (! $isAuthenticatorReset) {
+            try {
+                $supabaseAdmin->setMfaRequired($user->supabase_user_id, false);
+            } catch (RuntimeException $e) {
+                // The factors are already gone. The email requirement is
+                // unaffected either way, and the cache is dropped below.
+            }
         }
 
+        // Login-time MFA enforcement reads a CACHED security state on every
+        // protected request (EnsureSupabaseAal2 -> SupabaseAdminService). The
+        // cached entry still claims a verified factor that no longer exists,
+        // so it is dropped; the next request reads the current state.
         $supabaseAdmin->forgetFactorStatus($user->supabase_user_id);
 
         AuditLog::create([
@@ -707,7 +774,9 @@ class UserController extends Controller
             'action' => 'UPDATE',
             'module' => 'users',
             'target_type' => 'user',
-            'description' => "Disabled two-factor authentication for {$user->username}",
+            'description' => $isAuthenticatorReset
+                ? "Reset the authenticator for {$user->username}; a new authenticator must be set up at next sign-in"
+                : "Disabled two-factor authentication for {$user->username}",
             'ip_address' => $request->ip(),
         ]);
 

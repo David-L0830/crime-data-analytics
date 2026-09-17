@@ -88,6 +88,7 @@ class TemporaryPasswordAccountCreationTest extends TestCase
             'username' => 'msantos2026',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
             'temporaryPassword' => self::TEMP_PASSWORD,
         ], $overrides);
     }
@@ -148,7 +149,7 @@ class TemporaryPasswordAccountCreationTest extends TestCase
 
         $audit = AuditLog::where('module', 'users')->where('action', 'CREATE')->firstOrFail();
         $this->assertSame($admin->id, $audit->user_id);
-        $this->assertSame('Created Encoder account msantos2026 with a temporary password', $audit->description);
+        $this->assertSame('Created Encoder account msantos2026 with a temporary password (MFA method: Email OTP)', $audit->description);
     }
 
     public function test_a_password_with_surrounding_spaces_reaches_supabase_exactly_as_typed(): void
@@ -189,7 +190,7 @@ class TemporaryPasswordAccountCreationTest extends TestCase
         $this->assertNull($user->password);
 
         $this->assertSame(
-            'Created Encoder account msantos2026',
+            'Created Encoder account msantos2026 (MFA method: Email OTP)',
             AuditLog::where('module', 'users')->where('action', 'CREATE')->firstOrFail()->description
         );
     }
