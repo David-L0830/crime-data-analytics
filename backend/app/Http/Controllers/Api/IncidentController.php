@@ -596,6 +596,24 @@ class IncidentController extends Controller
             return response()->json(['message' => 'Archived incidents cannot be validated. Restore it first.'], 422);
         }
 
+        // Nobody validates their own submission. Validation is a second pair of
+        // eyes, and a record approved by the person who filed it has had one
+        // pair looking twice — the review would attest to nothing.
+        //
+        // Applies to the Administrator as well as the Validator. The
+        // Administrator is unrestricted everywhere else in this controller, and
+        // is deliberately NOT unrestricted here: being senior is what makes an
+        // unreviewed record look reviewed.
+        //
+        // 403 and a strict comparison against reported_by, the same shape as
+        // the Encoder ownership guards in update()/archive()/restore() above.
+        // A record with no reported_by (an imported or seeded row) matches
+        // nobody, so it stays validatable — a null creator is an absent one,
+        // not the caller.
+        if ($incident->reported_by === $user->id) {
+            return response()->json(['message' => 'You cannot validate an incident you submitted yourself. Another BADAC Administrator or BADAC Validator must review it.'], 403);
+        }
+
         $updated = DB::transaction(function () use ($request, $incident, $user) {
             $changed = Incident::whereKey($incident->id)
                 ->where('status', '!=', 'Archived')

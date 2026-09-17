@@ -285,6 +285,101 @@ class RecordValidationTest extends TestCase
         $this->assertNull($fresh->validated_at);
     }
 
+    // ---------------------------------------------------------------
+    // Nobody validates their own submission
+    // ---------------------------------------------------------------
+
+    /**
+     * Validation is a second pair of eyes. A record approved by the person who
+     * filed it has had one pair looking twice, so the approval attests to
+     * nothing — and because the record then counts as official, the gap is not
+     * cosmetic.
+     *
+     * Enforced on the server for BOTH validating roles. The Administrator is
+     * unrestricted elsewhere in IncidentController and is deliberately not
+     * unrestricted here.
+     */
+    public function test_a_validator_cannot_validate_an_incident_they_submitted(): void
+    {
+        $validator = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
+        $incident = $this->pendingIncident(['reported_by' => $validator->id]);
+
+        $this->actingAsSupabase($validator);
+        $this->putJson("/api/incidents/{$incident->id}/validate")
+            ->assertForbidden();
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_PENDING, $fresh->validation_status);
+        $this->assertNull($fresh->validated_by);
+        $this->assertNull($fresh->validated_at);
+        $this->assertSame(0, AuditLog::where('action', 'VALIDATE')->count());
+    }
+
+    public function test_an_administrator_cannot_validate_an_incident_they_submitted(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->pendingIncident(['reported_by' => $admin->id]);
+
+        $this->putJson("/api/incidents/{$incident->id}/validate")
+            ->assertForbidden();
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_PENDING, $fresh->validation_status);
+        $this->assertNull($fresh->validated_by);
+        $this->assertNull($fresh->validated_at);
+        $this->assertSame(0, AuditLog::where('action', 'VALIDATE')->count());
+    }
+
+    public function test_a_different_validator_can_validate_another_users_incident(): void
+    {
+        $author = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['reported_by' => $author->id]);
+
+        $validator = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
+        $this->actingAsSupabase($validator);
+
+        $this->putJson("/api/incidents/{$incident->id}/validate")
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated');
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $fresh->validation_status);
+        $this->assertSame($validator->id, $fresh->validated_by);
+        $this->assertNotNull($fresh->validated_at);
+    }
+
+    public function test_a_different_administrator_can_validate_another_users_incident(): void
+    {
+        $author = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN, 'name' => 'Filing Admin']);
+        $incident = $this->pendingIncident(['reported_by' => $author->id]);
+
+        $admin = $this->admin();
+
+        $this->putJson("/api/incidents/{$incident->id}/validate")
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated');
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $fresh->validation_status);
+        $this->assertSame($admin->id, $fresh->validated_by);
+        $this->assertNotNull($fresh->validated_at);
+    }
+
+    /**
+     * A record whose creator is not recorded — an imported or seeded row —
+     * matches nobody. A null creator is an absent one, not the caller, so the
+     * record stays validatable and the guard does not quietly freeze history.
+     */
+    public function test_an_incident_with_no_recorded_submitter_can_still_be_validated(): void
+    {
+        $incident = $this->pendingIncident(['reported_by' => null]);
+
+        $admin = $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertOk();
+
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $incident->fresh()->validation_status);
+    }
+
     /**
      * A validated record must not also carry a return.
      *
