@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * One administrator-configured automated report.
@@ -20,6 +21,24 @@ use Illuminate\Database\Eloquent\Model;
 class ReportSchedule extends Model
 {
     use HasFactory;
+
+    /**
+     * ARCHIVE, NOT DELETE. SoftDeletes on `archived_at` (see the
+     * 2026_09_17_000003 migration). Its global scope removes an archived
+     * schedule from EVERY query unless one asks for it explicitly with
+     * withTrashed()/onlyTrashed(): the hourly command (including its
+     * --schedule=ID path), ScheduledReportDispatcher::dispatchDue(), and
+     * route-model binding, so editing or running an archived schedule is a 404
+     * until it is restored. Nothing has to remember to filter it out.
+     *
+     * Archive state is independent of pause state: archiving and restoring
+     * never read or write `is_active`. delete() archives and restore()
+     * un-archives; the row is never removed, so its delivery history keeps its
+     * link. There is deliberately no forceDelete() call anywhere.
+     */
+    use SoftDeletes;
+
+    public const DELETED_AT = 'archived_at';
 
     /**
      * Rolling windows, resolved against the moment of the run.
@@ -137,6 +156,27 @@ class ReportSchedule extends Model
      * hour (rather than "less than an hour ago") makes the guard depend on the
      * clock slot rather than on how long the previous run took.
      */
+    /**
+     * May this schedule send mail at all, by ANY path?
+     *
+     * The single rule behind every send: the hourly command, its
+     * --schedule=ID (and --force) path, and Run Now all go through
+     * ScheduledReportDispatcher::runOnce(), which refuses a schedule for which
+     * this is false. Due-ness is a separate, narrower question (isDue) that
+     * only the automatic path asks — --force skips that, never this.
+     *
+     *   active        sendable
+     *   paused        not sendable (is_active = false)
+     *   archived      not sendable (archived_at set), whatever is_active says
+     *
+     * Restoring clears archived_at only, so a schedule restored from paused
+     * stays unsendable until it is resumed.
+     */
+    public function isSendable(): bool
+    {
+        return $this->exists && $this->is_active && ! $this->trashed();
+    }
+
     public function isDue(CarbonInterface $now): bool
     {
         if (! $this->is_active) {

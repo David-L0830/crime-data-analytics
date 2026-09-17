@@ -12,19 +12,31 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Administration of automated reports (Reporting System checklist, "Scheduled
- * Reports" / "Email Logs").
+ * The Reports module: automated report schedules and their delivery log.
  *
- * EVERY route on this controller is registered behind
- * `auth:supabase`, `supabase.mfa` and `role:badac_admin` in routes/api.php.
- * That is not incidental. A schedule is a standing instruction to send crime
- * records to an e-mail address, repeatedly, without anyone present — it is a
- * stronger capability than the one-off export an Encoder or a read-only BADAC
- * account performs from a screen they can already see, because the recipient
- * need not be a user of this system at all. Creating one is therefore an
- * administrative act, and the read side is administrative too: the email log
- * lists recipient addresses and is exactly as sensitive as the audit trail,
- * which is already administrator-only.
+ * WHO MAY DO WHAT (enforced by `role:` middleware in routes/api.php)
+ *
+ *   BADAC Administrator  everything: create, edit, pause/resume, archive,
+ *                        restore, Run Now, and the full delivery detail
+ *   BADAC Read-Only      the two GET endpoints only (index, logs)
+ *   Encoder              nothing — 403 on every report endpoint
+ *
+ * A schedule is a standing instruction to send crime records to an e-mail
+ * address, repeatedly, without anyone present, so every write stays
+ * administrative. Read-Only may SEE schedules and their delivery status.
+ *
+ * RECIPIENT PRIVACY. Recipient addresses — and the raw mail-server error text,
+ * which routinely quotes the rejected address — are returned to an
+ * administrator only. Everyone else receives a recipient COUNT and the bare
+ * delivery status. This is decided here, on the server, per request: the
+ * addresses are never sent to a non-administrator's browser at all, so they
+ * cannot be recovered from the network response, frontend state or the DOM.
+ * Fields are withheld outright rather than pattern-redacted, because no
+ * pattern can guarantee an address does not survive.
+ *
+ * NO PERMANENT DELETE. A schedule is archived (SoftDeletes on `archived_at`,
+ * see ReportSchedule) and can be restored; the row and its delivery history
+ * are never removed.
  *
  * Nothing here is public, and no route returns report CONTENT. The only way
  * report data leaves through this controller is as an attachment on a message
@@ -32,13 +44,23 @@ use Illuminate\Validation\Rule;
  */
 class ReportScheduleController extends Controller
 {
-    // GET /api/report-schedules
-    public function index()
+    // GET /api/report-schedules            active (non-archived) schedules
+    // GET /api/report-schedules?archived=1 archived schedules
+    //
+    // Administrator and Read-Only. The response is shaped for the caller: see
+    // present().
+    public function index(Request $request)
     {
-        return ReportSchedule::with(['creator', 'latestEmailLog'])
+        $query = $request->boolean('archived')
+            ? ReportSchedule::onlyTrashed()
+            : ReportSchedule::query();
+
+        $full = $this->mayViewRecipients($request);
+
+        return $query->with(['creator', 'latestEmailLog'])
             ->orderBy('name')
             ->get()
-            ->map(fn (ReportSchedule $s) => $this->present($s));
+            ->map(fn (ReportSchedule $s) => $this->present($s, $full));
     }
 
     // POST /api/report-schedules
@@ -62,7 +84,7 @@ class ReportScheduleController extends Controller
         // default of true and is omitted by every normal create, so presenting
         // the unrefreshed model answered "is this schedule active?" with null —
         // which a client reading it as a boolean would take for "no".
-        return response()->json($this->present($schedule->fresh()), 201);
+        return response()->json($this->present($schedule->fresh(), true), 201);
     }
 
     // PUT /api/report-schedules/{reportSchedule}
@@ -77,22 +99,47 @@ class ReportScheduleController extends Controller
             $reportSchedule->name,
         ));
 
-        return response()->json($this->present($reportSchedule->fresh()));
+        return response()->json($this->present($reportSchedule->fresh(), true));
     }
 
-    // DELETE /api/report-schedules/{reportSchedule}
-    public function destroy(Request $request, ReportSchedule $reportSchedule)
+    /**
+     * PUT /api/report-schedules/{reportSchedule}/archive
+     *
+     * Replaces the former permanent DELETE. Non-destructive: SoftDeletes sets
+     * `archived_at` and nothing else, so the row, its configuration, its
+     * `is_active` (pause) state and every delivery-log link are kept. From this
+     * moment the schedule is excluded from the hourly command, the dispatcher,
+     * editing and Run Now until it is restored. An already-archived schedule
+     * is not found by the binding, so archiving twice is a 404.
+     */
+    public function archive(Request $request, ReportSchedule $reportSchedule)
     {
-        $name = $reportSchedule->name;
         $reportSchedule->delete();
 
-        // The email log rows survive: report_schedule_id is nullOnDelete and
-        // each row carries its own copy of the schedule's name. Deleting a
-        // schedule stops future sends; it does not erase the record of the
-        // sends that already happened.
-        $this->audit($request, 'DELETE', sprintf('Deleted the scheduled report "%s"', $name));
+        $this->audit($request, 'ARCHIVE', sprintf('Archived the scheduled report "%s"', $reportSchedule->name));
 
-        return response()->json(['deleted' => true]);
+        return response()->json($this->present($this->freshIncludingArchived($reportSchedule), true));
+    }
+
+    /**
+     * PUT /api/report-schedules/{reportSchedule}/restore
+     *
+     * The route is registered withTrashed() so an archived schedule can be
+     * bound. Clears `archived_at` only: `is_active` is not read or written, so
+     * a schedule archived while paused comes back paused, and one archived
+     * while active becomes eligible for scheduling again.
+     */
+    public function restore(Request $request, ReportSchedule $reportSchedule)
+    {
+        if (! $reportSchedule->trashed()) {
+            return response()->json(['message' => 'This report schedule is not archived.'], 422);
+        }
+
+        $reportSchedule->restore();
+
+        $this->audit($request, 'RESTORE', sprintf('Restored the scheduled report "%s"', $reportSchedule->name));
+
+        return response()->json($this->present($reportSchedule->fresh(), true));
     }
 
     /**
@@ -102,6 +149,11 @@ class ReportScheduleController extends Controller
      * scheduler uses — same generator, same message, same log row, with only
      * `trigger` distinguishing the two. A "Run now" that took a shortcut would
      * demonstrate something other than the automation it is supposed to prove.
+     *
+     * An archived schedule is never bound here (SoftDeletes scope), so it
+     * answers 404 and nothing is sent; it has to be restored first. A PAUSED
+     * schedule is refused by the dispatcher (ScheduledReportDispatcher::
+     * runOnce returns null): 422, nothing sent, nothing logged or audited.
      */
     public function run(Request $request, ReportSchedule $reportSchedule, ScheduledReportDispatcher $dispatcher)
     {
@@ -110,6 +162,12 @@ class ReportScheduleController extends Controller
             ReportEmailLog::TRIGGER_MANUAL,
             $request->user()?->id,
         );
+
+        if ($log === null) {
+            return response()->json([
+                'message' => 'This report schedule is paused. Resume it before running it.',
+            ], 422);
+        }
 
         $this->audit($request, 'EXPORT', sprintf(
             'Ran the scheduled report "%s" manually (%s)',
@@ -120,8 +178,8 @@ class ReportScheduleController extends Controller
         // 200 either way: the request was handled correctly even when the send
         // failed. The outcome is in the body, and in the log row it points at.
         return response()->json([
-            'log' => $this->presentLog($log),
-            'schedule' => $this->present($reportSchedule->fresh()),
+            'log' => $this->presentLog($log, true),
+            'schedule' => $this->present($reportSchedule->fresh(), true),
         ]);
     }
 
@@ -132,14 +190,19 @@ class ReportScheduleController extends Controller
      * and an administrator is reading the recent history, not auditing all of
      * it; the cap is explicit here rather than left to the client so a large
      * table cannot turn one request into a full-table read.
+     *
+     * Administrator and Read-Only; shaped for the caller like index(). Rows of
+     * archived schedules are included — the history is kept on purpose.
      */
-    public function logs()
+    public function logs(Request $request)
     {
+        $full = $this->mayViewRecipients($request);
+
         return ReportEmailLog::with('triggeredBy')
             ->orderByDesc('generated_at')
             ->limit(200)
             ->get()
-            ->map(fn (ReportEmailLog $l) => $this->presentLog($l));
+            ->map(fn (ReportEmailLog $l) => $this->presentLog($l, $full));
     }
 
     /**
@@ -195,50 +258,91 @@ class ReportScheduleController extends Controller
         return $data;
     }
 
-    private function present(ReportSchedule $s): array
+    /**
+     * Recipient addresses and raw delivery errors are administrator-only.
+     * Positive check: only the Administrator role qualifies, so a role added
+     * later is withheld the addresses by default.
+     */
+    private function mayViewRecipients(Request $request): bool
     {
-        return [
+        return (bool) $request->user()?->isAdmin();
+    }
+
+    /**
+     * @param  bool  $full  true only for an administrator (see
+     *                      mayViewRecipients). When false, `recipients` and
+     *                      `lastRunError` are OMITTED — not emptied, not
+     *                      redacted — and only the count and bare status remain.
+     */
+    private function present(ReportSchedule $s, bool $full): array
+    {
+        $recipients = $s->recipients ?? [];
+
+        $data = [
             'id' => (string) $s->id,
             'name' => $s->name,
             'reportKey' => $s->report_key,
             'reportLabel' => ReportGenerator::REPORTS[$s->report_key] ?? $s->report_key,
             'period' => $s->period,
             'filters' => (object) ($s->filters ?? []),
-            'recipients' => $s->recipients ?? [],
+            'recipientCount' => count($recipients),
             'frequency' => $s->frequency,
             'hour' => $s->hour,
             'dayOfWeek' => $s->day_of_week,
             'dayOfMonth' => $s->day_of_month,
             'isActive' => $s->is_active,
+            'isArchived' => $s->trashed(),
+            'archivedAt' => $s->archived_at?->toIso8601String(),
             'lastRunAt' => $s->last_run_at?->toIso8601String(),
-            // Additive, read-only presentation fields for the Scheduled
-            // Reports module. nextRunAt is computed with the scheduler's own
-            // isDue() rule (see ReportSchedule::nextRunAt); the last result
-            // comes from the email log, never from a separate status column.
-            'nextRunAt' => $s->nextRunAt(now())?->toIso8601String(),
+            // Additive, read-only presentation fields. nextRunAt is computed
+            // with the scheduler's own isDue() rule (see
+            // ReportSchedule::nextRunAt) and is null for an archived schedule,
+            // which the scheduler never selects; the last result comes from
+            // the email log, never from a separate status column.
+            'nextRunAt' => $s->trashed() ? null : $s->nextRunAt(now())?->toIso8601String(),
             'lastRunStatus' => $s->latestEmailLog?->status,
-            'lastRunError' => $s->latestEmailLog?->error,
             'createdBy' => $s->creator?->name,
         ];
+
+        if ($full) {
+            $data['recipients'] = $recipients;
+            $data['lastRunError'] = $s->latestEmailLog?->error;
+        }
+
+        return $data;
     }
 
-    private function presentLog(ReportEmailLog $l): array
+    /** @param  bool  $full  see present() */
+    private function presentLog(ReportEmailLog $l, bool $full): array
     {
-        return [
+        $recipients = $l->recipients ?? [];
+
+        $data = [
             'id' => (string) $l->id,
             'scheduleId' => $l->report_schedule_id === null ? null : (string) $l->report_schedule_id,
             'scheduleName' => $l->schedule_name,
             'reportKey' => $l->report_key,
             'reportLabel' => ReportGenerator::REPORTS[$l->report_key] ?? $l->report_key,
-            'recipients' => $l->recipients ?? [],
+            'recipientCount' => count($recipients),
             'status' => $l->status,
             'trigger' => $l->trigger,
             'rowCount' => $l->row_count,
             'scope' => $l->filters_summary,
-            'error' => $l->error,
             'triggeredBy' => $l->triggeredBy?->name,
             'generatedAt' => $l->generated_at?->toIso8601String(),
         ];
+
+        if ($full) {
+            $data['recipients'] = $recipients;
+            $data['error'] = $l->error;
+        }
+
+        return $data;
+    }
+
+    private function freshIncludingArchived(ReportSchedule $s): ReportSchedule
+    {
+        return ReportSchedule::withTrashed()->with(['creator', 'latestEmailLog'])->findOrFail($s->getKey());
     }
 
     /**

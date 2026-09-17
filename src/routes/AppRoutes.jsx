@@ -112,9 +112,13 @@ export default function AppRoutes() {
           path="/user-management"
           element={guarded('user-management', UserManagement)}
         />
+        <Route path="/reports" element={guarded('reports', ScheduledReports)} />
+        {/* Legacy URL of the Reports module. Kept as a redirect so existing
+            bookmarks still arrive; it grants nothing — /reports applies its
+            own guard, so a role without Reports access is still turned away. */}
         <Route
           path="/scheduled-reports"
-          element={guarded('scheduled-reports', ScheduledReports)}
+          element={<Navigate to="/reports" replace />}
         />
         <Route path="/settings" element={guarded('settings', Settings)} />
         {/* Checkpoint 28 — /security route removed; its Two-Factor

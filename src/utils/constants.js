@@ -214,7 +214,7 @@ export const ROLES = {
       'criminal-records',
       'audit-logs',
       'user-management',
-      'scheduled-reports',
+      'reports',
       'settings',
     ],
   },
@@ -246,6 +246,10 @@ export const ROLES = {
     // removed). badac_readonly never had 'security'/2FA access before this
     // checkpoint and still doesn't (unaffected by the Security→User
     // Management move). Checkpoint 38 — 'audit-logs' removed.
+    // 'reports' — VIEW only: schedules and delivery status. The backend
+    // withholds recipient addresses and raw delivery errors from this role,
+    // and every Reports action is gated on 'manage_reports', which this role
+    // does not have.
     modules: [
       'dashboard',
       'incident-feed',
@@ -253,6 +257,7 @@ export const ROLES = {
       'analytics',
       'trends',
       'criminal-records',
+      'reports',
     ],
   },
 };
@@ -273,6 +278,10 @@ export const PERMISSIONS = {
     // the real control is role:badac_admin on PUT /incidents/{id}/validate
     // and /return in backend/routes/api.php.
     'validate_record',
+    // Reports: create, edit, pause/resume, archive, restore and Run Now. UI
+    // gating only — every one of those endpoints is role:badac_admin in
+    // backend/routes/api.php.
+    'manage_reports',
   ],
   // badac_readonly intentionally has no entries here: view access is granted
   // entirely through ROLES.badac_readonly.modules above, and can() returns
@@ -344,6 +353,17 @@ export const NAV_ITEMS = [
     icon: 'trends',
     section: 'analytics',
   },
+  // Reports — its own REPORTING section: reporting is a functional capability
+  // of the system, not account administration. The id is the route (/reports;
+  // the old /scheduled-reports redirects here). Administrator manages;
+  // BADAC Read-Only views. The real control is server-side: reads are
+  // role:badac_admin,badac_readonly and every write is role:badac_admin.
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: 'scheduledReports',
+    section: 'reporting',
+  },
   {
     id: 'audit-logs',
     label: 'Audit Logs',
@@ -358,16 +378,6 @@ export const NAV_ITEMS = [
     id: 'user-management',
     label: 'User Management',
     icon: 'userManagement',
-    section: 'administration',
-  },
-  // Scheduled Reports — its own module, no longer a section of System
-  // Settings. Listed only in ROLES.badac_admin.modules, so no other role sees
-  // it or can open the route; the real control is role:badac_admin on every
-  // /report-schedules and /report-email-logs endpoint.
-  {
-    id: 'scheduled-reports',
-    label: 'Scheduled Reports',
-    icon: 'scheduledReports',
     section: 'administration',
   },
   // System Settings is reachable from the sidebar again. It previously had no
@@ -394,6 +404,7 @@ export const NAV_SECTION_LABELS = {
   overview: 'Overview',
   'crime-management': 'Crime Management',
   analytics: 'Analytics',
+  reporting: 'Reporting',
   administration: 'Administration',
 };
 
@@ -410,7 +421,7 @@ export const PAGE_TITLES = {
   'criminal-records/victim': 'Victim Records',
   'audit-logs': 'Audit Logs',
   'user-management': 'User Management',
-  'scheduled-reports': 'Scheduled Reports',
+  reports: 'Reports',
   settings: 'System Settings',
 };
 

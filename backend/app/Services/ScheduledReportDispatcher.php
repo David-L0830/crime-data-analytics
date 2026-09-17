@@ -39,7 +39,11 @@ class ScheduledReportDispatcher
                 continue;
             }
 
-            $logs[] = $this->runOnce($schedule, ReportEmailLog::TRIGGER_SCHEDULED, null, $now);
+            $log = $this->runOnce($schedule, ReportEmailLog::TRIGGER_SCHEDULED, null, $now);
+
+            if ($log !== null) {
+                $logs[] = $log;
+            }
         }
 
         return $logs;
@@ -60,13 +64,32 @@ class ScheduledReportDispatcher
      * retried on every tick of the hourly command and fill the log with
      * hundreds of identical failures in a single afternoon. One attempt per
      * slot, logged, is the diagnosable behaviour.
+     *
+     * REFUSES A PAUSED OR ARCHIVED SCHEDULE, and returns null for it: no
+     * report is generated, no mail is sent, no log row is written and
+     * `last_run_at` is not stamped. This is the one guard for every send path
+     * — the hourly command, `reports:send-scheduled --schedule=ID` with or
+     * without --force, and Run Now — so none of them can disagree about it.
+     * The rule itself is ReportSchedule::isSendable().
+     *
+     * The schedule is RE-READ first rather than trusted as passed in, so a
+     * copy loaded before somebody paused or archived it cannot send. The
+     * normal query scope already excludes an archived row, so it re-reads as
+     * null.
      */
     public function runOnce(
         ReportSchedule $schedule,
         string $trigger = ReportEmailLog::TRIGGER_MANUAL,
         ?int $triggeredBy = null,
         ?Carbon $now = null,
-    ): ReportEmailLog {
+    ): ?ReportEmailLog {
+        $current = ReportSchedule::query()->find($schedule->getKey());
+
+        if ($current === null || ! $current->isSendable()) {
+            return null;
+        }
+
+        $schedule = $current;
         $now ??= Carbon::now();
         [$from, $to] = $schedule->resolvePeriod($now);
 

@@ -91,8 +91,8 @@ class RolePermissionController extends Controller
             'label' => 'Audit Logs',
             'patterns' => ['api/audit-logs'],
         ],
-        'scheduled-reports' => [
-            'label' => 'Scheduled Reports',
+        'reports' => [
+            'label' => 'Reports',
             'patterns' => ['api/report-schedules', 'api/report-schedules/*', 'api/report-email-logs'],
         ],
         'user-management' => [

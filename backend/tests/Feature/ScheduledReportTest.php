@@ -12,7 +12,10 @@ use App\Services\ReportGenerator;
 use App\Services\ScheduledReportDispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -22,10 +25,12 @@ use Tests\TestCase;
  * The feature is worth nothing unless four things hold, and each has its own
  * group of tests below:
  *
- *   - Only an administrator can create, edit, run or read a schedule. A
- *     schedule sends crime records to an address on a timer, with nobody
- *     present; that is a stronger capability than the on-demand export every
- *     role already has.
+ *   - Only an administrator can create, edit, archive, restore or run a
+ *     schedule. A schedule sends crime records to an address on a timer, with
+ *     nobody present; that is a stronger capability than the on-demand export
+ *     every role already has. BADAC Read-Only may READ schedules and the
+ *     delivery log, but never receives recipient addresses or raw errors.
+ *     Encoder has no access at all.
  *   - A schedule runs when it is due, and NOT twice in the same slot.
  *   - Every run leaves a log row, whether it succeeded or failed. The failed
  *     run is the one an administrator needs to find.
@@ -83,28 +88,79 @@ class ScheduledReportTest extends TestCase
         $this->getJson('/api/report-email-logs')->assertUnauthorized();
     }
 
-    public function test_an_encoder_cannot_manage_or_read_schedules(): void
+    public function test_an_encoder_is_refused_on_every_report_endpoint(): void
     {
+        Mail::fake();
+        $active = $this->schedule();
+        $archived = $this->schedule(['name' => 'Archived One']);
+        $archived->delete();
+
         $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
         $this->actingAsSupabase($encoder);
 
         $this->getJson('/api/report-schedules')->assertForbidden();
-        $this->postJson('/api/report-schedules', $this->payload())->assertForbidden();
+        $this->getJson('/api/report-schedules?archived=1')->assertForbidden();
         $this->getJson('/api/report-email-logs')->assertForbidden();
+        $this->postJson('/api/report-schedules', $this->payload())->assertForbidden();
+        $this->putJson("/api/report-schedules/{$active->id}", ['name' => 'X'])->assertForbidden();
+        $this->putJson("/api/report-schedules/{$active->id}", ['is_active' => false])->assertForbidden();
+        $this->putJson("/api/report-schedules/{$active->id}/archive")->assertForbidden();
+        $this->putJson("/api/report-schedules/{$archived->id}/restore")->assertForbidden();
+        $this->postJson("/api/report-schedules/{$active->id}/run")->assertForbidden();
+
+        Mail::assertNothingSent();
+        $this->assertSame(1, ReportSchedule::count());
+        $this->assertTrue($archived->fresh()->trashed());
+        $this->assertSame('Weekly Crime Summary', $active->fresh()->name);
     }
 
-    public function test_a_readonly_badac_account_cannot_manage_or_read_schedules(): void
+    public function test_a_readonly_badac_account_can_read_but_never_manage_schedules(): void
     {
-        // This account may view and export from every report screen, and still
-        // may not stand up an automation that mails those records out on a
-        // timer. Viewing data you are entitled to see is not the same
-        // permission as sending it somewhere.
+        // This account may SEE the schedules and whether they were delivered,
+        // and still may not stand up, change or fire an automation that mails
+        // records out. Viewing is not the same permission as sending.
+        Mail::fake();
+        $active = $this->schedule();
+        $archived = $this->schedule(['name' => 'Archived One']);
+        $archived->delete();
+
         $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
         $this->actingAsSupabase($viewer);
 
-        $this->getJson('/api/report-schedules')->assertForbidden();
+        $this->getJson('/api/report-schedules')->assertOk()->assertJsonCount(1);
+        $this->getJson('/api/report-schedules?archived=1')->assertOk()->assertJsonCount(1);
+        $this->getJson('/api/report-email-logs')->assertOk();
+
         $this->postJson('/api/report-schedules', $this->payload())->assertForbidden();
-        $this->getJson('/api/report-email-logs')->assertForbidden();
+        $this->putJson("/api/report-schedules/{$active->id}", ['name' => 'X'])->assertForbidden();
+        // Pause and resume are the same update endpoint.
+        $this->putJson("/api/report-schedules/{$active->id}", ['is_active' => false])->assertForbidden();
+        $this->putJson("/api/report-schedules/{$active->id}/archive")->assertForbidden();
+        $this->putJson("/api/report-schedules/{$archived->id}/restore")->assertForbidden();
+        $this->postJson("/api/report-schedules/{$active->id}/run")->assertForbidden();
+
+        Mail::assertNothingSent();
+        $this->assertSame(0, ReportEmailLog::count());
+        $fresh = $active->fresh();
+        $this->assertSame('Weekly Crime Summary', $fresh->name);
+        $this->assertTrue($fresh->is_active);
+        $this->assertFalse($fresh->trashed());
+        $this->assertTrue($archived->fresh()->trashed());
+        $this->assertDatabaseMissing('audit_logs', ['module' => 'reports']);
+    }
+
+    public function test_there_is_no_permanent_delete_endpoint(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule();
+
+        $this->deleteJson("/api/report-schedules/{$schedule->id}")->assertStatus(405);
+
+        $this->assertDatabaseHas('report_schedules', ['id' => $schedule->id, 'archived_at' => null]);
+        $deleteRoutes = collect(Route::getRoutes())
+            ->filter(fn ($route) => str_contains($route->uri(), 'report-schedules')
+                && in_array('DELETE', $route->methods(), true));
+        $this->assertCount(0, $deleteRoutes);
     }
 
     public function test_an_encoder_cannot_run_an_existing_schedule(): void
@@ -205,7 +261,7 @@ class ScheduledReportTest extends TestCase
         $this->assertSame(['sitio' => 'Sitio 1'], $stored->filters);
     }
 
-    public function test_an_administrator_can_update_and_delete_a_schedule(): void
+    public function test_an_administrator_can_update_and_pause_a_schedule(): void
     {
         $this->admin();
         $schedule = $this->schedule();
@@ -214,12 +270,13 @@ class ScheduledReportTest extends TestCase
             ->assertOk()
             ->assertJsonPath('name', 'Renamed')
             ->assertJsonPath('isActive', false);
-
-        $this->deleteJson("/api/report-schedules/{$schedule->id}")->assertOk();
-        $this->assertDatabaseMissing('report_schedules', ['id' => $schedule->id]);
     }
 
-    public function test_deleting_a_schedule_keeps_the_history_of_what_it_already_sent(): void
+    // ---------------------------------------------------------------
+    // Archive / restore (replaces permanent delete)
+    // ---------------------------------------------------------------
+
+    public function test_an_administrator_can_archive_a_schedule_without_deleting_it(): void
     {
         Mail::fake();
         $this->admin();
@@ -228,14 +285,555 @@ class ScheduledReportTest extends TestCase
         app(ScheduledReportDispatcher::class)->runOnce($schedule);
         $this->assertSame(1, ReportEmailLog::count());
 
-        $this->deleteJson("/api/report-schedules/{$schedule->id}")->assertOk();
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")
+            ->assertOk()
+            ->assertJsonPath('isArchived', true)
+            ->assertJsonPath('nextRunAt', null);
 
-        // The row survives with its own copy of the name: a log that vanished
-        // when someone tidied up a schedule would be evidence of nothing.
+        // The row is still there, archived, with its configuration intact.
+        $stored = ReportSchedule::withTrashed()->find($schedule->id);
+        $this->assertNotNull($stored);
+        $this->assertNotNull($stored->archived_at);
+        $this->assertSame('Weekly Crime Summary', $stored->name);
+        $this->assertSame(['punong.barangay@example.test'], $stored->recipients);
+        $this->assertDatabaseHas('report_schedules', ['id' => $schedule->id]);
+
+        // Delivery history is kept AND still linked to the schedule.
         $log = ReportEmailLog::first();
-        $this->assertNotNull($log);
-        $this->assertNull($log->report_schedule_id);
+        $this->assertSame($schedule->id, $log->report_schedule_id);
         $this->assertSame('Weekly Crime Summary', $log->schedule_name);
+
+        $audit = AuditLog::where('module', 'reports')->where('action', 'ARCHIVE')->first();
+        $this->assertNotNull($audit);
+        $this->assertStringContainsString('Weekly Crime Summary', $audit->description);
+    }
+
+    public function test_an_archived_schedule_moves_from_the_active_list_to_the_archived_list(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule();
+        $this->schedule(['name' => 'Still Active']);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+
+        $this->getJson('/api/report-schedules')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.name', 'Still Active')
+            ->assertJsonPath('0.isArchived', false);
+
+        $this->getJson('/api/report-schedules?archived=1')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.name', 'Weekly Crime Summary')
+            ->assertJsonPath('0.isArchived', true);
+    }
+
+    public function test_an_administrator_can_restore_an_archived_schedule(): void
+    {
+        Mail::fake();
+        $this->admin();
+        $schedule = $this->schedule();
+        app(ScheduledReportDispatcher::class)->runOnce($schedule);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+        $this->putJson("/api/report-schedules/{$schedule->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('isArchived', false)
+            ->assertJsonPath('archivedAt', null);
+
+        $this->assertNull($schedule->fresh()->archived_at);
+        $this->getJson('/api/report-schedules')->assertJsonCount(1);
+        $this->getJson('/api/report-schedules?archived=1')->assertJsonCount(0);
+        $this->assertSame($schedule->id, ReportEmailLog::first()->report_schedule_id);
+        $this->assertNotNull(AuditLog::where('module', 'reports')->where('action', 'RESTORE')->first());
+    }
+
+    public function test_archive_and_restore_preserve_an_active_schedules_state(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule(['is_active' => true]);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+        $this->assertTrue(ReportSchedule::withTrashed()->find($schedule->id)->is_active);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('isActive', true);
+        $this->assertTrue($schedule->fresh()->is_active);
+    }
+
+    public function test_archive_and_restore_preserve_a_paused_schedules_state(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule(['is_active' => false]);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+        $this->assertFalse(ReportSchedule::withTrashed()->find($schedule->id)->is_active);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('isActive', false);
+        $this->assertFalse($schedule->fresh()->is_active);
+    }
+
+    public function test_an_archived_schedule_cannot_be_edited_until_restored(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule();
+        $schedule->delete();
+
+        $this->putJson("/api/report-schedules/{$schedule->id}", ['name' => 'Sneaky'])->assertNotFound();
+        $this->putJson("/api/report-schedules/{$schedule->id}", ['is_active' => true])->assertNotFound();
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertNotFound();
+
+        $this->assertSame('Weekly Crime Summary', ReportSchedule::withTrashed()->find($schedule->id)->name);
+    }
+
+    public function test_restoring_a_schedule_that_is_not_archived_is_refused(): void
+    {
+        $this->admin();
+        $schedule = $this->schedule();
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/restore")->assertStatus(422);
+        $this->assertDatabaseMissing('audit_logs', ['module' => 'reports', 'action' => 'RESTORE']);
+    }
+
+    /**
+     * The migration's rollback must not bring an archived schedule back to
+     * life. Runs down() and up() against the in-memory test database only.
+     */
+    public function test_rolling_back_the_archive_migration_pauses_archived_schedules(): void
+    {
+        $archivedActive = $this->schedule(['name' => 'Archived While Active', 'is_active' => true]);
+        $archivedActive->delete();
+        $liveActive = $this->schedule(['name' => 'Live Active', 'is_active' => true]);
+
+        $migration = require database_path('migrations/2026_09_17_000003_add_archived_at_to_report_schedules_table.php');
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('report_schedules', 'archived_at'));
+        $this->assertFalse((bool) DB::table('report_schedules')->where('id', $archivedActive->id)->value('is_active'));
+        $this->assertTrue((bool) DB::table('report_schedules')->where('id', $liveActive->id)->value('is_active'));
+
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumn('report_schedules', 'archived_at'));
+        $this->assertNull(DB::table('report_schedules')->where('id', $liveActive->id)->value('archived_at'));
+    }
+
+    // ---------------------------------------------------------------
+    // Archived schedules are never sent
+    // ---------------------------------------------------------------
+
+    public function test_the_dispatcher_never_selects_an_archived_schedule(): void
+    {
+        Mail::fake();
+        Carbon::setTestNow('2026-05-04 06:00:00');
+
+        $archived = $this->schedule(['name' => 'Archived Due', 'hour' => 6, 'day_of_week' => 1]);
+        $archived->delete();
+        $this->schedule(['name' => 'Live Due', 'hour' => 6, 'day_of_week' => 1]);
+
+        $logs = app(ScheduledReportDispatcher::class)->dispatchDue(Carbon::now());
+
+        $this->assertCount(1, $logs);
+        $this->assertSame('Live Due', $logs[0]->schedule_name);
+        $this->assertSame(0, ReportEmailLog::where('report_schedule_id', $archived->id)->count());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_the_hourly_command_never_sends_an_archived_schedule(): void
+    {
+        Mail::fake();
+        Carbon::setTestNow('2026-05-04 06:00:00');
+
+        $archived = $this->schedule(['name' => 'Archived Due', 'hour' => 6, 'day_of_week' => 1]);
+        $archived->delete();
+
+        $this->artisan('reports:send-scheduled')->assertSuccessful();
+
+        Mail::assertNothingSent();
+        $this->assertSame(0, ReportEmailLog::count());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_an_archived_schedule_cannot_be_sent_by_id_even_with_force(): void
+    {
+        Mail::fake();
+        $archived = $this->schedule();
+        $archived->delete();
+
+        $this->artisan("reports:send-scheduled --schedule={$archived->id} --force")->assertSuccessful();
+
+        Mail::assertNothingSent();
+        $this->assertSame(0, ReportEmailLog::count());
+        $this->assertNull(ReportSchedule::withTrashed()->find($archived->id)->last_run_at);
+    }
+
+    public function test_run_now_is_refused_for_an_archived_schedule(): void
+    {
+        Mail::fake();
+        $this->admin();
+        $schedule = $this->schedule();
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+
+        $this->postJson("/api/report-schedules/{$schedule->id}/run")->assertNotFound();
+
+        Mail::assertNothingSent();
+        $this->assertSame(0, ReportEmailLog::count());
+
+        // Once restored it can be run again.
+        $this->putJson("/api/report-schedules/{$schedule->id}/restore")->assertOk();
+        $this->postJson("/api/report-schedules/{$schedule->id}/run")->assertOk();
+        Mail::assertSent(ScheduledReportMail::class, 1);
+    }
+
+    // ---------------------------------------------------------------
+    // Pause state is enforced on EVERY send path
+    //
+    //   State                  hourly  Run Now  --schedule=ID  --force
+    //   active                 sends   sends    sends          sends
+    //   paused                 no      no       no             no
+    //   archived               no      no       no             no
+    //   restored from paused   no      no       no             no
+    //   restored from active   sends   sends    sends          sends
+    //
+    // "no" always means: no mail AND no delivery-log row.
+    // ---------------------------------------------------------------
+
+    /** Monday 2026-05-04 06:00 — the slot a weekly Monday 06:00 schedule is due in. */
+    private function atDueSlot(): void
+    {
+        Carbon::setTestNow('2026-05-04 06:00:00');
+    }
+
+    private function dueSchedule(array $overrides = []): ReportSchedule
+    {
+        return $this->schedule(array_merge(['hour' => 6, 'day_of_week' => 1], $overrides));
+    }
+
+    private function assertNothingSentOrLogged(ReportSchedule $schedule): void
+    {
+        Mail::assertNothingSent();
+        $this->assertSame(0, ReportEmailLog::where('report_schedule_id', $schedule->id)->count());
+        $this->assertNull(ReportSchedule::withTrashed()->find($schedule->id)->last_run_at);
+    }
+
+    /**
+     * Sends $schedule through one path and reports whether exactly one mail
+     * and one log row resulted. `force` and `id` are the two command variants.
+     */
+    private function sendThrough(string $path, ReportSchedule $schedule): void
+    {
+        match ($path) {
+            'hourly' => $this->artisan('reports:send-scheduled')->run(),
+            'id' => $this->artisan("reports:send-scheduled --schedule={$schedule->id}")->run(),
+            'force' => $this->artisan("reports:send-scheduled --schedule={$schedule->id} --force")->run(),
+            'run-now' => $this->postJson("/api/report-schedules/{$schedule->id}/run"),
+        };
+    }
+
+    public function test_a_paused_schedule_is_not_processed_by_the_hourly_scheduler(): void
+    {
+        Mail::fake();
+        $this->atDueSlot();
+        $paused = $this->dueSchedule(['is_active' => false]);
+
+        $this->assertSame([], app(ScheduledReportDispatcher::class)->dispatchDue(Carbon::now()));
+        $this->artisan('reports:send-scheduled')->assertSuccessful();
+
+        $this->assertNothingSentOrLogged($paused);
+        Carbon::setTestNow();
+    }
+
+    public function test_a_paused_schedule_cannot_be_sent_through_schedule_id(): void
+    {
+        Mail::fake();
+        // Even in its own due slot.
+        $this->atDueSlot();
+        $paused = $this->dueSchedule(['is_active' => false]);
+
+        $this->artisan("reports:send-scheduled --schedule={$paused->id}")->assertSuccessful();
+
+        $this->assertNothingSentOrLogged($paused);
+        Carbon::setTestNow();
+    }
+
+    public function test_a_paused_schedule_cannot_be_sent_through_schedule_id_with_force(): void
+    {
+        Mail::fake();
+        $paused = $this->schedule(['is_active' => false]);
+
+        $this->artisan("reports:send-scheduled --schedule={$paused->id} --force")
+            ->expectsOutputToContain('is paused')
+            ->expectsOutputToContain('sent=0 failed=0 not-due=0 paused=1')
+            ->assertSuccessful();
+
+        $this->assertNothingSentOrLogged($paused);
+    }
+
+    public function test_a_paused_schedule_cannot_be_sent_through_run_now(): void
+    {
+        Mail::fake();
+        $this->admin();
+        $paused = $this->schedule(['is_active' => false]);
+
+        $this->postJson("/api/report-schedules/{$paused->id}/run")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'This report schedule is paused. Resume it before running it.');
+
+        $this->assertNothingSentOrLogged($paused);
+        $this->assertDatabaseMissing('audit_logs', ['module' => 'reports', 'action' => 'EXPORT']);
+    }
+
+    public function test_the_dispatcher_refuses_a_stale_copy_of_a_schedule_paused_after_it_was_loaded(): void
+    {
+        Mail::fake();
+        $schedule = $this->schedule(['is_active' => true]);
+
+        // Somebody pauses it after this copy was loaded.
+        DB::table('report_schedules')->where('id', $schedule->id)->update(['is_active' => false]);
+        $this->assertTrue($schedule->is_active, 'Precondition: the in-memory copy is stale.');
+
+        $this->assertNull(app(ScheduledReportDispatcher::class)->runOnce($schedule));
+        $this->assertNothingSentOrLogged($schedule);
+    }
+
+    public function test_an_active_schedule_still_sends_through_every_path(): void
+    {
+        $this->admin();
+
+        foreach (['hourly', 'id', 'force', 'run-now'] as $path) {
+            Mail::fake();
+            $this->atDueSlot();
+            ReportEmailLog::query()->delete();
+            DB::table('report_schedules')->delete();
+
+            $active = $this->dueSchedule(['is_active' => true, 'name' => "Active via {$path}"]);
+
+            $this->sendThrough($path, $active);
+
+            Mail::assertSent(ScheduledReportMail::class, 1);
+            $this->assertSame(1, ReportEmailLog::where('report_schedule_id', $active->id)->count(), $path);
+            $this->assertSame(ReportEmailLog::STATUS_SENT, ReportEmailLog::first()->status, $path);
+        }
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_schedule_restored_from_paused_stays_paused_and_blocked_on_every_path(): void
+    {
+        $this->admin();
+        $schedule = $this->dueSchedule(['is_active' => false]);
+
+        $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+        $this->putJson("/api/report-schedules/{$schedule->id}/restore")
+            ->assertOk()
+            ->assertJsonPath('isActive', false)
+            ->assertJsonPath('isArchived', false);
+
+        foreach (['hourly', 'id', 'force', 'run-now'] as $path) {
+            Mail::fake();
+            $this->atDueSlot();
+
+            $this->sendThrough($path, $schedule);
+
+            Mail::assertNothingSent();
+            $this->assertSame(0, ReportEmailLog::count(), $path);
+        }
+
+        $this->assertFalse($schedule->fresh()->is_active);
+        $this->assertNull($schedule->fresh()->last_run_at);
+        Carbon::setTestNow();
+    }
+
+    public function test_a_schedule_restored_from_active_is_sendable_again_on_every_path(): void
+    {
+        $this->admin();
+
+        foreach (['hourly', 'id', 'force', 'run-now'] as $path) {
+            Mail::fake();
+            $this->atDueSlot();
+            ReportEmailLog::query()->delete();
+            DB::table('report_schedules')->delete();
+
+            $schedule = $this->dueSchedule(['is_active' => true, 'name' => "Restored via {$path}"]);
+            $this->putJson("/api/report-schedules/{$schedule->id}/archive")->assertOk();
+
+            // Archived: blocked.
+            $this->sendThrough($path, $schedule);
+            Mail::assertNothingSent();
+            $this->assertSame(0, ReportEmailLog::count(), "archived via {$path}");
+
+            $this->putJson("/api/report-schedules/{$schedule->id}/restore")
+                ->assertOk()
+                ->assertJsonPath('isActive', true);
+
+            // Restored from active: sends again.
+            $this->sendThrough($path, $schedule);
+            Mail::assertSent(ScheduledReportMail::class, 1);
+            $this->assertSame(1, ReportEmailLog::where('report_schedule_id', $schedule->id)->count(), "restored via {$path}");
+        }
+
+        Carbon::setTestNow();
+    }
+
+    // ---------------------------------------------------------------
+    // The soft-delete column really is archived_at
+    // ---------------------------------------------------------------
+
+    public function test_soft_deletes_use_archived_at_and_never_deleted_at(): void
+    {
+        $model = new ReportSchedule;
+
+        // How the override works: SoftDeletes::getDeletedAtColumn() returns
+        // static::DELETED_AT when the model defines it.
+        $this->assertSame('archived_at', ReportSchedule::DELETED_AT);
+        $this->assertSame('archived_at', $model->getDeletedAtColumn());
+        $this->assertSame('report_schedules.archived_at', $model->getQualifiedDeletedAtColumn());
+        $this->assertSame('datetime', $model->getCasts()['archived_at'] ?? null);
+
+        $this->assertFalse(Schema::hasColumn('report_schedules', 'deleted_at'));
+        $this->assertTrue(Schema::hasColumn('report_schedules', 'archived_at'));
+
+        // The global scope filters on archived_at.
+        $sql = strtolower(ReportSchedule::query()->toSql());
+        $this->assertStringContainsString('"report_schedules"."archived_at" is null', $sql);
+        $this->assertStringNotContainsString('deleted_at', $sql);
+    }
+
+    public function test_archive_and_restore_behave_as_soft_deletes_on_archived_at(): void
+    {
+        Mail::fake();
+
+        $activeKept = $this->schedule(['name' => 'Active Kept', 'is_active' => true]);
+        $activeArchived = $this->schedule(['name' => 'Active Archived', 'is_active' => true]);
+        $pausedArchived = $this->schedule(['name' => 'Paused Archived', 'is_active' => false]);
+
+        app(ScheduledReportDispatcher::class)->runOnce($activeArchived);
+        $this->assertSame(1, $activeArchived->emailLogs()->count());
+
+        $activeArchived->delete();
+        $pausedArchived->delete();
+
+        // Stored: every row is still in the table, the two archived ones with
+        // archived_at set and is_active exactly as it was.
+        $raw = DB::table('report_schedules')->get()->keyBy('name');
+        $this->assertCount(3, $raw);
+        $this->assertNull($raw['Active Kept']->archived_at);
+        $this->assertNotNull($raw['Active Archived']->archived_at);
+        $this->assertNotNull($raw['Paused Archived']->archived_at);
+        $this->assertTrue((bool) $raw['Active Archived']->is_active);
+        $this->assertFalse((bool) $raw['Paused Archived']->is_active);
+
+        // Normal queries exclude archived; withTrashed includes; onlyTrashed
+        // returns only archived.
+        $this->assertSame(['Active Kept'], ReportSchedule::orderBy('name')->pluck('name')->all());
+        $this->assertSame(
+            ['Active Archived', 'Active Kept', 'Paused Archived'],
+            ReportSchedule::withTrashed()->orderBy('name')->pluck('name')->all()
+        );
+        $this->assertSame(
+            ['Active Archived', 'Paused Archived'],
+            ReportSchedule::onlyTrashed()->orderBy('name')->pluck('name')->all()
+        );
+        $this->assertNull(ReportSchedule::find($activeArchived->id));
+
+        // An archived record keeps its delivery-log relationship, both ways.
+        $archived = ReportSchedule::withTrashed()->find($activeArchived->id);
+        $this->assertTrue($archived->trashed());
+        $this->assertSame(1, $archived->emailLogs()->count());
+        $this->assertNotNull($archived->latestEmailLog);
+        $log = ReportEmailLog::first();
+        $this->assertSame($activeArchived->id, $log->report_schedule_id);
+        $this->assertSame($activeArchived->id, $log->schedule()->withTrashed()->first()->id);
+
+        // restore() clears archived_at and leaves is_active untouched.
+        $archived->restore();
+        ReportSchedule::withTrashed()->find($pausedArchived->id)->restore();
+
+        $raw = DB::table('report_schedules')->get()->keyBy('name');
+        $this->assertNull($raw['Active Archived']->archived_at);
+        $this->assertNull($raw['Paused Archived']->archived_at);
+        $this->assertTrue((bool) $raw['Active Archived']->is_active);
+        $this->assertFalse((bool) $raw['Paused Archived']->is_active);
+        $this->assertSame(0, ReportSchedule::onlyTrashed()->count());
+    }
+
+    // ---------------------------------------------------------------
+    // Recipient privacy
+    // ---------------------------------------------------------------
+
+    private const PRIVATE_ADDRESS = 'punong.barangay@example.test';
+
+    private function failedRunQuotingTheAddress(): ReportSchedule
+    {
+        // A realistic SMTP rejection, which quotes the rejected recipient.
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException(
+            'Expected response code "250/251/252" but got code "550", with message "550 5.1.1 <'.self::PRIVATE_ADDRESS.'>: Recipient address rejected"'
+        ));
+
+        $schedule = $this->schedule(['recipients' => [self::PRIVATE_ADDRESS, 'kagawad@example.test']]);
+        app(ScheduledReportDispatcher::class)->runOnce($schedule);
+
+        return $schedule;
+    }
+
+    public function test_an_administrator_still_receives_recipients_and_detailed_errors(): void
+    {
+        $this->admin();
+        $this->failedRunQuotingTheAddress();
+
+        $this->getJson('/api/report-schedules')
+            ->assertOk()
+            ->assertJsonPath('0.recipients', [self::PRIVATE_ADDRESS, 'kagawad@example.test'])
+            ->assertJsonPath('0.recipientCount', 2)
+            ->assertJsonPath('0.lastRunStatus', ReportEmailLog::STATUS_FAILED)
+            ->assertJsonPath('0.lastRunError', fn (string $e) => str_contains($e, self::PRIVATE_ADDRESS));
+
+        $this->getJson('/api/report-email-logs')
+            ->assertOk()
+            ->assertJsonPath('0.recipients', [self::PRIVATE_ADDRESS, 'kagawad@example.test'])
+            ->assertJsonPath('0.recipientCount', 2)
+            ->assertJsonPath('0.error', fn (string $e) => str_contains($e, 'Recipient address rejected'));
+    }
+
+    public function test_readonly_never_receives_recipient_addresses_or_raw_errors(): void
+    {
+        $schedule = $this->failedRunQuotingTheAddress();
+
+        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
+        $this->actingAsSupabase($viewer);
+
+        $responses = [
+            'schedules' => $this->getJson('/api/report-schedules')->assertOk(),
+            'logs' => $this->getJson('/api/report-email-logs')->assertOk(),
+        ];
+
+        // Archived schedules are shaped the same way.
+        $schedule->delete();
+        $responses['archived'] = $this->getJson('/api/report-schedules?archived=1')->assertOk();
+
+        foreach ($responses as $where => $response) {
+            $body = $response->getContent();
+            foreach ([self::PRIVATE_ADDRESS, 'kagawad@example.test', '@example.test', 'Recipient address rejected', '550'] as $needle) {
+                $this->assertStringNotContainsString($needle, $body, "Read-Only {$where} response leaked: {$needle}");
+            }
+
+            $row = $response->json('0');
+            $this->assertArrayNotHasKey('recipients', $row, $where);
+            $this->assertArrayNotHasKey('error', $row, $where);
+            $this->assertArrayNotHasKey('lastRunError', $row, $where);
+            $this->assertSame(2, $row['recipientCount'], $where);
+        }
+
+        // Only the generic delivery status remains.
+        $this->assertSame(ReportEmailLog::STATUS_FAILED, $responses['schedules']->json('0.lastRunStatus'));
+        $this->assertSame(ReportEmailLog::STATUS_FAILED, $responses['logs']->json('0.status'));
     }
 
     // ---------------------------------------------------------------
@@ -570,14 +1168,16 @@ class ScheduledReportTest extends TestCase
             ->assertJsonPath('0.lastRunError', 'SMTP connection refused');
     }
 
-    public function test_the_role_permissions_matrix_lists_scheduled_reports_as_administrator_only(): void
+    public function test_the_role_permissions_matrix_lists_reports_as_admin_managed_and_readonly_viewable(): void
     {
         $this->admin();
 
         $modules = collect($this->getJson('/api/role-permissions')->assertOk()->json('data.modules'))->keyBy('id');
 
-        $this->assertSame('full', $modules['scheduled-reports']['access'][User::ROLE_BADAC_ADMIN]);
-        $this->assertSame('none', $modules['scheduled-reports']['access'][User::ROLE_ENCODER]);
-        $this->assertSame('none', $modules['scheduled-reports']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertArrayNotHasKey('scheduled-reports', $modules->all());
+        $this->assertSame('Reports', $modules['reports']['label']);
+        $this->assertSame('full', $modules['reports']['access'][User::ROLE_BADAC_ADMIN]);
+        $this->assertSame('none', $modules['reports']['access'][User::ROLE_ENCODER]);
+        $this->assertSame('view', $modules['reports']['access'][User::ROLE_BADAC_READONLY]);
     }
 }

@@ -189,34 +189,39 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
 Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])
     ->post('/report-export-audit', [AuditLogController::class, 'reportExported']);
 
-// ===== Automated (scheduled) reports =====
+// ===== Reports (automated report schedules) =====
 //
-// ADMINISTRATOR ONLY, every route, read and write alike.
-//
-// A schedule is a standing instruction to e-mail crime records to an address,
-// repeatedly, with nobody present. That is a stronger capability than the
-// on-demand export above: POST /report-export-audit is open to every
-// authenticated role because each of them exports data from a screen it is
-// already entitled to see, whereas a schedule sends that data to a recipient
-// who need not be a user of this system at all. The read side is restricted
-// for the same reason it is on GET /audit-logs — the email log lists recipient
-// addresses and is exactly as sensitive as the audit trail.
-//
-// Encoder and Badac (read-only) therefore get a 403 from the role: middleware
-// before the controller runs, which is the same treatment they already get on
-// /users and /audit-logs.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+// READ: Administrator and BADAC Read-Only. Read-Only may see schedules (active,
+// or archived with ?archived=1) and their delivery status, but the controller
+// withholds recipient addresses and raw delivery errors from every
+// non-administrator — see ReportScheduleController. Encoder gets a 403.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
     Route::get('/report-schedules', [ReportScheduleController::class, 'index']);
+
+    // The delivery log: what ran, when, and whether it arrived.
+    Route::get('/report-email-logs', [ReportScheduleController::class, 'logs']);
+});
+
+// WRITE: ADMINISTRATOR ONLY. A schedule is a standing instruction to e-mail
+// crime records to an address, repeatedly, with nobody present — a stronger
+// capability than the on-demand export above, because the recipient need not
+// be a user of this system. Read-Only and Encoder get a 403 from the role:
+// middleware before the controller runs.
+//
+// There is deliberately NO delete route. A schedule is archived and restored
+// (SoftDeletes on report_schedules.archived_at); the row and its delivery
+// history are never removed. update and run bind non-archived schedules only,
+// so an archived schedule answers 404 there until it is restored. restore is
+// the one route bound withTrashed(), because its target IS archived.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/report-schedules', [ReportScheduleController::class, 'store']);
     Route::put('/report-schedules/{reportSchedule}', [ReportScheduleController::class, 'update']);
-    Route::delete('/report-schedules/{reportSchedule}', [ReportScheduleController::class, 'destroy']);
+    Route::put('/report-schedules/{reportSchedule}/archive', [ReportScheduleController::class, 'archive']);
+    Route::put('/report-schedules/{reportSchedule}/restore', [ReportScheduleController::class, 'restore'])
+        ->withTrashed();
 
     // Runs the schedule now, through the identical path the scheduler uses.
     Route::post('/report-schedules/{reportSchedule}/run', [ReportScheduleController::class, 'run']);
-
-    // The "Email Logs" evidence: what ran, for whom, when, and whether it
-    // arrived.
-    Route::get('/report-email-logs', [ReportScheduleController::class, 'logs']);
 });
 
 // GET /sync-logs, GET /users, GET /users/{user} — admin-only. Badac

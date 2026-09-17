@@ -7,26 +7,35 @@ import ConfirmActionModal from '../components/users/ConfirmActionModal';
 import { Icons } from '../components/icons';
 import { useToast } from '../hooks/useToast';
 import { useData } from '../hooks/useData';
+import { useAuth } from '../hooks/useAuth';
 import { reportScheduleService } from '../services/reportScheduleService';
 import { SITIOS, STATUSES, DAY_NAMES } from '../utils/constants';
 import { formatDateTime } from '../utils/helpers';
 
-// Scheduled Reports — Administrator only, its own module.
+// Reports — automated report schedules and their delivery log (/reports, in
+// the REPORTING sidebar section; /scheduled-reports redirects here).
 //
-// It used to be a section at the bottom of System Settings. It is the same
-// feature on the same endpoints: nothing about what a schedule can do has
-// changed, only where it is managed and how clearly.
+// WHO SEES WHAT
+//   Administrator      every control: create, edit, pause/resume, archive,
+//                      restore, Run Now; full recipients and delivery errors.
+//   BADAC Read-Only    the same lists, read only: no controls at all, a
+//                      recipient COUNT instead of addresses, and the bare
+//                      delivery result without the error text.
+//   Encoder            no access ('reports' is not in its modules).
 //
-// The route is guarded by ProtectedRoute ('scheduled-reports' is listed only in
-// ROLES.badac_admin.modules) and the sidebar entry is shown to that role alone.
-// NEITHER is the security boundary: every endpoint below carries
-// role:badac_admin server-side, so an Encoder or a read-only BADAC account that
-// called them directly is refused with a 403.
+// The controls are gated on can('manage_reports') for a clean read-only page,
+// but that is NOT the security boundary: every write endpoint is
+// role:badac_admin server-side, and the server never SENDS recipient addresses
+// or raw errors to a non-administrator in the first place — so this page reads
+// `recipients` and `error` only when they are present, and never needs to hide
+// them.
 //
-// Every control here maps to an endpoint that already exists — list, create,
-// update (including pause/resume), delete, run now, and the email log. The page
-// never displays or downloads report content: a schedule's output is an e-mail
-// attachment to a configured recipient, and no endpoint returns the records.
+// There is no delete. A schedule is archived (kept, with its delivery history,
+// and never sent) and can be restored from the Archived view.
+//
+// The page never displays or downloads report content: a schedule's output is
+// an e-mail attachment to a configured recipient, and no endpoint returns the
+// records.
 
 const PERIODS = [
   ['last_7_days', 'Last 7 days'],
@@ -83,7 +92,17 @@ function scheduleState(s) {
   return 'active';
 }
 
-const STATE_LABELS = { active: 'Active', paused: 'Paused', failed: 'Failed' };
+const STATE_LABELS = {
+  active: 'Active',
+  paused: 'Paused',
+  failed: 'Failed',
+  archived: 'Archived',
+};
+
+// "2 recipients". The only recipient information a Read-Only response
+// contains; an administrator's response also carries the addresses.
+const recipientCountLabel = (n) =>
+  `${n ?? 0} recipient${n === 1 ? '' : 's'}`;
 
 function StateBadge({ state }) {
   return (
@@ -209,14 +228,14 @@ function ScheduleFormModal({
     try {
       if (editing) {
         await reportScheduleService.update(editing.id, payload);
-        showToast(`Scheduled report "${payload.name}" updated`, 'success');
+        showToast(`Report schedule "${payload.name}" updated`, 'success');
       } else {
         await reportScheduleService.create(payload);
-        showToast(`Scheduled report "${payload.name}" created`, 'success');
+        showToast(`Report schedule "${payload.name}" created`, 'success');
       }
       onSaved();
     } catch (err) {
-      setServerError(err.message || 'Could not save the scheduled report.');
+      setServerError(err.message || 'Could not save the report schedule.');
     } finally {
       setSaving(false);
     }
@@ -226,7 +245,7 @@ function ScheduleFormModal({
     <Modal
       open={open}
       onClose={saving ? undefined : onClose}
-      title={editing ? 'Edit Scheduled Report' : 'Create Scheduled Report'}
+      title={editing ? 'Edit Report Schedule' : 'Create Report Schedule'}
       size="lg"
     >
       <form className="schedule-form" onSubmit={handleSubmit} noValidate>
@@ -457,7 +476,7 @@ function ScheduleFormModal({
               ? 'Saving…'
               : editing
                 ? 'Save Changes'
-                : 'Create Scheduled Report'}
+                : 'Create Report Schedule'}
           </Button>
         </div>
       </form>
@@ -468,6 +487,11 @@ function ScheduleFormModal({
 export default function ScheduledReports() {
   const { showToast } = useToast();
   const { CRIME_TYPES, CATEGORIES } = useData();
+  const { can } = useAuth();
+  const canManage = can('manage_reports');
+  // 'active' | 'archived' — which schedules the list shows.
+  const [view, setView] = useState('active');
+  const showingArchived = view === 'archived';
   const [schedules, setSchedules] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -476,26 +500,27 @@ export default function ScheduledReports() {
   const [editing, setEditing] = useState(null);
   // id of the schedule whose request is in flight, so only that row disables.
   const [busyId, setBusyId] = useState(null);
-  // { type: 'delete' | 'run', schedule }
+  // { type: 'archive' | 'restore' | 'run', schedule }
   const [confirm, setConfirm] = useState(null);
 
   const load = useCallback(async () => {
     setLoadError('');
     try {
       const [s, l] = await Promise.all([
-        reportScheduleService.list(),
+        reportScheduleService.list({ archived: showingArchived }),
         reportScheduleService.logs(),
       ]);
       setSchedules(s || []);
       setLogs(l || []);
     } catch (err) {
-      setLoadError(err.message || 'Could not load scheduled reports.');
+      setLoadError(err.message || 'Could not load report schedules.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showingArchived]);
 
   useEffect(() => {
+    setLoading(true);
     load();
   }, [load]);
 
@@ -545,7 +570,7 @@ export default function ScheduledReports() {
       // is in the log row. It must not be reported as a success.
       if (result?.log?.status === 'sent') {
         showToast(
-          `"${s.name}" sent to ${result.log.recipients.length} recipient(s) — ${result.log.rowCount} record(s)`,
+          `"${s.name}" sent to ${recipientCountLabel(result.log.recipientCount)} — ${result.log.rowCount} record(s)`,
           'success',
         );
       } else {
@@ -562,16 +587,34 @@ export default function ScheduledReports() {
     }
   };
 
-  const handleDelete = async (s) => {
+  // Archive and restore never change pause state, and neither touches the
+  // delivery log: an archived schedule keeps its history and is simply never
+  // sent until it is restored.
+  const handleArchive = async (s) => {
     setBusyId(s.id);
     try {
-      await reportScheduleService.remove(s.id);
+      await reportScheduleService.archive(s.id);
       await load();
-      // The delivery log keeps its rows: deleting a schedule stops future
-      // sends; it does not erase the record of sends that already happened.
-      showToast(`"${s.name}" deleted`, 'success');
+      showToast(`"${s.name}" archived`, 'success');
     } catch (err) {
-      showToast(err.message || 'Could not delete the schedule', 'error');
+      showToast(err.message || 'Could not archive the schedule', 'error');
+    } finally {
+      setBusyId(null);
+      setConfirm(null);
+    }
+  };
+
+  const handleRestore = async (s) => {
+    setBusyId(s.id);
+    try {
+      await reportScheduleService.restore(s.id);
+      await load();
+      showToast(
+        `"${s.name}" restored${s.isActive ? '' : ' (still paused)'}`,
+        'success',
+      );
+    } catch (err) {
+      showToast(err.message || 'Could not restore the schedule', 'error');
     } finally {
       setBusyId(null);
       setConfirm(null);
@@ -586,7 +629,7 @@ export default function ScheduledReports() {
     schedulesBody = (
       <div className="module-state" role="status">
         <span className="spinner spinner-inline" aria-hidden="true" /> Loading
-        scheduled reports…
+        report schedules…
       </div>
     );
   } else if (loadError) {
@@ -594,7 +637,7 @@ export default function ScheduledReports() {
       <div className="module-state module-state-error" role="alert">
         <Icons.AlertTriangle size={20} strokeWidth={2} aria-hidden="true" />
         <div>
-          <strong>Scheduled reports could not be loaded.</strong>
+          <strong>Report schedules could not be loaded.</strong>
           <p>{loadError}</p>
         </div>
         <Button
@@ -609,18 +652,29 @@ export default function ScheduledReports() {
         </Button>
       </div>
     );
+  } else if (schedules.length === 0 && showingArchived) {
+    schedulesBody = (
+      <div className="module-empty">
+        <Icons.CalendarClock size={32} strokeWidth={1.5} aria-hidden="true" />
+        <h3>No archived report schedules</h3>
+        <p>Archived schedules are kept here with their delivery history.</p>
+      </div>
+    );
   } else if (schedules.length === 0) {
     schedulesBody = (
       <div className="module-empty">
         <Icons.CalendarClock size={32} strokeWidth={1.5} aria-hidden="true" />
-        <h3>No scheduled reports yet</h3>
+        <h3>No report schedules yet</h3>
         <p>
-          Create a schedule to e-mail the Crime Data Collection report to
-          barangay officials automatically — daily, weekly or monthly.
+          {canManage
+            ? 'Create a schedule to e-mail the Crime Data Collection report to barangay officials automatically — daily, weekly or monthly.'
+            : 'No reports are currently scheduled.'}
         </p>
-        <Button variant="primary" onClick={openCreate}>
-          <Icons.Plus size={15} strokeWidth={2} /> Create Scheduled Report
-        </Button>
+        {canManage && (
+          <Button variant="primary" onClick={openCreate}>
+            <Icons.Plus size={15} strokeWidth={2} /> Create Report Schedule
+          </Button>
+        )}
       </div>
     );
   } else {
@@ -647,10 +701,13 @@ export default function ScheduledReports() {
               render: (_v, row) => describeSchedule(row),
             },
             {
-              key: 'recipients',
+              key: 'recipientCount',
               label: 'Recipients',
-              render: (v) => {
-                const list = v || [];
+              // Addresses exist in the row only for an administrator; a
+              // Read-Only response has the count and nothing else.
+              render: (count, row) => {
+                const list = row.recipients;
+                if (!Array.isArray(list)) return recipientCountLabel(count);
                 if (!list.length) return '—';
                 return (
                   <span title={list.join(', ')}>
@@ -663,8 +720,10 @@ export default function ScheduledReports() {
             {
               key: 'nextRunAt',
               label: 'Next Run',
-              render: (v, row) =>
-                row.isActive ? formatDateTime(v) || '—' : 'Paused',
+              render: (v, row) => {
+                if (row.isArchived) return 'Archived';
+                return row.isActive ? formatDateTime(v) || '—' : 'Paused';
+              },
             },
             {
               key: 'lastRunAt',
@@ -689,50 +748,82 @@ export default function ScheduledReports() {
             {
               key: 'isActive',
               label: 'Status',
-              render: (_v, row) => <StateBadge state={scheduleState(row)} />,
+              render: (_v, row) => (
+                <div className="cell-stack">
+                  <StateBadge state={scheduleState(row)} />
+                  {row.isArchived && <StateBadge state="archived" />}
+                </div>
+              ),
             },
           ]}
           rows={schedules}
-          actions={(row) => (
-            <div className="row-actions">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busyId === row.id}
-                onClick={() => setConfirm({ type: 'run', schedule: row })}
-                aria-label={`Run ${row.name} now`}
-              >
-                <Icons.Send size={14} strokeWidth={2} /> Run now
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busyId === row.id}
-                onClick={() => openEdit(row)}
-                aria-label={`Edit ${row.name}`}
-              >
-                <Icons.Edit size={14} strokeWidth={2} /> Edit
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busyId === row.id}
-                onClick={() => handleToggle(row)}
-                aria-label={`${row.isActive ? 'Pause' : 'Resume'} ${row.name}`}
-              >
-                {row.isActive ? 'Pause' : 'Resume'}
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                disabled={busyId === row.id}
-                onClick={() => setConfirm({ type: 'delete', schedule: row })}
-                aria-label={`Delete ${row.name}`}
-              >
-                <Icons.Delete size={14} strokeWidth={2} /> Delete
-              </Button>
-            </div>
-          )}
+          // No actions column at all without manage_reports.
+          actions={
+            canManage
+              ? (row) =>
+                  row.isArchived ? (
+                    <div className="row-actions">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyId === row.id}
+                        onClick={() =>
+                          setConfirm({ type: 'restore', schedule: row })
+                        }
+                        aria-label={`Restore ${row.name}`}
+                      >
+                        Restore
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="row-actions">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        // A paused schedule never sends, by any path; the
+                        // server refuses Run Now for it too.
+                        disabled={busyId === row.id || !row.isActive}
+                        title={
+                          row.isActive ? undefined : 'Resume this schedule to run it'
+                        }
+                        onClick={() => setConfirm({ type: 'run', schedule: row })}
+                        aria-label={`Run ${row.name} now`}
+                      >
+                        <Icons.Send size={14} strokeWidth={2} /> Run now
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyId === row.id}
+                        onClick={() => openEdit(row)}
+                        aria-label={`Edit ${row.name}`}
+                      >
+                        <Icons.Edit size={14} strokeWidth={2} /> Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyId === row.id}
+                        onClick={() => handleToggle(row)}
+                        aria-label={`${row.isActive ? 'Pause' : 'Resume'} ${row.name}`}
+                      >
+                        {row.isActive ? 'Pause' : 'Resume'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyId === row.id}
+                        onClick={() =>
+                          setConfirm({ type: 'archive', schedule: row })
+                        }
+                        aria-label={`Archive ${row.name}`}
+                      >
+                        Archive
+                      </Button>
+                    </div>
+                  )
+              : undefined
+          }
         />
       </div>
     );
@@ -748,12 +839,33 @@ export default function ScheduledReports() {
             Every run — scheduled or manual — is recorded in the delivery log.
           </p>
         </div>
-        <Button variant="primary" onClick={openCreate}>
-          <Icons.Plus size={15} strokeWidth={2} /> Create Scheduled Report
+        {canManage && (
+          <Button variant="primary" onClick={openCreate}>
+            <Icons.Plus size={15} strokeWidth={2} /> Create Report Schedule
+          </Button>
+        )}
+      </div>
+
+      <div className="row-actions" role="group" aria-label="Schedules to show">
+        <Button
+          size="sm"
+          variant={showingArchived ? 'secondary' : 'primary'}
+          aria-pressed={!showingArchived}
+          onClick={() => setView('active')}
+        >
+          Active
+        </Button>
+        <Button
+          size="sm"
+          variant={showingArchived ? 'primary' : 'secondary'}
+          aria-pressed={showingArchived}
+          onClick={() => setView('archived')}
+        >
+          Archived
         </Button>
       </div>
 
-      {!loading && !loadError && schedules.length > 0 && (
+      {!loading && !loadError && !showingArchived && schedules.length > 0 && (
         <ul className="summary-chips" aria-label="Schedule summary">
           <li>
             <StateBadge state="active" /> <strong>{counts.active}</strong>
@@ -767,13 +879,15 @@ export default function ScheduledReports() {
         </ul>
       )}
 
-      <Card title="Schedules">{schedulesBody}</Card>
+      <Card title={showingArchived ? 'Archived Schedules' : 'Schedules'}>
+        {schedulesBody}
+      </Card>
 
       <Card title="Delivery Log">
         <p className="settings-note">
-          The most recent report runs: the report, its recipients, how many
-          records it contained, and whether it was sent. Report contents are
-          never stored in this log.
+          The most recent report runs: the report, how many recipients and
+          records it had, and whether it was sent. Report contents are never
+          stored in this log.
         </p>
         {loading ? (
           <div className="module-state" role="status">
@@ -791,9 +905,14 @@ export default function ScheduledReports() {
                 },
                 { key: 'scheduleName', label: 'Schedule' },
                 {
-                  key: 'recipients',
+                  key: 'recipientCount',
                   label: 'Recipients',
-                  render: (v) => (v || []).join(', ') || '—',
+                  // Addresses only when the server included them (an
+                  // administrator's response); otherwise the count.
+                  render: (count, row) =>
+                    Array.isArray(row.recipients)
+                      ? row.recipients.join(', ') || '—'
+                      : recipientCountLabel(count),
                 },
                 {
                   key: 'rowCount',
@@ -832,52 +951,78 @@ export default function ScheduledReports() {
         )}
       </Card>
 
-      <ScheduleFormModal
-        open={formOpen}
-        editing={editing}
-        crimeTypes={CRIME_TYPES}
-        categories={CATEGORIES}
-        onClose={() => {
-          setFormOpen(false);
-          setEditing(null);
-        }}
-        onSaved={handleSaved}
-      />
+      {/* Mounted only for manage_reports: a Read-Only page has no form and no
+          confirmation dialogs at all. */}
+      {canManage && (
+        <>
+          <ScheduleFormModal
+            open={formOpen}
+            editing={editing}
+            crimeTypes={CRIME_TYPES}
+            categories={CATEGORIES}
+            onClose={() => {
+              setFormOpen(false);
+              setEditing(null);
+            }}
+            onSaved={handleSaved}
+          />
 
-      <ConfirmActionModal
-        open={confirm?.type === 'delete'}
-        title="Delete scheduled report?"
-        confirmLabel="Delete Schedule"
-        busyLabel="Deleting…"
-        variant="danger"
-        busy={confirmBusy}
-        onConfirm={() => handleDelete(confirming)}
-        onClose={() => setConfirm(null)}
-      >
-        {confirming && (
-          <p className="confirm-text">
-            <strong>{confirming.name}</strong> will stop sending. Its past
-            deliveries stay in the delivery log. This cannot be undone.
-          </p>
-        )}
-      </ConfirmActionModal>
+          <ConfirmActionModal
+            open={confirm?.type === 'archive'}
+            title="Archive report schedule?"
+            confirmLabel="Archive Schedule"
+            busyLabel="Archiving…"
+            busy={confirmBusy}
+            onConfirm={() => handleArchive(confirming)}
+            onClose={() => setConfirm(null)}
+          >
+            {confirming && (
+              <p className="confirm-text">
+                <strong>{confirming.name}</strong> will stop sending and move to
+                Archived. Nothing is deleted: its settings and delivery history
+                are kept, and it can be restored at any time.
+              </p>
+            )}
+          </ConfirmActionModal>
 
-      <ConfirmActionModal
-        open={confirm?.type === 'run'}
-        title="Send this report now?"
-        confirmLabel="Send Now"
-        busyLabel="Sending…"
-        busy={confirmBusy}
-        onConfirm={() => handleRun(confirming)}
-        onClose={() => setConfirm(null)}
-      >
-        {confirming && (
-          <p className="confirm-text">
-            <strong>{confirming.name}</strong> will be generated and e-mailed
-            immediately to {confirming.recipients?.length || 0} recipient(s).
-          </p>
-        )}
-      </ConfirmActionModal>
+          <ConfirmActionModal
+            open={confirm?.type === 'restore'}
+            title="Restore report schedule?"
+            confirmLabel="Restore Schedule"
+            busyLabel="Restoring…"
+            busy={confirmBusy}
+            onConfirm={() => handleRestore(confirming)}
+            onClose={() => setConfirm(null)}
+          >
+            {confirming && (
+              <p className="confirm-text">
+                <strong>{confirming.name}</strong> will return to the active
+                list.{' '}
+                {confirming.isActive
+                  ? 'It was active when archived, so it will send again on its schedule.'
+                  : 'It was paused when archived and stays paused until resumed.'}
+              </p>
+            )}
+          </ConfirmActionModal>
+
+          <ConfirmActionModal
+            open={confirm?.type === 'run'}
+            title="Send this report now?"
+            confirmLabel="Send Now"
+            busyLabel="Sending…"
+            busy={confirmBusy}
+            onConfirm={() => handleRun(confirming)}
+            onClose={() => setConfirm(null)}
+          >
+            {confirming && (
+              <p className="confirm-text">
+                <strong>{confirming.name}</strong> will be generated and e-mailed
+                immediately to {recipientCountLabel(confirming.recipientCount)}.
+              </p>
+            )}
+          </ConfirmActionModal>
+        </>
+      )}
     </section>
   );
 }

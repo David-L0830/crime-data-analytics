@@ -26,7 +26,9 @@ use Illuminate\Support\Carbon;
  *
  * --force skips only the due check. It does not skip the log, the recipient
  * list or anything else, so a forced run produces exactly the message and
- * exactly the report_email_logs row a scheduled run would.
+ * exactly the report_email_logs row a scheduled run would. It never sends a
+ * PAUSED schedule, and an ARCHIVED one is not found at all: both are refused
+ * by ScheduledReportDispatcher::runOnce() on every path.
  */
 class SendScheduledReports extends Command
 {
@@ -53,6 +55,7 @@ class SendScheduledReports extends Command
         $sent = 0;
         $failed = 0;
         $skipped = 0;
+        $blocked = 0;
 
         foreach ($schedules as $schedule) {
             if (! $this->option('force') && ! $schedule->isDue($now)) {
@@ -68,6 +71,16 @@ class SendScheduledReports extends Command
                 $now,
             );
 
+            // Paused (or archived): the dispatcher refuses it on every path,
+            // --force included. --force skips only the due check. Nothing was
+            // sent and nothing was logged, which is not a delivery failure.
+            if ($log === null) {
+                $blocked++;
+                $this->warn(sprintf('Not sent "%s": the schedule is paused. Resume it first.', $schedule->name));
+
+                continue;
+            }
+
             if ($log->status === ReportEmailLog::STATUS_SENT) {
                 $sent++;
                 $this->info(sprintf(
@@ -82,7 +95,7 @@ class SendScheduledReports extends Command
             }
         }
 
-        $this->line(sprintf('Done. sent=%d failed=%d not-due=%d', $sent, $failed, $skipped));
+        $this->line(sprintf('Done. sent=%d failed=%d not-due=%d paused=%d', $sent, $failed, $skipped, $blocked));
 
         // A failed send is reported through the exit code as well as the log,
         // so a cron runner (Render Cron Job, systemd timer, CI) marks the run

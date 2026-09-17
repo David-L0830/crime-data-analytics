@@ -1,25 +1,28 @@
 import { api } from './api';
 
-// Automated reports (Reporting System checklist, "Scheduled Reports").
+// Reports module (automated report schedules).
 //
-// Every endpoint here is administrator-only server-side — see the
-// role:badac_admin group in backend/routes/api.php. The Scheduled Reports page
-// that calls this service is itself administrator-only, but that is a convenience,
-// not the boundary: a non-administrator who called these directly is refused
-// by the middleware before the controller runs.
-//
-// Nothing in this module downloads a report. A schedule's output is an e-mail
-// attachment addressed to the recipients an administrator configured; there is
-// deliberately no endpoint that hands report content back over HTTP, so no URL
-// exists here that could be shared, bookmarked or leaked.
+// Reads (list, logs) are open to the Administrator and BADAC Read-Only; the
+// server withholds recipient addresses and raw delivery errors from every
+// non-administrator, so a Read-Only response carries `recipientCount` and the
+// bare status only. Every other call here is role:badac_admin on the server.
+// There is no delete: a schedule is archived and can be restored.
 export const reportScheduleService = {
-  list: () => api.get('/report-schedules'),
+  // Active (non-archived) schedules by default; archived ones when asked.
+  list: ({ archived = false } = {}) =>
+    api.get(archived ? '/report-schedules?archived=1' : '/report-schedules'),
 
   create: (data) => api.post('/report-schedules', data),
 
   update: (id, data) => api.put(`/report-schedules/${id}`, data),
 
-  remove: (id) => api.delete(`/report-schedules/${id}`),
+  // Non-destructive. Keeps the row, its pause state and its delivery history;
+  // an archived schedule is never sent until it is restored.
+  archive: (id) => api.put(`/report-schedules/${id}/archive`),
+
+  // Clears the archive only. A schedule archived while paused comes back
+  // paused.
+  restore: (id) => api.put(`/report-schedules/${id}/restore`),
 
   // Runs the schedule immediately, through the identical code path the
   // hourly scheduler uses — same generator, same message, same log row, only
@@ -28,7 +31,7 @@ export const reportScheduleService = {
   // succeeded and the outcome is what the caller needs to show.
   run: (id) => api.post(`/report-schedules/${id}/run`),
 
-  // The "Email Logs" evidence: what ran, for whom, when, and whether it
-  // arrived. Capped server-side.
+  // The delivery log: what ran, when, and whether it arrived. Capped
+  // server-side.
   logs: () => api.get('/report-email-logs'),
 };
