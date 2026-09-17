@@ -285,6 +285,85 @@ class RecordValidationTest extends TestCase
         $this->assertNull($fresh->validated_at);
     }
 
+    /**
+     * A validated record must not also carry a return.
+     *
+     * Approving a returned record used to set the validated columns and leave
+     * returned_by, returned_at and correction_reason exactly as they were.
+     * IncidentResource exposes all three, so the record reported that it had
+     * been validated AND that it had been sent back, with the reason still
+     * attached — two contradictory accounts of the same row.
+     */
+    public function test_validating_a_returned_record_clears_its_return_metadata(): void
+    {
+        $returner = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN, 'name' => 'First Reviewer']);
+        $incident = $this->pendingIncident([
+            'validation_status' => Incident::VALIDATION_RETURNED,
+            'returned_by' => $returner->id,
+            'returned_at' => now()->subDay(),
+            'correction_reason' => 'The victim age contradicts the narrative.',
+        ]);
+
+        $validator = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR, 'name' => 'Second Reviewer']);
+        $this->actingAsSupabase($validator);
+
+        $this->putJson("/api/incidents/{$incident->id}/validate")
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated')
+            ->assertJsonPath('data.validatedBy', 'Second Reviewer')
+            ->assertJsonPath('data.returnedBy', null)
+            ->assertJsonPath('data.returnedAt', null)
+            ->assertJsonPath('data.correctionReason', null);
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $fresh->validation_status);
+        $this->assertSame($validator->id, $fresh->validated_by);
+        $this->assertNotNull($fresh->validated_at);
+        $this->assertNull($fresh->returned_by);
+        $this->assertNull($fresh->returned_at);
+        $this->assertNull($fresh->correction_reason);
+    }
+
+    /**
+     * The same invariant along the route a record actually travels.
+     *
+     * A returned record is corrected by its Encoder, which resets it to pending
+     * and deliberately KEEPS correction_reason so the reviewer can see what was
+     * asked for. That is right while the record is pending. Once it is
+     * approved, the reason and the return must go with the rejection they
+     * belonged to.
+     */
+    public function test_a_corrected_and_resubmitted_record_keeps_no_return_metadata_once_validated(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $returner = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN, 'name' => 'First Reviewer']);
+        $incident = $this->pendingIncident([
+            'reported_by' => $encoder->id,
+            'validation_status' => Incident::VALIDATION_RETURNED,
+            'returned_by' => $returner->id,
+            'returned_at' => now()->subDay(),
+            'correction_reason' => 'Street name is missing.',
+        ]);
+
+        // The Encoder corrects it. Still pending, and the reason is still there
+        // on purpose — this assertion pins that existing behaviour.
+        $this->actingAsSupabase($encoder);
+        $this->putJson("/api/incidents/{$incident->id}", ['street' => '7 Rizal St.'])
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'pending')
+            ->assertJsonPath('data.correctionReason', 'Street name is missing.');
+
+        $admin = $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertOk();
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $fresh->validation_status);
+        $this->assertSame($admin->id, $fresh->validated_by);
+        $this->assertNull($fresh->returned_by);
+        $this->assertNull($fresh->returned_at);
+        $this->assertNull($fresh->correction_reason);
+    }
+
     // ---------------------------------------------------------------
     // Resubmission
     // ---------------------------------------------------------------

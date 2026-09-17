@@ -604,6 +604,28 @@ class IncidentController extends Controller
                     'validation_status' => Incident::VALIDATION_VALIDATED,
                     'validated_by' => $user->id,
                     'validated_at' => now(),
+
+                    // The return state is cleared by the same statement that
+                    // sets the validated state, so a validated row can never
+                    // also carry a return.
+                    //
+                    // Without this a record that had been sent back kept
+                    // returned_by, returned_at and correction_reason after it
+                    // was approved — and IncidentResource exposes all three, so
+                    // the modal showed "Validated by X" above the reason it had
+                    // been rejected for. The record contradicted itself.
+                    //
+                    // Cleared unconditionally rather than only for a row that
+                    // is currently 'returned'. The other way into this state is
+                    // a returned record the Encoder corrects: update() resets it
+                    // to pending and deliberately KEEPS correction_reason so the
+                    // reviewer can see what was asked for. That is right while
+                    // the record is pending, and wrong the moment it is
+                    // approved, and this clause covers both paths with one rule.
+                    'returned_by' => null,
+                    'returned_at' => null,
+                    'correction_reason' => null,
+
                     'updated_at' => now(),
                 ]);
 
