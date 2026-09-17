@@ -143,6 +143,12 @@ class Incident extends Model
         'returned_by',
         'returned_at',
         'correction_reason',
+        // Also server-controlled. Fillable so IncidentController::update() can
+        // append it to the column array, exactly as it appends the validation
+        // columns above — and safe for the same reason: mapToColumns() is an
+        // explicit allow-list that maps no client key to it, and the form
+        // requests never validate one, so nothing a caller sends can reach it.
+        'last_edited_by',
     ];
 
     protected function casts(): array
@@ -163,6 +169,16 @@ class Incident extends Model
     public function reporter()
     {
         return $this->belongsTo(User::class, 'reported_by');
+    }
+
+    /**
+     * The last authenticated user to substantively edit this incident's
+     * content. Null on a record nobody has edited since the column existed —
+     * which is every record created before it, and every newly created one.
+     */
+    public function lastEditor()
+    {
+        return $this->belongsTo(User::class, 'last_edited_by');
     }
 
     public function validator()

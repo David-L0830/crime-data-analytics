@@ -8,6 +8,7 @@ use App\Models\Incident;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -283,6 +284,229 @@ class RecordValidationTest extends TestCase
         $this->assertSame('returned', $fresh->validation_status);
         $this->assertNull($fresh->validated_by);
         $this->assertNull($fresh->validated_at);
+    }
+
+    // ---------------------------------------------------------------
+    // last_edited_by — who last changed the content under review
+    // ---------------------------------------------------------------
+
+    public function test_the_last_edited_by_column_exists_and_is_nullable(): void
+    {
+        $this->assertTrue(Schema::hasColumn('incidents', 'last_edited_by'));
+
+        // Nullable, and null by default: the column is added without a
+        // backfill, so every row that predates it stays unattributed.
+        $incident = $this->pendingIncident();
+        $this->assertNull($incident->fresh()->last_edited_by);
+    }
+
+    public function test_deleting_the_editor_nulls_the_reference_rather_than_the_record(): void
+    {
+        $editor = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['last_edited_by' => $editor->id]);
+
+        $editor->delete();
+
+        $fresh = $incident->fresh();
+        $this->assertNotNull($fresh, 'Deleting a user must not delete their incidents.');
+        $this->assertNull($fresh->last_edited_by);
+    }
+
+    public function test_creating_an_incident_records_the_submitter_but_no_editor(): void
+    {
+        // Creation is authorship, not an edit. reported_by already says who
+        // filed it; last_edited_by means somebody changed it afterwards.
+        $encoder = $this->encoder();
+
+        $response = $this->postJson('/api/incidents', [
+            'caseNumber' => 'CN-2026-7101',
+            'crimeType' => 'Theft',
+            'date' => '2026-09-01',
+            'sitio' => 'Sitio 1',
+            'street' => '12 Rizal St.',
+            'status' => 'Open',
+        ])->assertCreated();
+
+        $incident = Incident::findOrFail($response->json('data.id'));
+        $this->assertSame($encoder->id, $incident->reported_by);
+        $this->assertNull($incident->last_edited_by);
+    }
+
+    public function test_an_administrator_edit_records_the_administrator_as_last_editor(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['reported_by' => $encoder->id]);
+
+        $admin = $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}", ['street' => '12 Bonifacio St.'])->assertOk();
+
+        $fresh = $incident->fresh();
+        $this->assertSame($admin->id, $fresh->last_edited_by);
+        // The submitter is unchanged — the two fields answer different questions.
+        $this->assertSame($encoder->id, $fresh->reported_by);
+    }
+
+    public function test_an_encoder_correction_records_the_encoder_as_last_editor(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident([
+            'reported_by' => $encoder->id,
+            'validation_status' => Incident::VALIDATION_RETURNED,
+            'correction_reason' => 'Street name is missing.',
+        ]);
+
+        $this->actingAsSupabase($encoder);
+        $this->putJson("/api/incidents/{$incident->id}", ['street' => '7 Rizal St.'])->assertOk();
+
+        $this->assertSame($encoder->id, $incident->fresh()->last_edited_by);
+    }
+
+    public function test_a_client_cannot_choose_who_the_last_editor_was(): void
+    {
+        // The same protection the validation columns have: mapToColumns() is an
+        // allow-list and the form requests validate no such key, so a crafted
+        // body cannot name somebody else as the editor and unblock its own
+        // approval.
+        $someoneElse = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident();
+
+        $admin = $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}", [
+            'street' => '3 Mabini St.',
+            'lastEditedBy' => $someoneElse->id,
+            'last_edited_by' => $someoneElse->id,
+        ])->assertOk();
+
+        $this->assertSame($admin->id, $incident->fresh()->last_edited_by);
+    }
+
+    public function test_the_last_editor_cannot_validate_the_record(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['reported_by' => $encoder->id]);
+
+        // An Administrator holds edit_any_record, so this is the one role that
+        // can both rewrite a record and then approve it.
+        $admin = $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}", ['street' => '9 Luna St.'])->assertOk();
+
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertForbidden();
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_PENDING, $fresh->validation_status);
+        $this->assertNull($fresh->validated_by);
+        $this->assertNull($fresh->validated_at);
+        $this->assertSame(0, AuditLog::where('action', 'VALIDATE')->count());
+    }
+
+    public function test_a_different_reviewer_can_validate_a_record_someone_else_edited(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $editor = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN, 'name' => 'Editing Admin']);
+        $incident = $this->pendingIncident([
+            'reported_by' => $encoder->id,
+            'last_edited_by' => $editor->id,
+        ]);
+
+        $validator = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
+        $this->actingAsSupabase($validator);
+
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertOk();
+
+        $this->assertSame($validator->id, $incident->fresh()->validated_by);
+    }
+
+    public function test_a_record_nobody_has_edited_is_reviewed_on_its_submitter_alone(): void
+    {
+        // last_edited_by null must never match the caller, or every record
+        // predating the column would be frozen.
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['reported_by' => $encoder->id, 'last_edited_by' => null]);
+
+        $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertOk();
+
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $incident->fresh()->validation_status);
+    }
+
+    public function test_validating_does_not_change_the_last_editor(): void
+    {
+        $editor = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['last_edited_by' => $editor->id]);
+
+        $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertOk();
+
+        // The reviewer must not become the last editor — that would make every
+        // record's editor its reviewer and defeat this guard entirely.
+        $this->assertSame($editor->id, $incident->fresh()->last_edited_by);
+    }
+
+    public function test_returning_a_record_does_not_change_the_last_editor(): void
+    {
+        $editor = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['last_edited_by' => $editor->id]);
+
+        $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}/return", ['reason' => 'Victim age is wrong.'])
+            ->assertOk();
+
+        $this->assertSame($editor->id, $incident->fresh()->last_edited_by);
+    }
+
+    public function test_archiving_and_restoring_do_not_change_the_last_editor(): void
+    {
+        $editor = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $incident = $this->pendingIncident(['last_edited_by' => $editor->id, 'status' => 'Open']);
+
+        $this->admin();
+        $this->putJson("/api/incidents/{$incident->id}/archive")->assertOk();
+        $this->assertSame($editor->id, $incident->fresh()->last_edited_by);
+
+        $this->putJson("/api/incidents/{$incident->id}/restore")->assertOk();
+        $this->assertSame($editor->id, $incident->fresh()->last_edited_by);
+    }
+
+    /**
+     * Returning a record must not bind its reviewer to it for ever.
+     *
+     * B edits and returns; A corrects. A's correction takes over
+     * last_edited_by, so B is now reviewing A's words — which is what review
+     * is. B must be allowed to validate.
+     */
+    public function test_a_reviewer_may_validate_after_the_encoder_corrects_what_the_reviewer_edited(): void
+    {
+        $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
+        $reviewer = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN, 'name' => 'Reviewing Admin']);
+        $incident = $this->pendingIncident(['reported_by' => $encoder->id]);
+
+        // B edits, then returns it.
+        $this->actingAsSupabase($reviewer);
+        $this->putJson("/api/incidents/{$incident->id}", ['street' => '4 Del Pilar St.'])->assertOk();
+        $this->assertSame($reviewer->id, $incident->fresh()->last_edited_by);
+
+        $this->putJson("/api/incidents/{$incident->id}/return", ['reason' => 'Street still looks wrong.'])
+            ->assertOk();
+
+        // B cannot validate while B's own edit is the newest content.
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertForbidden();
+
+        // A corrects it, taking over last_edited_by.
+        $this->actingAsSupabase($encoder);
+        $this->putJson("/api/incidents/{$incident->id}", ['street' => '5 Del Pilar St.'])->assertOk();
+        $this->assertSame($encoder->id, $incident->fresh()->last_edited_by);
+
+        // B may now validate, and the 2C cleanup still applies.
+        $this->actingAsSupabase($reviewer);
+        $this->putJson("/api/incidents/{$incident->id}/validate")->assertOk();
+
+        $fresh = $incident->fresh();
+        $this->assertSame(Incident::VALIDATION_VALIDATED, $fresh->validation_status);
+        $this->assertSame($reviewer->id, $fresh->validated_by);
+        $this->assertSame($encoder->id, $fresh->last_edited_by);
+        $this->assertNull($fresh->returned_by);
+        $this->assertNull($fresh->returned_at);
+        $this->assertNull($fresh->correction_reason);
     }
 
     // ---------------------------------------------------------------

@@ -284,6 +284,18 @@ class IncidentController extends Controller
                 $columns['validated_at'] = null;
             }
 
+            // This endpoint is the one place incident CONTENT changes, for the
+            // Administrator and for the Encoder correcting their own record
+            // alike, so it is the one place that records who changed it.
+            // approve(), returnForCorrection(), archive() and restore() change
+            // workflow or lifecycle state and deliberately leave this alone.
+            //
+            // Appended here, after mapToColumns(), for the same reason as the
+            // validation columns above: nothing the client sent can supply or
+            // override it. The value comes from the authenticated session and
+            // from nowhere else.
+            $columns['last_edited_by'] = $user?->id;
+
             $locked->update($columns);
 
             $this->syncEvidence($request, $locked, $request->validated());
@@ -612,6 +624,25 @@ class IncidentController extends Controller
         // not the caller.
         if ($incident->reported_by === $user->id) {
             return response()->json(['message' => 'You cannot validate an incident you submitted yourself. Another BADAC Administrator or BADAC Validator must review it.'], 403);
+        }
+
+        // The other way to end up reviewing your own words. An Administrator
+        // holds edit_any_record, so they can rewrite somebody else's record and
+        // then approve it — the submitter is a different person, so the guard
+        // above lets it through, but the content under review is the
+        // reviewer's. last_edited_by is what makes that visible; see the
+        // add_last_edited_by_to_incidents_table migration for why it is a
+        // column rather than something derived from audit_logs.
+        //
+        // Null again matches nobody: a record nobody has edited since the
+        // column existed is reviewed on its creator alone.
+        //
+        // Note this does NOT permanently bind a reviewer to a record. If B
+        // edits and returns it and then A corrects it, A's correction takes
+        // over last_edited_by and B may validate — B is then reviewing A's
+        // words, which is exactly what review is.
+        if ($incident->last_edited_by === $user->id) {
+            return response()->json(['message' => 'You cannot validate an incident you last edited. Another BADAC Administrator or BADAC Validator must review it.'], 403);
         }
 
         $updated = DB::transaction(function () use ($request, $incident, $user) {
