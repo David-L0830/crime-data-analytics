@@ -20,6 +20,8 @@ import {
   coordinatePayload,
   submissionErrorMessages,
 } from './incidentSubmission';
+import LocationPicker from './LocationPicker';
+import { formatCoordinate } from './locationPickerState';
 
 // The complainant is whoever filed the report. Usually that is the victim
 // themselves, which is what complainantIsVictim records; when it is not, the
@@ -579,6 +581,29 @@ const emptyForm = {
   evidenceItems: [{ evidenceId: '', description: '' }],
 };
 
+/** Whether a coordinate field holds nothing at all. */
+function isBlankCoordinate(value) {
+  return value === null || value === undefined || String(value).trim() === '';
+}
+
+/**
+ * One coordinate as the read-only display shows it.
+ *
+ * The formatting itself is formatCoordinate's — seven places, matching what
+ * `incidents.latitude` / `longitude` store — and is not duplicated here. This
+ * only decides what to show when there is nothing to format.
+ *
+ * An empty field reads "Not set". A stored value that CANNOT be formatted is
+ * shown exactly as it is stored, rather than as "Not set": hiding a malformed
+ * coordinate behind an empty-looking placeholder would misrepresent the record,
+ * and this form is not allowed to correct it either. The encoder has to be able
+ * to see what is actually there before deciding to replace or clear it.
+ */
+function coordinateDisplay(value) {
+  if (isBlankCoordinate(value)) return 'Not set';
+  return formatCoordinate(value) || String(value);
+}
+
 // Shared form body for both create and edit — keeps the two modals visually
 // and behaviorally identical (Part H-27: Encoder needs this same form to
 // "enter crime type/category, incident date/time, location, sitio/street,
@@ -750,25 +775,93 @@ function IncidentFormFields({
           onChange={set('street')}
         />
       </div>
-      <div className="form-group">
-        <label htmlFor={`${uid}-latitude`}>Latitude</label>
-        <input
-          id={`${uid}-latitude`}
-          type="number"
-          step="any"
-          value={form.latitude}
-          onChange={set('latitude')}
-        />
-      </div>
-      <div className="form-group">
-        <label htmlFor={`${uid}-longitude`}>Longitude</label>
-        <input
-          id={`${uid}-longitude`}
-          type="number"
-          step="any"
-          value={form.longitude}
-          onChange={set('longitude')}
-        />
+      {/* LOCATION — a map, not two number boxes.
+
+          Latitude and longitude are no longer typed. They are produced by
+          LocationPicker, which refuses a point outside Barangay 178 and never
+          moves one that already is. Both values stay visible, read-only, so
+          the record's exact coordinates can still be read and exported — but
+          the only ways to change them are to move the pin or clear them.
+
+          Full width, because the map needs both columns of .form-grid to be
+          usable at all.
+
+          THE PICKER IS ADVISORY, NOT AUTHORITATIVE. StoreIncidentRequest /
+          UpdateIncidentRequest and the ValidatesIncidentLocation concern parse
+          their own copy of the boundary and remain the thing that decides what
+          may be stored. Nothing here weakens that, and a coordinate that
+          reached the payload another way still meets the same server test. */}
+      <div className="form-group full incident-location">
+        <span className="incident-location-title" id={`${uid}-location`}>
+          Pin exact location on map
+        </span>
+        <p className="form-hint" id={`${uid}-location-hint`}>
+          Click inside the Barangay 178 boundary to place the pin, or drag the
+          pin to adjust it. Optional — leave it unset if this report has no
+          exact location.
+        </p>
+
+        {/* Named and described for a screen reader here rather than inside the
+            picker: the map is a reusable component and should not have to know
+            which form it is standing in. */}
+        <div
+          role="group"
+          aria-labelledby={`${uid}-location`}
+          aria-describedby={`${uid}-location-hint`}
+        >
+          <LocationPicker
+            latitude={form.latitude}
+            longitude={form.longitude}
+            // The form's own setter, twice — not a second coordinate state.
+            // React applies both in one update, and the form stays the single
+            // place the pair is held.
+            onChange={(latitude, longitude) => {
+              setValue('latitude', latitude);
+              setValue('longitude', longitude);
+            }}
+          />
+        </div>
+
+        <div className="incident-location-footer">
+          {/* A live region. Moving the pin changes these two values, and
+              somebody who cannot see the map still has to be told what was
+              selected. Both sit in ONE region so a single move is announced
+              once rather than twice. */}
+          <div className="incident-location-readout" role="status">
+            <span>
+              <span className="incident-location-key">Latitude</span>
+              <span className="incident-location-value">
+                {coordinateDisplay(form.latitude)}
+              </span>
+            </span>
+            <span>
+              <span className="incident-location-key">Longitude</span>
+              <span className="incident-location-value">
+                {coordinateDisplay(form.longitude)}
+              </span>
+            </span>
+          </div>
+
+          {/* Clearing belongs to the form, not to the picker: it changes the
+              FORM's value, and it has to empty BOTH halves — coordinatePayload
+              then sends null for each, which the server accepts, rather than
+              leaving half a pair its required_with rule would reject. */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setValue('latitude', '');
+              setValue('longitude', '');
+            }}
+            disabled={
+              isBlankCoordinate(form.latitude) &&
+              isBlankCoordinate(form.longitude)
+            }
+          >
+            Clear location
+          </Button>
+        </div>
       </div>
       <div className="form-group">
         <label htmlFor={`${uid}-victim-name`}>Victim Name</label>

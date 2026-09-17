@@ -6146,3 +6146,167 @@ select {
   overflow-wrap: anywhere;
   user-select: all;
 }
+
+/* =====================================================================
+   Incident location picker (src/components/incidents/LocationPicker.jsx)
+   A map the encoder points at, in place of two coordinate boxes.
+   Its own classes rather than the .map-* ones: those belong to the Crime
+   Mapping page's sidebar layout, and the two must stay independent.
+   ===================================================================== */
+.location-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Its own stacking context. Leaflet gives its panes and controls high
+     z-indexes of their own (400-1000); contained here, they cannot rise
+     above the dialog this picker sits inside. */
+  position: relative;
+  z-index: 0;
+}
+
+.location-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.location-picker-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.location-picker-basemaps {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.location-picker-basemaps button {
+  padding: 4px 10px;
+  border: 0;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.location-picker-basemaps button + button {
+  border-left: 1px solid var(--border);
+}
+
+.location-picker-basemaps button:hover {
+  background: var(--bg-hover);
+}
+
+.location-picker-basemaps button.is-active {
+  background: var(--accent);
+  color: var(--color-white);
+}
+
+.location-picker-map {
+  height: 320px;
+  min-height: 240px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* The whole point of the control is that a click means something. */
+  cursor: crosshair;
+}
+
+/* The pin. A divIcon drawn entirely in CSS, so it needs no marker image and
+   no CDN request — see the note in LocationPicker.jsx for why the default
+   Leaflet icon is deliberately not used here. */
+.location-picker-pin {
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--color-white);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}
+
+.location-picker-pin:active {
+  cursor: grabbing;
+}
+
+/* Two tones, because the two situations are genuinely different. A point
+   outside the barangay is not a failure — the picker is working exactly as
+   designed and is refusing to record a location this barangay has no
+   jurisdiction over — so it is amber rather than red. */
+.location-picker-notice {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.location-picker-notice.warning {
+  color: var(--warning-text);
+}
+
+.location-picker-notice.error {
+  color: var(--danger-text);
+}
+
+/* =====================================================================
+   Incident form — location section (IncidentModal.jsx)
+   Wraps the LocationPicker above with the form's own label, read-only
+   coordinate read-out and Clear control. The picker keeps its own
+   .location-picker-* rules; these only position it inside .form-grid.
+   ===================================================================== */
+.incident-location {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A span, not a <label>: there is no single form control for it to point at,
+   and it names the whole group instead through aria-labelledby. Styled to
+   match the real labels beside it so the section does not read as different. */
+.incident-location-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.incident-location .form-hint {
+  margin: -2px 0 2px;
+}
+
+.incident-location-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.incident-location-readout {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+
+.incident-location-readout > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.incident-location-key {
+  color: var(--text-secondary);
+}
+
+.incident-location-key::after {
+  content: ':';
+}
+
+/* Monospace so latitude and longitude line up digit for digit, and so seven
+   decimal places are readable rather than a run of similar glyphs. */
+.incident-location-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-primary);
+}
