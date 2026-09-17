@@ -246,7 +246,7 @@ export default function IncidentFeed() {
   };
 
   // Record validation — BADAC Administrator only. can('validate_record') is
-  // UI gating; PUT /incidents/{id}/validate and /return are role:badac_admin
+  // UI gating; PUT /incidents/{id}/validate and /return are role:badac_admin,badac_validator
   // on the server and refuse everyone else with a 403.
   const canValidate = can('validate_record');
 

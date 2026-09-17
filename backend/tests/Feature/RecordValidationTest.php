@@ -11,13 +11,14 @@ use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * Record validation by the BADAC Administrator.
+ * Record validation by the BADAC Administrator or BADAC Validator.
  *
- * A submitted incident is pending until an Administrator validates it or
- * returns it for correction. The properties that matter, each with its own
- * group below:
+ * A submitted incident is pending until an Administrator or Validator
+ * validates it or returns it for correction. The properties that matter, each
+ * with its own group below:
  *
- *   - Only an Administrator can validate or return, enforced on the server.
+ *   - Only an Administrator or Validator can validate or return, enforced on
+ *     the server.
  *   - A client cannot set the validation state through create or update.
  *   - Every transition persists who, when and (for a return) why, and leaves
  *     an audit row.
@@ -122,17 +123,30 @@ class RecordValidationTest extends TestCase
         $this->assertSame('pending', $incident->fresh()->validation_status);
     }
 
-    public function test_a_readonly_badac_account_cannot_validate_or_return(): void
+    public function test_a_badac_validator_can_validate(): void
     {
-        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
-        $this->actingAsSupabase($viewer);
+        $validator = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
+        $this->actingAsSupabase($validator);
         $incident = $this->pendingIncident();
 
-        $this->putJson("/api/incidents/{$incident->id}/validate")->assertForbidden();
-        $this->putJson("/api/incidents/{$incident->id}/return", ['reason' => 'Wrong sitio recorded.'])
-            ->assertForbidden();
+        $this->putJson("/api/incidents/{$incident->id}/validate")
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated');
 
-        $this->assertSame('pending', $incident->fresh()->validation_status);
+        $this->assertSame($validator->id, $incident->fresh()->validated_by);
+    }
+
+    public function test_a_badac_validator_can_return_for_correction(): void
+    {
+        $validator = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
+        $this->actingAsSupabase($validator);
+        $incident = $this->pendingIncident();
+
+        $this->putJson("/api/incidents/{$incident->id}/return", ['reason' => 'Wrong sitio recorded.'])
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'returned');
+
+        $this->assertSame($validator->id, $incident->fresh()->returned_by);
     }
 
     public function test_an_unauthenticated_request_cannot_validate(): void

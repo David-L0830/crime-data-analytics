@@ -322,7 +322,7 @@ class IncidentController extends Controller
      * carries what the bell needs to be useful without opening the case: the
      * case number, what happened, and where. Nothing here identifies a victim,
      * a complainant or a suspect — the notification is visible to every role,
-     * including read-only BADAC accounts, and naming a private individual in
+     * including BADAC Validator accounts, and naming a private individual in
      * it would disclose more than the recipient needs in order to decide
      * whether to open the record.
      *
@@ -574,13 +574,13 @@ class IncidentController extends Controller
         return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
     }
 
-    // PUT /api/incidents/{incident}/validate — BADAC Administrator only.
+    // PUT /api/incidents/{incident}/validate — BADAC Administrator or BADAC
+    // Validator.
     //
-    // Authorization is the role:badac_admin middleware on the route (see
-    // routes/api.php); an Encoder or read-only BADAC account is refused with a
-    // 403 before this runs, whatever the frontend shows. The admin check below
-    // repeats it inside the action itself so the rule survives the route ever
-    // being regrouped.
+    // Authorization is the role:badac_admin,badac_validator middleware on the
+    // route (see routes/api.php); an Encoder is refused with a 403 before this
+    // runs, whatever the frontend shows. The check below repeats it inside the
+    // action itself so the rule survives the route ever being regrouped.
     //
     // The transition is a single conditional UPDATE rather than read-then-
     // write, so two Administrators acting at once cannot both "win": the
@@ -588,8 +588,8 @@ class IncidentController extends Controller
     public function approve(Request $request, Incident $incident)
     {
         $user = $request->user();
-        if (! $user?->isAdmin()) {
-            return response()->json(['message' => 'Only a BADAC Administrator may validate records.'], 403);
+        if (! $user?->canValidateRecords()) {
+            return response()->json(['message' => 'Only a BADAC Administrator or BADAC Validator may validate records.'], 403);
         }
 
         if ($incident->status === 'Archived') {
@@ -630,7 +630,8 @@ class IncidentController extends Controller
         return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
     }
 
-    // PUT /api/incidents/{incident}/return — BADAC Administrator only.
+    // PUT /api/incidents/{incident}/return — BADAC Administrator or BADAC
+    // Validator, authorized exactly as approve() above.
     //
     // Sends a record back to its encoder with a required reason. Allowed from
     // pending AND from validated: an Administrator who finds an error in an
@@ -642,8 +643,8 @@ class IncidentController extends Controller
     public function returnForCorrection(Request $request, Incident $incident)
     {
         $user = $request->user();
-        if (! $user?->isAdmin()) {
-            return response()->json(['message' => 'Only a BADAC Administrator may return records for correction.'], 403);
+        if (! $user?->canValidateRecords()) {
+            return response()->json(['message' => 'Only a BADAC Administrator or BADAC Validator may return records for correction.'], 403);
         }
 
         $data = $request->validate([

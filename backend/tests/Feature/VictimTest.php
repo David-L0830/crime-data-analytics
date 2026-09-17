@@ -11,7 +11,7 @@ use Tests\TestCase;
 
 // Checkpoint 38 — the 'supabase.mfa' (EnsureSupabaseAal2) middleware has
 // been removed from every route. Victim/Criminal routes now carry only
-// 'auth:supabase' + 'role:badac_admin[,badac_readonly]' — see
+// 'auth:supabase' + 'role:badac_admin[,badac_validator]' — see
 // routes/api.php. HTTP endpoint tests use the shared signed-JWT helper
 // from Tests\TestCase.
 class VictimTest extends TestCase

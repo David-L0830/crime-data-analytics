@@ -18,7 +18,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // most-privileged so the default selection in a new-account form is never the
 // most powerful role by accident.
 export const ROLE_OPTIONS = [
-  { value: 'badac_readonly', label: 'BADAC (read-only)' },
+  { value: 'badac_validator', label: 'BADAC Validator' },
   { value: 'encoder', label: 'Encoder' },
   { value: 'badac_admin', label: 'Administrator' },
 ];

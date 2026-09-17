@@ -105,7 +105,7 @@ class ReportExportAuditTest extends TestCase
 
     public function test_a_read_only_badac_user_may_record_an_export(): void
     {
-        $this->actingUser(User::ROLE_BADAC_READONLY);
+        $this->actingUser(User::ROLE_BADAC_VALIDATOR);
 
         $this->postJson(self::ENDPOINT, ['report' => 'criminal-records'])->assertOk();
 
@@ -159,7 +159,7 @@ class ReportExportAuditTest extends TestCase
 
     public function test_the_audit_log_list_remains_admin_only(): void
     {
-        $this->actingUser(User::ROLE_BADAC_READONLY);
+        $this->actingUser(User::ROLE_BADAC_VALIDATOR);
 
         $this->postJson(self::ENDPOINT, ['report' => 'dashboard'])->assertOk();
         // Recording an export must not have widened who can READ the trail.

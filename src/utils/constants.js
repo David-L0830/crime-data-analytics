@@ -145,7 +145,7 @@ export const ASSIGNABLE_STATUSES = [
 // the values the API returns in `validationStatus` (Incident::VALIDATION_* on
 // the server); labels are what the interface shows. Only the server ever sets
 // these: POST/PUT /incidents ignore them, and PUT /incidents/{id}/validate and
-// /return are role:badac_admin.
+// /return are role:badac_admin,badac_validator.
 export const VALIDATION_STATUS_LABELS = {
   pending: 'Pending Validation',
   validated: 'Validated',
@@ -194,7 +194,7 @@ export const COLORS = {
 };
 
 // Three account types: Administrator (full access), Encoder (restricted to
-// the Crime Data Collection Module), and BADAC (read-only). Kept as a map
+// the Crime Data Collection Module), and BADAC Validator. Kept as a map
 // (rather than a single hardcoded object) so ProtectedRoute/hasAccess/can
 // keep working unchanged against whatever role string the backend returns —
 // see backend app/Models/User.php for the matching server-side role constants.
@@ -230,22 +230,22 @@ export const ROLES = {
     // GET/PUT /users*.
     modules: ['incident-feed', 'user-management'],
   },
-  // Read-only BADAC viewer account (username "Badac", display name "Gilbert
-  // Franco") — full view access from the Crime Reporting Dashboard through
-  // Records, but no Audit Logs (Checkpoint 38 — BADAC users must not have
-  // Audit Logs access; previously badac_readonly had full/unscoped audit-log
-  // visibility, that is intentionally revoked here), no User Management/
-  // Settings (account administration stays badac_admin-only), and per
-  // PERMISSIONS below, no create/edit/delete capability anywhere. The
-  // backend enforces the same restriction independently — see
-  // GET /audit-logs in backend/routes/api.php — this list only controls
-  // what the UI shows.
-  badac_readonly: {
-    label: 'BADAC',
+  // BADAC Validator (username "Badac", display name "Gilbert Franco"), which
+  // replaced the former read-only BADAC role — view access from the Crime
+  // Reporting Dashboard through Records, plus record validation (see
+  // PERMISSIONS below), but no Audit Logs (Checkpoint 38 — BADAC users must
+  // not have Audit Logs access), no User Management/Settings (account
+  // administration stays badac_admin-only), and no create/edit/archive/
+  // restore capability anywhere. The backend enforces the same restriction
+  // independently — see backend/routes/api.php — and withholds contact
+  // numbers and addresses (complainant, victim, criminal) from this role in
+  // the API responses themselves; this list only controls what the UI shows.
+  badac_validator: {
+    label: 'BADAC Validator',
     // Checkpoint 28 — 'residents' removed (Resident Registry module
-    // removed). badac_readonly never had 'security'/2FA access before this
-    // checkpoint and still doesn't (unaffected by the Security→User
-    // Management move). Checkpoint 38 — 'audit-logs' removed.
+    // removed). This role never had 'security'/2FA access and still doesn't
+    // (unaffected by the Security→User Management move). Checkpoint 38 —
+    // 'audit-logs' removed.
     // 'reports' — VIEW only: schedules and delivery status. The backend
     // withholds recipient addresses and raw delivery errors from this role,
     // and every Reports action is gated on 'manage_reports', which this role
@@ -275,20 +275,21 @@ export const PERMISSIONS = {
     'view_audit_logs',
     'manage_settings',
     // Record validation (approve / return for correction). UI gating only —
-    // the real control is role:badac_admin on PUT /incidents/{id}/validate
-    // and /return in backend/routes/api.php.
+    // the real control is role:badac_admin,badac_validator on
+    // PUT /incidents/{id}/validate and /return in backend/routes/api.php.
     'validate_record',
     // Reports: create, edit, pause/resume, archive, restore and Run Now. UI
     // gating only — every one of those endpoints is role:badac_admin in
     // backend/routes/api.php.
     'manage_reports',
   ],
-  // badac_readonly intentionally has no entries here: view access is granted
-  // entirely through ROLES.badac_readonly.modules above, and can() returns
-  // false for every mutation permission (create_incident, edit_any_record,
-  // edit_own_incident, archive_record, archive_own_incident, manage_settings)
-  // since none of them are listed for this role.
-  badac_readonly: [],
+  // badac_validator's only action is record validation. View access is
+  // granted entirely through ROLES.badac_validator.modules above, and can()
+  // returns false for every other permission (create_incident,
+  // edit_any_record, edit_own_incident, archive_record, archive_own_incident,
+  // view_audit_logs, manage_settings, manage_reports) since none of them are
+  // listed for this role.
+  badac_validator: ['validate_record'],
   // Encoder has no Archive capability in the UI: 'archive_own_incident' is
   // deliberately absent here, so can() returns false and IncidentFeed hides
   // the Archive action for this role.
@@ -356,8 +357,8 @@ export const NAV_ITEMS = [
   // Reports — its own REPORTING section: reporting is a functional capability
   // of the system, not account administration. The id is the route (/reports;
   // the old /scheduled-reports redirects here). Administrator manages;
-  // BADAC Read-Only views. The real control is server-side: reads are
-  // role:badac_admin,badac_readonly and every write is role:badac_admin.
+  // BADAC Validator views. The real control is server-side: reads are
+  // role:badac_admin,badac_validator and every write is role:badac_admin.
   {
     id: 'reports',
     label: 'Reports',

@@ -45,7 +45,7 @@ class AppNotification extends Model
 
     /**
      * Encodes the roles an announcement is for, in the delimiter-wrapped form
-     * scopeForRole() matches against (",badac_admin,badac_readonly,").
+     * scopeForRole() matches against (",badac_admin,badac_validator,").
      *
      * Passing no roles returns null, which means "every authenticated role" —
      * the correct value for anything about incidents, which all three roles can

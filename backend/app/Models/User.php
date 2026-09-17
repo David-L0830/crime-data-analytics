@@ -14,24 +14,27 @@ class User extends Authenticatable
     // Three account types: Administrator (full access), Encoder (restricted
     // to the Crime Data Collection Module — see routes/api.php for the role
     // middleware and IncidentController for per-record ownership checks on
-    // Encoder updates), and BADAC (read-only — see the ROLE_BADAC_READONLY
+    // Encoder updates), and BADAC Validator (see the ROLE_BADAC_VALIDATOR
     // comment below).
     public const ROLE_BADAC_ADMIN = 'badac_admin';
 
     public const ROLE_ENCODER = 'encoder';
 
-    // Read-only BADAC viewer account (seeded username "Badac", display name
-    // "Gilbert Franco" — see database/seeders/UserSeeder.php). Can view
-    // every module badac_admin can except User Management/Settings, but has
-    // no create/edit/delete access anywhere — enforced via routes/api.php's
-    // `role:` middleware (never included in a mutation route's allowed-role
-    // list) rather than by any change to the controllers themselves.
-    public const ROLE_BADAC_READONLY = 'badac_readonly';
+    // BADAC Validator (seeded username "Badac", display name "Gilbert Franco"
+    // — see database/seeders/UserSeeder.php). Replaces the former read-only
+    // BADAC role. Views the Dashboard, Crime Mapping, Statistical Analysis,
+    // Trends, Incident Records, Records and Reports, and may validate or
+    // return incidents. It creates, edits, archives and restores nothing and
+    // has no User Management, Settings, report-schedule or Audit Logs access —
+    // enforced by routes/api.php's `role:` middleware, which lists this role
+    // on no mutation route other than validate/return. Contact numbers and
+    // addresses are withheld from it by the resources (canViewContactDetails).
+    public const ROLE_BADAC_VALIDATOR = 'badac_validator';
 
     public const ROLE_LABELS = [
         self::ROLE_BADAC_ADMIN => 'Administrator',
         self::ROLE_ENCODER => 'Encoder',
-        self::ROLE_BADAC_READONLY => 'BADAC',
+        self::ROLE_BADAC_VALIDATOR => 'BADAC Validator',
     ];
 
     // users.mfa_method — the one alternative to Supabase TOTP an account can
@@ -222,9 +225,32 @@ class User extends Authenticatable
         return $this->role === self::ROLE_ENCODER;
     }
 
-    public function isReadOnlyViewer(): bool
+    public function isValidator(): bool
     {
-        return $this->role === self::ROLE_BADAC_READONLY;
+        return $this->role === self::ROLE_BADAC_VALIDATOR;
+    }
+
+    // Record validation (validate / return for correction). The route
+    // middleware admits the same two roles; this is the in-action repeat.
+    public function canValidateRecords(): bool
+    {
+        return $this->isAdmin() || $this->isValidator();
+    }
+
+    /**
+     * Whether this account may receive contact numbers and addresses —
+     * complainant contact/address on incidents, and contact number/address on
+     * criminal and victim records.
+     *
+     * An ALLOW-list, not a deny-list: only the two roles that enter and
+     * maintain that data receive it. The BADAC Validator does not, and neither
+     * does any role added later until it is deliberately listed here. The
+     * resources enforce this on every response they build, so hiding the
+     * fields in the UI is never what keeps them private.
+     */
+    public function canViewContactDetails(): bool
+    {
+        return $this->isAdmin() || $this->isEncoder();
     }
 
     /**

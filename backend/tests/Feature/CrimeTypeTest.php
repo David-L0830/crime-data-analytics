@@ -62,7 +62,7 @@ class CrimeTypeTest extends TestCase
     {
         // The incident form, the FilterBar and the map legend all need this
         // list, and BADAC (read-only) uses all three.
-        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             // See NotificationTest for why guards are forgotten between two
             // different users inside one test.
             $this->app['auth']->forgetGuards();
@@ -232,7 +232,7 @@ class CrimeTypeTest extends TestCase
         // System Settings — this calls the API directly, as a bypass would.
         $baseline = CrimeType::count();
 
-        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $this->app['auth']->forgetGuards();
             $user = User::factory()->create(['role' => $role]);
 

@@ -11,6 +11,13 @@ class IncidentResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        // Complainant contact number and address go only to the roles on the
+        // User::canViewContactDetails() allow-list. For anyone else (the BADAC
+        // Validator) the two keys are left out of the response entirely, on
+        // every endpoint that returns an incident — so they never reach the
+        // browser to be hidden. No authenticated user means no contact details.
+        $contact = (bool) $request->user()?->canViewContactDetails();
+
         return [
             'id' => (string) $this->id,
             'incidentId' => $this->incident_code,
@@ -35,8 +42,8 @@ class IncidentResource extends JsonResource
             'complainantIsVictim' => (bool) $this->complainant_is_victim,
             'complainantName' => $this->complainant_name,
             'complainantRelationship' => $this->complainant_relationship,
-            'complainantContact' => $this->complainant_contact,
-            'complainantAddress' => $this->complainant_address,
+            'complainantContact' => $this->when($contact, fn () => $this->complainant_contact),
+            'complainantAddress' => $this->when($contact, fn () => $this->complainant_address),
             'reportingOfficer' => $this->reporting_officer,
             'investigatingOfficer' => $this->investigating_officer,
             'badgeNumber' => $this->badge_number,

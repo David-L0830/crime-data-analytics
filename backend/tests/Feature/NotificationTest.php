@@ -174,7 +174,7 @@ class NotificationTest extends TestCase
             'title' => 'New Criminal Record',
             'audience_roles' => AppNotification::audienceFor([
                 User::ROLE_BADAC_ADMIN,
-                User::ROLE_BADAC_READONLY,
+                User::ROLE_BADAC_VALIDATOR,
             ]),
         ]);
 
@@ -202,7 +202,7 @@ class NotificationTest extends TestCase
             'audience_roles' => null,
         ]);
 
-        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $this->app['auth']->forgetGuards();
             $user = User::factory()->create(['role' => $role]);
 
@@ -248,7 +248,7 @@ class NotificationTest extends TestCase
             'read' => false,
             'audience_roles' => AppNotification::audienceFor([
                 User::ROLE_BADAC_ADMIN,
-                User::ROLE_BADAC_READONLY,
+                User::ROLE_BADAC_VALIDATOR,
             ]),
         ]);
 
@@ -284,7 +284,7 @@ class NotificationTest extends TestCase
             'read' => false,
             'audience_roles' => AppNotification::audienceFor([
                 User::ROLE_BADAC_ADMIN,
-                User::ROLE_BADAC_READONLY,
+                User::ROLE_BADAC_VALIDATOR,
             ]),
         ]);
 
@@ -306,7 +306,7 @@ class NotificationTest extends TestCase
         // A NULL audience means "everyone", including every notification
         // written before the audience column existed. The new gate must not
         // have made those unreachable.
-        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $this->app['auth']->forgetGuards();
 
             $notification = AppNotification::factory()->create([

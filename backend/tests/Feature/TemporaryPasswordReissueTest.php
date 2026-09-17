@@ -241,7 +241,7 @@ class TemporaryPasswordReissueTest extends TestCase
     {
         return [
             'encoder' => [User::ROLE_ENCODER],
-            'read-only BADAC' => [User::ROLE_BADAC_READONLY],
+            'BADAC Validator' => [User::ROLE_BADAC_VALIDATOR],
         ];
     }
 
@@ -855,7 +855,7 @@ class TemporaryPasswordReissueTest extends TestCase
         $target = $this->target();
         $bystanders = collect([
             $this->target(['username' => 'bystander1', 'email' => 'b1@example.com']),
-            $this->target(['username' => 'bystander2', 'email' => 'b2@example.com', 'role' => User::ROLE_BADAC_READONLY]),
+            $this->target(['username' => 'bystander2', 'email' => 'b2@example.com', 'role' => User::ROLE_BADAC_VALIDATOR]),
         ]);
 
         $this->reissue($target)->assertOk();

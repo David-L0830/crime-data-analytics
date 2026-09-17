@@ -349,7 +349,7 @@ class PasswordChangeEnforcementTest extends TestCase
         return [
             'administrator' => [User::ROLE_BADAC_ADMIN],
             'encoder' => [User::ROLE_ENCODER],
-            'read-only BADAC' => [User::ROLE_BADAC_READONLY],
+            'BADAC Validator' => [User::ROLE_BADAC_VALIDATOR],
         ];
     }
 

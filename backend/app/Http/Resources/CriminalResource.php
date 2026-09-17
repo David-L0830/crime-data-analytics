@@ -9,6 +9,8 @@ class CriminalResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $contact = (bool) $request->user()?->canViewContactDetails();
+
         // Victim Information is organized by case, not attached to the
         // criminal directly (Criminal -> Case -> Victim) — each related
         // case/incident carries its own concise victim summary here so the
@@ -65,9 +67,12 @@ class CriminalResource extends JsonResource
             'gender' => $this->gender,
             'civilStatus' => $this->civil_status,
             'nationality' => $this->nationality,
-            'address' => $this->address,
+            // Allow-listed roles only (User::canViewContactDetails()); left out
+            // of the response entirely for the BADAC Validator. See
+            // IncidentResource for the same rule on complainant details.
+            'address' => $this->when($contact, fn () => $this->address),
             'sitio' => $this->sitio,
-            'contactNumber' => $this->contact_number,
+            'contactNumber' => $this->when($contact, fn () => $this->contact_number),
             'photoUrl' => $this->photo_path,
             'physicalDescription' => $this->physical_description,
             'height' => $this->height,

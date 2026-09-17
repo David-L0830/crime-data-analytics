@@ -231,7 +231,7 @@ class MfaMethodSelectionTest extends TestCase
 
     public function test_non_administrators_cannot_create_an_account_with_any_mfa_method(): void
     {
-        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $actor = User::factory()->create(['role' => $role]);
             $this->actingAsSupabase($actor);
 
@@ -328,7 +328,7 @@ class MfaMethodSelectionTest extends TestCase
         $this->actingAdmin();
 
         $this->postJson('/api/users', $this->payload([
-            'role' => User::ROLE_BADAC_READONLY,
+            'role' => User::ROLE_BADAC_VALIDATOR,
             'mfaMethod' => 'email_otp',
             'temporaryPassword' => self::TEMP_PASSWORD,
         ]))->assertCreated()->assertJsonPath('data.temporaryCredentialStatus', 'pending');
@@ -356,7 +356,7 @@ class MfaMethodSelectionTest extends TestCase
             ->assertJson(['passwordChangeRequired' => true]);
 
         // And the role is unchanged: still read-only, still no admin surface.
-        $this->assertSame(User::ROLE_BADAC_READONLY, $user->fresh()->role);
+        $this->assertSame(User::ROLE_BADAC_VALIDATOR, $user->fresh()->role);
         $this->signedIn($user)->getJson('/api/users')->assertStatus(403);
     }
 

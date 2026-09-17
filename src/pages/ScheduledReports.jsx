@@ -18,7 +18,7 @@ import { formatDateTime } from '../utils/helpers';
 // WHO SEES WHAT
 //   Administrator      every control: create, edit, pause/resume, archive,
 //                      restore, Run Now; full recipients and delivery errors.
-//   BADAC Read-Only    the same lists, read only: no controls at all, a
+//   BADAC Validator    the same lists, read only: no controls at all, a
 //                      recipient COUNT instead of addresses, and the bare
 //                      delivery result without the error text.
 //   Encoder            no access ('reports' is not in its modules).
@@ -99,7 +99,7 @@ const STATE_LABELS = {
   archived: 'Archived',
 };
 
-// "2 recipients". The only recipient information a Read-Only response
+// "2 recipients". The only recipient information a Validator response
 // contains; an administrator's response also carries the addresses.
 const recipientCountLabel = (n) =>
   `${n ?? 0} recipient${n === 1 ? '' : 's'}`;
@@ -704,7 +704,7 @@ export default function ScheduledReports() {
               key: 'recipientCount',
               label: 'Recipients',
               // Addresses exist in the row only for an administrator; a
-              // Read-Only response has the count and nothing else.
+              // Validator response has the count and nothing else.
               render: (count, row) => {
                 const list = row.recipients;
                 if (!Array.isArray(list)) return recipientCountLabel(count);
@@ -951,7 +951,7 @@ export default function ScheduledReports() {
         )}
       </Card>
 
-      {/* Mounted only for manage_reports: a Read-Only page has no form and no
+      {/* Mounted only for manage_reports: a Validator page has no form and no
           confirmation dialogs at all. */}
       {canManage && (
         <>

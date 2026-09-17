@@ -98,7 +98,7 @@ class ProfileTest extends TestCase
         // Profile Settings is reachable from the sidebar for all three roles,
         // and PUT /me carries no `role:` middleware on purpose — editing your
         // own display name is not an administrative action.
-        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $this->app['auth']->forgetGuards();
             $user = User::factory()->create(['role' => $role]);
 

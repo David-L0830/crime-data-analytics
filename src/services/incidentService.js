@@ -37,7 +37,7 @@ export const incidentService = {
   restore: (id, token) =>
     api.put(`/incidents/${id}/restore`, {}, token ? { token } : undefined),
   // Record validation — PUT /incidents/{id}/validate and /return, both
-  // role:badac_admin server-side. Each resolves with the updated incident.
+  // role:badac_admin,badac_validator server-side. Each resolves with the updated incident.
   validate: (id) => api.put(`/incidents/${id}/validate`, {}),
   returnForCorrection: (id, reason) =>
     api.put(`/incidents/${id}/return`, { reason }),

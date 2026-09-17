@@ -182,7 +182,7 @@ export function DataProvider({ children }) {
     // used to be - only the gate moved.
     //
     // Checkpoint 18 - these used to be a single Promise.all(...). Some roles
-    // (badac_readonly) are intentionally denied a subset of these endpoints
+    // (badac_validator) are intentionally denied a subset of these endpoints
     // (GET /settings, GET /sync-logs - see routes/api.php) as part of their
     // normal, correct permissions, not as a failure. Promise.all rejects the
     // instant ANY one call rejects, so that one expected 403 was wiping out

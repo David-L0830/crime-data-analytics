@@ -2,9 +2,9 @@ import { api } from './api';
 
 // Reports module (automated report schedules).
 //
-// Reads (list, logs) are open to the Administrator and BADAC Read-Only; the
+// Reads (list, logs) are open to the Administrator and BADAC Validator; the
 // server withholds recipient addresses and raw delivery errors from every
-// non-administrator, so a Read-Only response carries `recipientCount` and the
+// non-administrator, so a Validator response carries `recipientCount` and the
 // bare status only. Every other call here is role:badac_admin on the server.
 // There is no delete: a schedule is archived and can be restored.
 export const reportScheduleService = {

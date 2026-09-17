@@ -16,8 +16,8 @@ const read = (...p) => readFileSync(join(here, ...p), 'utf8');
 
 /**
  * Reports: its own REPORTING section at /reports (the old /scheduled-reports
- * redirects), managed by the BADAC Administrator and viewable by BADAC
- * Read-Only, with archive/restore instead of delete.
+ * redirects), managed by the BADAC Administrator and viewable by the BADAC
+ * Validator, with archive/restore instead of delete.
  *
  * Source-level guards in the style of the other page tests here (the Vitest
  * environment is node, with no DOM). The server-side authorization and the
@@ -58,9 +58,9 @@ describe('Reports module — navigation and routing', () => {
     }
   });
 
-  it('is granted to the Administrator and Read-Only, never to the Encoder', () => {
+  it('is granted to the Administrator and BADAC Validator, never to the Encoder', () => {
     expect(ROLES.badac_admin.modules).toContain('reports');
-    expect(ROLES.badac_readonly.modules).toContain('reports');
+    expect(ROLES.badac_validator.modules).toContain('reports');
     expect(ROLES.encoder.modules).not.toContain('reports');
     for (const role of Object.values(ROLES)) {
       expect(role.modules).not.toContain('scheduled-reports');
@@ -87,7 +87,7 @@ describe('Reports module — navigation and routing', () => {
 describe('Reports module — management is Administrator-only', () => {
   it('grants manage_reports to the Administrator alone', () => {
     expect(PERMISSIONS.badac_admin).toContain('manage_reports');
-    expect(PERMISSIONS.badac_readonly).not.toContain('manage_reports');
+    expect(PERMISSIONS.badac_validator).not.toContain('manage_reports');
     expect(PERMISSIONS.encoder).not.toContain('manage_reports');
   });
 
@@ -164,7 +164,7 @@ describe('Reports module — there is no permanent delete', () => {
 
 describe('Reports module — recipient privacy in the UI', () => {
   it('reads recipient addresses and errors only when the server sent them', () => {
-    // A Read-Only response has recipientCount and no recipients/error keys;
+    // A Validator response has recipientCount and no recipients/error keys;
     // the page must render from the count, not assume the array exists.
     expect(pageCode).toContain('recipientCountLabel(count)');
     expect(pageCode).toContain('Array.isArray(row.recipients)');
@@ -175,10 +175,34 @@ describe('Reports module — recipient privacy in the UI', () => {
 });
 
 describe('record validation permissions and vocabulary', () => {
-  it('only the Administrator may validate records in the UI', () => {
+  it('the Administrator and BADAC Validator may validate records in the UI, never the Encoder', () => {
     expect(PERMISSIONS.badac_admin).toContain('validate_record');
+    expect(PERMISSIONS.badac_validator).toContain('validate_record');
     expect(PERMISSIONS.encoder).not.toContain('validate_record');
-    expect(PERMISSIONS.badac_readonly).not.toContain('validate_record');
+  });
+
+  it('keeps exactly three roles, with badac_validator replacing badac_readonly', () => {
+    expect(Object.keys(ROLES).sort()).toEqual(['badac_admin', 'badac_validator', 'encoder']);
+    expect(Object.keys(PERMISSIONS).sort()).toEqual(['badac_admin', 'badac_validator', 'encoder']);
+    expect(ROLES.badac_readonly).toBeUndefined();
+    expect(PERMISSIONS.badac_readonly).toBeUndefined();
+    expect(ROLES.badac_validator.label).toBe('BADAC Validator');
+  });
+
+  it('gives the BADAC Validator view modules only and no action beyond validation', () => {
+    expect(ROLES.badac_validator.modules).toEqual([
+      'dashboard',
+      'incident-feed',
+      'mapping',
+      'analytics',
+      'trends',
+      'criminal-records',
+      'reports',
+    ]);
+    for (const denied of ['audit-logs', 'user-management', 'settings']) {
+      expect(ROLES.badac_validator.modules).not.toContain(denied);
+    }
+    expect(PERMISSIONS.badac_validator).toEqual(['validate_record']);
   });
 
   it('labels the three validation states', () => {

@@ -64,7 +64,7 @@ class IncidentNotificationTest extends TestCase
 
     public function test_the_notification_does_not_disclose_victim_or_suspect_identities(): void
     {
-        // Every role receives this announcement, read-only BADAC included.
+        // Every role receives this announcement, BADAC Validator included.
         // Naming a private individual in it would disclose more than the
         // recipient needs in order to decide whether to open the case.
         $encoder = User::factory()->create(['role' => User::ROLE_ENCODER]);
@@ -142,7 +142,7 @@ class IncidentNotificationTest extends TestCase
 
         $this->assertNull(AppNotification::where('title', 'New Incident')->value('audience_roles'));
 
-        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             // See NotificationTest for why guards are forgotten between users.
             $this->app['auth']->forgetGuards();
             $user = User::factory()->create(['role' => $role]);

@@ -19,10 +19,10 @@ class AuditLogController extends Controller
     // 403 before this method ever runs — RBAC here is real backend
     // enforcement, not frontend-only filtering.
     //
-    // BADAC (badac_readonly) access to this route was removed — it
+    // BADAC (now badac_validator) access to this route was removed — it
     // previously mirrored badac_admin's full view (see the git history on
-    // this file and BadacReadonlyTest::test_badac_readonly_cannot_view_audit_logs,
-    // which used to assert the opposite). See ROLES.badac_readonly in
+    // this file and BadacValidatorTest::test_badac_validator_cannot_view_audit_logs,
+    // which used to assert the opposite). See ROLES.badac_validator in
     // src/utils/constants.js for the matching frontend change.
     public function index()
     {
@@ -69,7 +69,7 @@ class AuditLogController extends Controller
     // inventing one.
     //
     // NOT admin-only, deliberately. All three roles export something they are
-    // entitled to see — Encoder from Crime Data Collection, BADAC read-only
+    // entitled to see — Encoder from Crime Data Collection, BADAC Validator
     // from Records and the analytics pages — so gating this to administrators
     // would simply lose those events. Reading the trail stays admin-only: the
     // GET route above keeps its role:badac_admin middleware.

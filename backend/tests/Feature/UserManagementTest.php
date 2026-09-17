@@ -458,9 +458,9 @@ class UserManagementTest extends TestCase
         $this->assertStringNotContainsString('password', strtolower($log->description));
     }
 
-    public function test_badac_readonly_cannot_reach_any_account_administration_endpoint(): void
+    public function test_badac_validator_cannot_reach_any_account_administration_endpoint(): void
     {
-        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
+        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
         $target = User::factory()->create(['role' => User::ROLE_ENCODER]);
         $this->actingAsSupabase($viewer);
 
@@ -798,13 +798,13 @@ class UserManagementTest extends TestCase
         // User Management is role:badac_admin on every verb.
         $this->assertSame('full', $modules['user-management']['access'][User::ROLE_BADAC_ADMIN]);
         $this->assertSame('none', $modules['user-management']['access'][User::ROLE_ENCODER]);
-        $this->assertSame('none', $modules['user-management']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('none', $modules['user-management']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // Audit Logs was narrowed to admin-only (Checkpoint 38).
-        $this->assertSame('none', $modules['audit-logs']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('none', $modules['audit-logs']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // BADAC reads the dashboard but writes nothing there.
-        $this->assertSame('view', $modules['dashboard']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('view', $modules['dashboard']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // Encoder writes incidents.
         $this->assertSame('full', $modules['incident-feed']['access'][User::ROLE_ENCODER]);
@@ -816,7 +816,7 @@ class UserManagementTest extends TestCase
         // a module neither can open.
         $this->assertSame('full', $modules['settings']['access'][User::ROLE_BADAC_ADMIN]);
         $this->assertSame('none', $modules['settings']['access'][User::ROLE_ENCODER]);
-        $this->assertSame('none', $modules['settings']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('none', $modules['settings']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // /incidents/map belongs to Crime Mapping, not Crime Data Collection,
         // even though its URI sits under the incidents prefix.
@@ -1015,7 +1015,7 @@ class UserManagementTest extends TestCase
     {
         $target = $this->targetWithSupabaseId();
 
-        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $actor = User::factory()->create([
                 'role' => $role,
                 'supabase_user_id' => 'sb-actor-'.$role,

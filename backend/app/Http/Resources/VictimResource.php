@@ -9,6 +9,8 @@ class VictimResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $contact = (bool) $request->user()?->canViewContactDetails();
+
         // Related Cases (Victim Profile) — every case this victim is tied to,
         // plus that case's own related criminal(s) and status, so the
         // Victim Profile can show "Case Number / Charge / Case Status /
@@ -35,8 +37,11 @@ class VictimResource extends JsonResource
             'dateOfBirth' => optional($this->date_of_birth)->format('Y-m-d'),
             'civilStatus' => $this->civil_status,
             'nationality' => $this->nationality,
-            'contactNumber' => $this->contact_number,
-            'address' => $this->address,
+            // Allow-listed roles only (User::canViewContactDetails()); left out
+            // of the response entirely for the BADAC Validator. See
+            // IncidentResource for the same rule on complainant details.
+            'contactNumber' => $this->when($contact, fn () => $this->contact_number),
+            'address' => $this->when($contact, fn () => $this->address),
             'status' => $this->status,
             // See CriminalResource — same purpose, consumed by
             // VictimRecords.jsx's Restore confirmation.

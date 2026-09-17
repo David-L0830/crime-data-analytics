@@ -114,7 +114,7 @@ class ScheduledReportTest extends TestCase
         $this->assertSame('Weekly Crime Summary', $active->fresh()->name);
     }
 
-    public function test_a_readonly_badac_account_can_read_but_never_manage_schedules(): void
+    public function test_a_badac_validator_account_can_read_but_never_manage_schedules(): void
     {
         // This account may SEE the schedules and whether they were delivered,
         // and still may not stand up, change or fire an automation that mails
@@ -124,7 +124,7 @@ class ScheduledReportTest extends TestCase
         $archived = $this->schedule(['name' => 'Archived One']);
         $archived->delete();
 
-        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
+        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
         $this->actingAsSupabase($viewer);
 
         $this->getJson('/api/report-schedules')->assertOk()->assertJsonCount(1);
@@ -806,7 +806,7 @@ class ScheduledReportTest extends TestCase
     {
         $schedule = $this->failedRunQuotingTheAddress();
 
-        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
+        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
         $this->actingAsSupabase($viewer);
 
         $responses = [
@@ -1178,6 +1178,6 @@ class ScheduledReportTest extends TestCase
         $this->assertSame('Reports', $modules['reports']['label']);
         $this->assertSame('full', $modules['reports']['access'][User::ROLE_BADAC_ADMIN]);
         $this->assertSame('none', $modules['reports']['access'][User::ROLE_ENCODER]);
-        $this->assertSame('view', $modules['reports']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('view', $modules['reports']['access'][User::ROLE_BADAC_VALIDATOR]);
     }
 }

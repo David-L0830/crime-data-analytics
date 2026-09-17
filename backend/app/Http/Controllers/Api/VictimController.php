@@ -88,7 +88,7 @@ class VictimController extends Controller
             // access to it, so this announcement is not addressed to them.
             'audience_roles' => AppNotification::audienceFor([
                 User::ROLE_BADAC_ADMIN,
-                User::ROLE_BADAC_READONLY,
+                User::ROLE_BADAC_VALIDATOR,
             ]),
         ]);
 

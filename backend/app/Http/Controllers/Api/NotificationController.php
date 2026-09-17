@@ -51,7 +51,7 @@ class NotificationController extends Controller
         // space and read announcements addressed only to administrators (the
         // "New Criminal Record" and "New Victim Record" ones, which
         // CriminalController and VictimController restrict to
-        // badac_admin + badac_readonly), even though GET /notifications
+        // badac_admin + badac_validator), even though GET /notifications
         // correctly refuses to list them. Marking a notification read was a
         // read primitive with no read check.
         //
