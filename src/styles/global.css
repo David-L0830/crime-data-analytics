@@ -6026,3 +6026,70 @@ select {
     flex: 1 1 auto;
   }
 }
+
+/* =====================================================================
+   Temporary passwords (User Management)
+   A state badge only; no password is ever available to the list.
+   ===================================================================== */
+.status-Temporary-Password-Pending {
+  background: var(--orange-light);
+  color: var(--warning-text);
+}
+
+.status-Temporary-Password-Expired {
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-text);
+}
+
+.user-status-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.temp-password-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.temp-password-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.one-time-credential {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.one-time-credential-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.one-time-credential-value {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}

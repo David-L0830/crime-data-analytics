@@ -83,6 +83,18 @@ class SupabaseTokenValidator
             // account.
             $request->attributes->set('supabase_auth_time', $this->authTimeFromClaims($claims));
 
+            // When THIS session was established, for the security decisions
+            // that must not be fooled by a token refresh: the recent-sign-in
+            // requirement on POST /me/password and the "session predates a
+            // password change" check in EnsurePasswordChanged. Unlike
+            // supabase_auth_time it has NO `iat` fallback — `iat` moves on
+            // every refresh — so when `amr` carries no usable timestamp the
+            // attribute is simply absent and those checks fail closed.
+            $sessionAuthenticatedAt = $this->sessionAuthenticatedAtFromClaims($claims);
+            if ($sessionAuthenticatedAt !== null) {
+                $request->attributes->set('supabase_session_authenticated_at', $sessionAuthenticatedAt);
+            }
+
             // The signed `session_id` claim identifies THIS Supabase session
             // (each sign-in gets its own; a token refresh keeps it). Email
             // MFA state is bound to it — see EmailMfaService — so a code
@@ -128,6 +140,41 @@ class SupabaseTokenValidator
         }
 
         return is_numeric($claims['iat'] ?? null) ? (int) $claims['iat'] : null;
+    }
+
+    /**
+     * The earliest authentication-method timestamp in the signed `amr` claim,
+     * i.e. when this session was first established.
+     *
+     * The EARLIEST, not the latest: a session opened with a password and later
+     * stepped up with TOTP carries both entries, and it is the password sign-in
+     * that decides whether the session is recent or predates a password
+     * change. Order-independent, so it does not depend on how Supabase sorts
+     * the entries. Null when `amr` is absent or has no numeric timestamp.
+     */
+    protected function sessionAuthenticatedAtFromClaims(array $claims): ?int
+    {
+        $amr = $claims['amr'] ?? null;
+
+        if (! is_array($amr)) {
+            return null;
+        }
+
+        $timestamps = [];
+        foreach ($amr as $entry) {
+            // verify() casts only the top level of the decoded token to an
+            // array; each `amr` entry is still the stdClass firebase/php-jwt
+            // produced. Both shapes are accepted.
+            if (is_object($entry)) {
+                $entry = (array) $entry;
+            }
+            $timestamp = is_array($entry) ? ($entry['timestamp'] ?? null) : null;
+            if (is_numeric($timestamp) && (int) $timestamp > 0) {
+                $timestamps[] = (int) $timestamp;
+            }
+        }
+
+        return $timestamps === [] ? null : min($timestamps);
     }
 
     protected function extractBearerToken(Request $request): ?string

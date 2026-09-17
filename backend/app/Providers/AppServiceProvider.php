@@ -60,6 +60,18 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by('email-mfa-verify:'.$request->user()?->id);
         });
 
+        // POST /me/password. Each attempt makes up to two Supabase Auth calls
+        // (verify the current password, then set the new one), so it is kept
+        // tight enough that it cannot be used to guess the current password.
+        RateLimiter::for('password-change', function (Request $request) {
+            $key = (string) $request->user()?->id;
+
+            return [
+                Limit::perMinute(5)->by('password-change:minute:'.$key),
+                Limit::perHour(20)->by('password-change:hour:'.$key),
+            ];
+        });
+
         // Password reset (like login, MFA, and Google OAuth) is handled
         // entirely by Supabase Auth's own client-side flow
         // (supabase.auth.resetPasswordForEmail() /

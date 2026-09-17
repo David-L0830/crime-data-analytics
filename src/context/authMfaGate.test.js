@@ -38,18 +38,19 @@ const login = read('../pages/Login.jsx');
 
 describe('AuthContext MFA gate', () => {
   it('routes every access token through one resolver rather than setting the user directly', () => {
-    // The three entry points that turn a Supabase session into an app
+    // The four entry points that turn a Supabase session into an app
     // session. Each must hand off to resolveSupabaseSession, which is the
     // only function permitted to decide between "signed in" and "owes a
     // code". A new entry point that calls setCurrentUser itself is exactly
-    // the regression this catches.
+    // the regression this catches. The fourth is the mid-session resync that
+    // answers a credential-state refusal (a reissued temporary password).
     const handoffs = authContext.match(
       /resolveSupabaseSession\(accessToken\)/g,
     );
     expect(
       handoffs,
-      'login, OAuth return, and mount resync must all use it',
-    ).toHaveLength(3);
+      'login, OAuth return, mount resync and credential-state resync must all use it',
+    ).toHaveLength(4);
   });
 
   it('consults the assurance level before the user is ever set', () => {
@@ -286,8 +287,13 @@ describe('Email MFA gate', () => {
 
     const body = authContext.slice(start, authContext.indexOf('const startMfaEnrollment'));
     const serverCheck = body.indexOf('user.mfaRequired !== false');
+    // Sign-in now goes through admitServerUser (the shared last step that also
+    // applies the forced-password-change gate); the server check must still
+    // come first.
+    const signIn = body.indexOf('admitServerUser(user)');
     expect(serverCheck).toBeGreaterThan(-1);
-    expect(serverCheck).toBeLessThan(body.indexOf('setCurrentUser(user)'));
+    expect(signIn).toBeGreaterThan(-1);
+    expect(serverCheck).toBeLessThan(signIn);
   });
 
   it('clears email MFA state when the challenge is abandoned', () => {
@@ -377,7 +383,9 @@ describe('TOTP to email MFA handoff', () => {
   const refusalAt = body.indexOf(
     "user.authAssuranceLevel !== 'aal2' || user.mfaRequired",
   );
-  const signInAt = body.indexOf('setCurrentUser(user)');
+  // Admission goes through admitServerUser, the shared last step that also
+  // applies the forced-password-change gate.
+  const signInAt = body.indexOf('admitServerUser(user)');
 
   it('hands off only once the server confirms aal2 and an emailed code is still owed', () => {
     expect(start).toBeGreaterThan(-1);
@@ -414,7 +422,10 @@ describe('TOTP to email MFA handoff', () => {
     for (const handler of ['const handleVerify', 'const handleEnrollVerify']) {
       const at = login.indexOf(handler);
       const handlerBody = login.slice(at, login.indexOf('};', at));
-      const handoff = handlerBody.indexOf('if (result.success && result.mfaRequired)');
+      // The handoff condition now also stops on a forced password change.
+      const handoff = handlerBody.search(
+        /result\.success &&\s*\(result\.mfaRequired \|\| result\.passwordChangeRequired\)/,
+      );
       expect(handoff, handler).toBeGreaterThan(-1);
       expect(handoff, handler).toBeLessThan(handlerBody.indexOf('showToast(`Welcome back'));
     }

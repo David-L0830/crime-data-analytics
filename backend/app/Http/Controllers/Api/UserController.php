@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\SupabasePasswordUpdateException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
@@ -9,10 +10,14 @@ use App\Http\Resources\AuditLogResource;
 use App\Http\Resources\UserResource;
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Rules\AcceptablePassword;
 use App\Services\SupabaseAdminService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 // Phase 4 — Admin User Management.
@@ -90,14 +95,33 @@ class UserController extends Controller
     //      gets Supabase's actionable reason (e.g. the address is already
     //      registered there).
     //
-    // The administrator never chooses or sees a password. The new user
-    // receives a Supabase password-recovery email (requested from the
-    // frontend through the same supabase.auth.resetPasswordForEmail
-    // mechanism the public Forgot Password page already uses) and sets their
-    // own.
+    // Two ways to give the new account its first password:
+    //
+    //   * No `temporaryPassword` (the original path): nobody chooses or sees a
+    //     password. The new user receives a Supabase password-recovery email
+    //     (requested from the frontend through the same
+    //     supabase.auth.resetPasswordForEmail mechanism the public Forgot
+    //     Password page uses) and sets their own.
+    //
+    //   * `temporaryPassword` supplied: Supabase Auth is provisioned with that
+    //     password, and the local row is marked must_change_password with a
+    //     TEMPORARY_PASSWORD_TTL_HOURS expiry and the issuing administrator. No
+    //     recovery email is involved on this path — sending one is the
+    //     frontend's job, and it is not requested here.
+    //
+    // The temporary password is only ever an argument to the Supabase call. It
+    // is not stored on the local row, not returned, and not written to the
+    // audit trail or the log. (Enforcing the change on next sign-in is a later
+    // phase; this only records that it is owed.)
     public function store(StoreUserRequest $request, SupabaseAdminService $supabaseAdmin)
     {
         $data = $request->validated();
+
+        // Pulled out of $data at once so nothing below can pass the whole
+        // validated array — password and all — anywhere by accident.
+        $temporaryPassword = $data['temporaryPassword'] ?? null;
+        unset($data['temporaryPassword']);
+        $issuedBy = $request->user()?->id;
 
         // Captured by reference so it survives the transaction being rolled
         // back. Supabase is a separate system: a database rollback undoes the
@@ -106,7 +130,7 @@ class UserController extends Controller
         $supabaseUserId = null;
 
         try {
-            $user = DB::transaction(function () use ($data, $supabaseAdmin, &$supabaseUserId) {
+            $user = DB::transaction(function () use ($data, $supabaseAdmin, &$supabaseUserId, $temporaryPassword, $issuedBy) {
                 $user = User::create([
                     'name' => $data['fullName'],
                     'username' => $data['username'],
@@ -115,7 +139,7 @@ class UserController extends Controller
                     'is_active' => $data['isActive'] ?? true,
                 ]);
 
-                $supabaseUserId = $supabaseAdmin->createUser($data['email']);
+                $supabaseUserId = $supabaseAdmin->createUser($data['email'], $temporaryPassword);
 
                 // The compensating delete below is only ever allowed to touch
                 // an identity THIS operation created. Supabase is expected to
@@ -143,10 +167,23 @@ class UserController extends Controller
                     throw new RuntimeException('That email address is already registered in Supabase Auth.');
                 }
 
-                $user->forceFill([
+                $state = [
                     'supabase_user_id' => $supabaseUserId,
                     'email_verified_at' => now(),
-                ])->save();
+                ];
+
+                // Written in the SAME save as the Supabase link, so a failure
+                // here is covered by exactly the same rollback + compensating
+                // delete as any other failure after provisioning.
+                if ($temporaryPassword !== null) {
+                    $state += [
+                        'must_change_password' => true,
+                        'temporary_password_expires_at' => now()->addHours(User::TEMPORARY_PASSWORD_TTL_HOURS),
+                        'temporary_password_issued_by' => $issuedBy,
+                    ];
+                }
+
+                $user->forceFill($state)->save();
 
                 return $user;
             });
@@ -186,7 +223,11 @@ class UserController extends Controller
             'action' => 'CREATE',
             'module' => 'users',
             'target_type' => 'user',
-            'description' => "Created {$user->role_label} account {$user->username}",
+            // Records THAT a temporary password was issued, never anything
+            // about the password itself.
+            'description' => $temporaryPassword !== null
+                ? "Created {$user->role_label} account {$user->username} with a temporary password"
+                : "Created {$user->role_label} account {$user->username}",
             'ip_address' => $request->ip(),
         ]);
 
@@ -359,6 +400,248 @@ class UserController extends Controller
         ]);
 
         return new UserResource($user);
+    }
+
+    /**
+     * POST /api/users/{user}/temporary-password  { "temporaryPassword": "..." }
+     *
+     * Replaces an account's password with a new administrator-issued temporary
+     * password and puts the account back under the forced-change requirement.
+     * The recovery path for an expired or lost temporary password.
+     *
+     * Administrator only (`role:badac_admin` on the route). The target is ONLY
+     * ever the {user} in the route; nothing in the body can redirect it.
+     *
+     * The temporary password is supplied by the caller — generated in the
+     * administrator's browser — because a server-generated one would have to be
+     * sent back in this response. It is passed straight to Supabase Auth and is
+     * never stored, returned, audited or logged.
+     *
+     * FAIL CLOSED. Supabase Auth and this database are not one transaction and
+     * this does not pretend they are. Instead, every way the two can end up
+     * disagreeing leaves the account LOCKED out of CDARS, never open:
+     *
+     *   A. Lock, committed before Supabase is contacted: must_change_password,
+     *      an expiry of now (so temporaryPasswordExpired() refuses every route,
+     *      /me/password included) and the issuer. If this fails, Supabase is
+     *      never called and nothing has changed.
+     *   B. Supabase, with no database transaction or row lock held.
+     *   C. A DEFINITE refusal: the previous state is restored, but only if the
+     *      lock is still ours. If restoring fails, the account stays locked.
+     *   D. An UNKNOWN outcome (timeout, network, 5xx): nothing is restored.
+     *      Supabase may hold the new password, so the account stays locked
+     *      until an administrator reissues successfully.
+     *   E. Success: the real 72-hour expiry and the audit row are written,
+     *      retried once; if both attempts fail the account stays locked.
+     *
+     * password_changed_at is deliberately untouched: the account holder has not
+     * changed anything. Existing sessions are blocked by EnsurePasswordChanged
+     * from the moment the lock in step A commits.
+     */
+    public function issueTemporaryPassword(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
+    {
+        if ($user->id === $request->user()?->id) {
+            return response()->json([
+                'message' => 'You cannot issue a temporary password to your own account.',
+            ], 422);
+        }
+
+        if (! $user->is_active) {
+            return response()->json([
+                'message' => 'Activate this account before issuing it a temporary password.',
+            ], 422);
+        }
+
+        if (! $user->supabase_user_id) {
+            return response()->json([
+                'message' => 'This account has no Supabase sign-in yet, so a temporary password cannot be issued for it.',
+            ], 422);
+        }
+
+        $request->validate([
+            'temporaryPassword' => [
+                'required',
+                'string',
+                'min:'.User::TEMPORARY_PASSWORD_MIN_LENGTH,
+                new AcceptablePassword('the temporary password', $user->username, $user->email),
+            ],
+        ], [
+            'temporaryPassword.required' => 'Enter or generate a temporary password.',
+            'temporaryPassword.string' => 'The temporary password must be text.',
+            'temporaryPassword.min' => 'The temporary password must be at least '.User::TEMPORARY_PASSWORD_MIN_LENGTH.' characters.',
+        ]);
+
+        $temporaryPassword = $request->input('temporaryPassword');
+        $issuedBy = $request->user()?->id;
+        // Whole seconds: the column stores seconds, and the restore in step C
+        // recognises its own lock by comparing this exact value.
+        $lockedAt = now()->startOfSecond();
+        $expiresAt = $lockedAt->copy()->addHours(User::TEMPORARY_PASSWORD_TTL_HOURS);
+
+        // A. Commit the lock BEFORE Supabase is contacted.
+        $previous = null;
+
+        try {
+            DB::transaction(function () use ($user, $issuedBy, $lockedAt, &$previous) {
+                $row = User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+                $previous = [
+                    'must_change_password' => (bool) $row->must_change_password,
+                    'temporary_password_expires_at' => $row->temporary_password_expires_at,
+                    'temporary_password_issued_by' => $row->temporary_password_issued_by,
+                ];
+
+                $row->forceFill([
+                    'must_change_password' => true,
+                    'temporary_password_expires_at' => $lockedAt,
+                    'temporary_password_issued_by' => $issuedBy,
+                ])->save();
+            });
+        } catch (\Throwable $e) {
+            Log::error('Could not lock an account before issuing a temporary password. Supabase was not contacted.', [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return response()->json([
+                'message' => 'The temporary password could not be issued right now. Nothing was changed. Please try again.',
+            ], 503);
+        }
+
+        // B. Supabase, with no transaction open.
+        try {
+            $supabaseAdmin->setPassword($user->supabase_user_id, $temporaryPassword);
+        } catch (SupabasePasswordUpdateException $e) {
+            if (! $e->wasDefinitelyNotApplied()) {
+                // D. Supabase may already hold the new password.
+                Log::warning('Supabase did not confirm a temporary password update. The account was left locked.', [
+                    'user_id' => $user->id,
+                    'outcome' => $e->outcome,
+                ]);
+
+                return $this->accountLeftLocked('The temporary password could not be confirmed, so this account has been locked. Issue a new temporary password.');
+            }
+
+            // C. Definitely not applied.
+            return $this->restoreAfterRefusal($user, $previous, $lockedAt, $issuedBy, $e->isWeakPassword()
+                ? response()->json([
+                    'message' => 'Please check the form for errors.',
+                    'errors' => ['temporaryPassword' => ['That temporary password was rejected. Choose a longer, less predictable one.']],
+                ], 422)
+                : response()->json([
+                    'message' => 'The temporary password could not be issued right now. Please try again.',
+                ], 502));
+        } catch (\Throwable $e) {
+            // Anything unexpected is an unknown outcome too.
+            Log::error('Unexpected failure while issuing a temporary password. The account was left locked.', [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return $this->accountLeftLocked('The temporary password could not be confirmed, so this account has been locked. Issue a new temporary password.');
+        }
+
+        // E. Supabase confirmed it: record the real expiry and the audit row.
+        $persist = function () use ($user, $issuedBy, $expiresAt, $request) {
+            $row = User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+            $row->forceFill([
+                'must_change_password' => true,
+                'temporary_password_expires_at' => $expiresAt,
+                'temporary_password_issued_by' => $issuedBy,
+            ])->save();
+
+            AuditLog::create([
+                'user_id' => $issuedBy,
+                'action' => 'UPDATE',
+                'module' => 'users',
+                'target_type' => 'user',
+                'description' => "Issued a new temporary password to {$user->username}",
+                'ip_address' => $request->ip(),
+            ]);
+        };
+
+        try {
+            DB::transaction($persist);
+        } catch (\Throwable) {
+            return $this->recoverAfterSupabaseChange($user, $persist, 'issuing a temporary password');
+        }
+
+        return new UserResource($user->fresh());
+    }
+
+    /**
+     * Step C of issueTemporaryPassword(): Supabase definitely did not apply the
+     * password, so the lock taken in step A is undone and the refusal returned.
+     *
+     * Only OUR lock is undone. If the row no longer carries it, another
+     * issuance has locked the account since, and its outcome is not this
+     * request's to erase. If restoring fails, the account simply stays locked:
+     * inconvenient, never unsafe.
+     *
+     * @param  array{must_change_password: bool, temporary_password_expires_at: mixed, temporary_password_issued_by: mixed}  $previous
+     */
+    private function restoreAfterRefusal(User $user, array $previous, Carbon $lockedAt, ?int $issuedBy, JsonResponse $refusal): JsonResponse
+    {
+        try {
+            DB::transaction(function () use ($user, $previous, $lockedAt, $issuedBy) {
+                $row = User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+                $stillOurs = $row->must_change_password
+                    && $row->temporary_password_expires_at?->getTimestamp() === $lockedAt->getTimestamp()
+                    && (int) $row->temporary_password_issued_by === (int) $issuedBy;
+
+                if ($stillOurs) {
+                    $row->forceFill($previous)->save();
+                }
+            });
+        } catch (\Throwable $e) {
+            Log::error('Supabase refused a temporary password, and the account lock could not be undone. The account was left locked.', [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return $this->accountLeftLocked('The temporary password was not accepted, and this account could not be unlocked. It remains locked; issue a new temporary password.');
+        }
+
+        return $refusal;
+    }
+
+    /**
+     * Supabase Auth accepted the new temporary password, but recording its
+     * expiry and audit row failed. The account is still locked by step A, so
+     * nobody holding the new password can use CDARS.
+     *
+     * The write is idempotent, so it is retried once. If that also fails the
+     * account stays locked, the administrator is told to reissue, and the event
+     * is logged with the account id only.
+     */
+    private function recoverAfterSupabaseChange(User $user, \Closure $persist, string $operation)
+    {
+        try {
+            DB::transaction($persist);
+
+            return new UserResource($user->fresh());
+        } catch (\Throwable $e) {
+            Log::error("Supabase password was changed while {$operation}, but the local account state could not be saved. The account was left locked.", [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return $this->accountLeftLocked('The temporary password was set, but CDARS could not finish recording it. This account remains locked; issue a new temporary password.');
+        }
+    }
+
+    /**
+     * Every outcome that ends with the account locked pending a new issuance.
+     * The message is a fixed sentence; nothing from Supabase or the exception.
+     */
+    private function accountLeftLocked(string $message): JsonResponse
+    {
+        return response()->json([
+            'message' => $message,
+            'temporaryPasswordPendingSync' => true,
+        ], 503);
     }
 
     // POST /api/users/{user}/two-factor/disable

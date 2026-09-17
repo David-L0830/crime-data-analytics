@@ -21,6 +21,9 @@ import UserRowMenu from '../components/users/UserRowMenu';
 import UserDetailsModal from '../components/users/UserDetailsModal';
 import UserActivityModal from '../components/users/UserActivityModal';
 import CreateUserModal from '../components/users/CreateUserModal';
+import ReissueTemporaryPasswordModal from '../components/users/ReissueTemporaryPasswordModal';
+import OneTimeCredentialModal from '../components/users/OneTimeCredentialModal';
+import { temporaryCredentialLabel } from '../utils/temporaryPassword';
 import EditUserModal from '../components/users/EditUserModal';
 import ConfirmActionModal from '../components/users/ConfirmActionModal';
 import SecuritySummary from '../components/users/SecuritySummary';
@@ -71,6 +74,14 @@ export default function UserManagement() {
   const [confirm, setConfirm] = useState(null); // { type, user }
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState('');
+
+  // Temporary passwords. `reissueUser` is the account being reissued;
+  // `oneTimeCredential` is the ONE-TIME display after a successful create or
+  // reissue ({ password, expiresAt, accountName, reissued }). Both live only in
+  // this page's memory and are set back to null when their dialog closes —
+  // which is the only place the password is ever held after submission.
+  const [reissueUser, setReissueUser] = useState(null);
+  const [oneTimeCredential, setOneTimeCredential] = useState(null);
 
   const load = () => {
     if (!isAdmin) return;
@@ -168,6 +179,20 @@ export default function UserManagement() {
         [...prev, created].sort((a, b) => a.fullName.localeCompare(b.fullName)),
       );
       setCreating(false);
+
+      // Temporary-password path: NO setup email. The administrator is shown
+      // the password once — the value this browser just submitted, never
+      // fetched back from the server — together with the server's own expiry.
+      if (payload.temporaryPassword) {
+        setOneTimeCredential({
+          password: payload.temporaryPassword,
+          expiresAt: created.temporaryCredentialExpiresAt,
+          accountName: created.fullName,
+          reissued: false,
+        });
+        showToast(`Account created for ${created.fullName}.`, 'success');
+        return undefined;
+      }
 
       // The account exists in both systems at this point but has no password
       // anyone knows, so it cannot be signed into until the recipient sets
@@ -339,6 +364,21 @@ export default function UserManagement() {
             icon: <Icons.Mail size={14} strokeWidth={2} />,
             onSelect: () => openConfirm('password-reset', user),
           },
+          // Independently enforced by the backend: role:badac_admin on the
+          // route, and UserController::issueTemporaryPassword refuses your own
+          // account and inactive accounts with a 422.
+          {
+            key: 'temporary-password',
+            label: 'Reissue Temporary Password',
+            icon: <Icons.Lock size={14} strokeWidth={2} />,
+            disabled: isSelf || !user.isActive,
+            title: isSelf
+              ? 'You cannot issue a temporary password to your own account'
+              : !user.isActive
+                ? 'Activate this account first'
+                : undefined,
+            onSelect: () => setReissueUser(user),
+          },
           // Three states, one slot. An account is either enrolled (the
           // factor can be cleared), required-but-not-yet-enrolled (the
           // requirement can be lifted), or neither (a requirement can be
@@ -497,7 +537,18 @@ export default function UserManagement() {
                 {
                   key: 'isActive',
                   label: 'Status',
-                  render: (v) => <Badge status={v ? 'Active' : 'Inactive'} />,
+                  // The temporary-credential badge is a STATE only
+                  // (pending/expired, from the administrator-only
+                  // temporaryCredentialStatus field). No password is ever
+                  // available to this list.
+                  render: (v, row) => (
+                    <div className="user-status-cell">
+                      <Badge status={v ? 'Active' : 'Inactive'} />
+                      {temporaryCredentialLabel(row) && (
+                        <Badge status={temporaryCredentialLabel(row)} />
+                      )}
+                    </div>
+                  ),
                 },
                 {
                   key: 'twoFactorEnabled',
@@ -563,6 +614,30 @@ export default function UserManagement() {
         saving={saving}
         onClose={() => setCreating(false)}
         onCreate={handleCreate}
+        onNotice={showToast}
+      />
+
+      <ReissueTemporaryPasswordModal
+        user={reissueUser}
+        onClose={() => setReissueUser(null)}
+        onNotice={showToast}
+        onIssued={(updated, password) => {
+          replaceUser(updated);
+          setReissueUser(null);
+          setOneTimeCredential({
+            password,
+            expiresAt: updated.temporaryCredentialExpiresAt,
+            accountName: updated.fullName,
+            reissued: true,
+          });
+          showToast(`Temporary password reissued for ${updated.fullName}.`, 'success');
+        }}
+      />
+
+      <OneTimeCredentialModal
+        credential={oneTimeCredential}
+        onClose={() => setOneTimeCredential(null)}
+        onNotice={showToast}
       />
 
       <ConfirmActionModal

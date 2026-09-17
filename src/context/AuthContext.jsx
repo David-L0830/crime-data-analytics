@@ -1,10 +1,10 @@
-import { createContext, useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useRef, useState } from 'react';
 import { ROLES, PERMISSIONS } from '../utils/constants';
 import { authService } from '../services/authService';
 import { supabaseMfaService } from '../services/supabaseMfaService';
 import { emailMfaService } from '../services/emailMfaService';
 import { emailMfaAutoSend } from '../utils/emailMfaAutoSend';
-import { ApiError } from '../services/api';
+import { ApiError, CREDENTIAL_STATE_EVENT } from '../services/api';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
 export const AuthContext = createContext(null);
@@ -108,6 +108,11 @@ export function AuthProvider({ children }) {
   // above, it lives in React state only and keeps currentUser null, and the
   // real gate is server-side (EnsureSupabaseAal2).
   const [pendingEmailMfa, setPendingEmailMfa] = useState(false);
+  // Non-null when the signed-in account still owes a password change after an
+  // administrator-issued temporary password: { expired: boolean }. currentUser
+  // stays null while this is set, so nothing protected renders — and the
+  // backend (EnsurePasswordChanged) refuses every normal API route regardless.
+  const [pendingPasswordChange, setPendingPasswordChange] = useState(null);
 
   // Leaving the email step — verified, cancelled, signed out, however —
   // ends the automatic-send episode, so the next time the step is reached
@@ -159,6 +164,50 @@ export function AuthProvider({ children }) {
     return supabaseMfaService.selectActiveTotpFactor(factors);
   }, []);
 
+  // The last step before anybody is let in, shared by every path that has just
+  // had the server confirm no second factor is still owed: the plain sign-in
+  // resolver below, the TOTP challenge and the email-code step. Having one
+  // helper is the point — if only the resolver checked, completing MFA would
+  // walk straight past the password-change requirement.
+  //
+  // The server decides; this only routes the screen:
+  //   reauthenticationRequired  the session predates a password change: end it.
+  //   passwordChangeRequired    show the forced change instead of the app.
+  //   otherwise                 signed in.
+  const admitServerUser = useCallback(async (user) => {
+    if (user.reauthenticationRequired === true) {
+      await supabase.auth.signOut().catch(() => {});
+      setCurrentUser(null);
+      setPendingMfa(null);
+      setPendingMfaEnrollment(false);
+      setPendingEmailMfa(false);
+      setPendingPasswordChange(null);
+      setAuthInitError('Your password was changed. Please sign in again.');
+      return {
+        success: false,
+        error: 'Your password was changed. Please sign in again.',
+      };
+    }
+
+    if (user.passwordChangeRequired === true) {
+      setCurrentUser(null);
+      setPendingMfa(null);
+      setPendingMfaEnrollment(false);
+      setPendingEmailMfa(false);
+      setPendingPasswordChange({
+        expired: user.temporaryPasswordExpired === true,
+      });
+      return { success: true, passwordChangeRequired: true };
+    }
+
+    setPendingMfa(null);
+    setPendingMfaEnrollment(false);
+    setPendingEmailMfa(false);
+    setPendingPasswordChange(null);
+    setCurrentUser(user);
+    return { success: true, user };
+  }, []);
+
   // THE single place a Supabase access token becomes either a signed-in user
   // or a pending challenge. Every entry point converges here: email/password
   // login, the Google OAuth return, and the mount-time session resync.
@@ -170,6 +219,10 @@ export function AuthProvider({ children }) {
   // server is the one that decides.
   const resolveSupabaseSession = useCallback(
     async (accessToken) => {
+      // A new resolution starts from nothing owed; admitServerUser sets it
+      // again if the server still says a password change is required.
+      setPendingPasswordChange(null);
+
       const factor = await totpFactorOwedBySession();
       if (factor) {
         setCurrentUser(null);
@@ -237,13 +290,9 @@ export function AuthProvider({ children }) {
         return { success: true, mfaEnrollmentRequired: true };
       }
 
-      setPendingMfa(null);
-      setPendingMfaEnrollment(false);
-      setPendingEmailMfa(false);
-      setCurrentUser(user);
-      return { success: true, user };
+      return admitServerUser(user);
     },
-    [totpFactorOwedBySession],
+    [totpFactorOwedBySession, admitServerUser],
   );
 
   useEffect(() => {
@@ -303,6 +352,7 @@ export function AuthProvider({ children }) {
         setPendingMfa(null);
         setPendingMfaEnrollment(false);
         setPendingEmailMfa(false);
+        setPendingPasswordChange(null);
         setCurrentUser(null);
         return;
       }
@@ -497,11 +547,7 @@ export function AuthProvider({ children }) {
           };
         }
 
-        setPendingMfa(null);
-        setPendingMfaEnrollment(false);
-        setPendingEmailMfa(false);
-        setCurrentUser(user);
-        return { success: true, user };
+        return await admitServerUser(user);
       } catch (err) {
         // Supabase distinguishes a wrong code from an expired challenge, and
         // both are things the person can act on, so its own message is kept
@@ -514,7 +560,7 @@ export function AuthProvider({ children }) {
         };
       }
     },
-    [pendingMfa],
+    [pendingMfa, admitServerUser],
   );
 
   // Asks the backend to email a one-time code to this account (email MFA).
@@ -568,11 +614,7 @@ export function AuthProvider({ children }) {
         };
       }
 
-      setPendingMfa(null);
-      setPendingMfaEnrollment(false);
-      setPendingEmailMfa(false);
-      setCurrentUser(user);
-      return { success: true, user };
+      return await admitServerUser(user);
     } catch (err) {
       // One generic message for every rejected code: the server does not say
       // whether a code was wrong, expired, reused or locked out, and neither
@@ -587,7 +629,7 @@ export function AuthProvider({ children }) {
               : 'The code is invalid or has expired. Request a new code and try again.',
       };
     }
-  }, []);
+  }, [admitServerUser]);
 
   // Begins TOTP enrolment for an account an administrator has required MFA
   // of. Returns what the screen needs to draw — { id, totp: { qr_code, secret,
@@ -619,8 +661,103 @@ export function AuthProvider({ children }) {
     setPendingMfa(null);
     setPendingMfaEnrollment(false);
     setPendingEmailMfa(false);
+    setPendingPasswordChange(null);
     setCurrentUser(null);
   }, []);
+
+  // Completes the forced password change shown by Login.jsx.
+  //
+  // The backend does all of it: verifies the current password with Supabase,
+  // sets the new one there, and only then clears the requirement. Nothing here
+  // holds the passwords beyond this call, and they are never logged.
+  //
+  // On success the session is ENDED, not continued: every session opened
+  // before the change is now refused by the backend, so a fresh sign-in with
+  // the new password is required. POST /logout stays reachable for exactly
+  // this, so its audit row is still written.
+  const changePassword = useCallback(
+    async ({ currentPassword, password, passwordConfirmation }) => {
+      try {
+        await authService.changePassword({
+          current_password: currentPassword,
+          password,
+          password_confirmation: passwordConfirmation,
+        });
+      } catch (err) {
+        if (!(err instanceof ApiError)) {
+          return {
+            success: false,
+            error: 'Unable to change your password right now. Please try again.',
+          };
+        }
+
+        if (err.flags?.temporaryPasswordExpired) {
+          setPendingPasswordChange({ expired: true });
+          return { success: false, expired: true, error: err.message };
+        }
+
+        // Supabase accepted the new password but CDARS could not record it.
+        // The NEW password is the one that works now, so end this session and
+        // say so; signing in again returns to this step to finish.
+        if (err.flags?.passwordChangedPendingSync) {
+          await supabase.auth.signOut().catch(() => {});
+          setCurrentUser(null);
+          setPendingMfa(null);
+          setPendingMfaEnrollment(false);
+          setPendingEmailMfa(false);
+          setPendingPasswordChange(null);
+          setAuthInitError(err.message);
+          return { success: false, signedOut: true, error: err.message };
+        }
+
+        if (err.flags?.reauthenticationRequired || err.status === 401) {
+          await supabase.auth.signOut().catch(() => {});
+          setCurrentUser(null);
+          setPendingMfa(null);
+          setPendingMfaEnrollment(false);
+          setPendingEmailMfa(false);
+          setPendingPasswordChange(null);
+          const message = err.flags?.reauthenticationRequired
+            ? err.message
+            : 'Your session has ended. Please sign in again.';
+          setAuthInitError(message);
+          return { success: false, signedOut: true, error: message };
+        }
+
+        if (err.status === 429) {
+          return {
+            success: false,
+            error: 'Too many attempts. Please wait a minute and try again.',
+          };
+        }
+
+        // 422: field-level messages (fixed sentences from the server, never
+        // the submitted values). 503: Supabase could not complete the change.
+        return {
+          success: false,
+          error: err.message,
+          fieldErrors: err.status === 422 ? err.errors : null,
+        };
+      }
+
+      try {
+        await authService.logout();
+      } catch {
+        /* the change itself succeeded; still sign out below */
+      } finally {
+        await supabase.auth.signOut().catch(() => {});
+        setCurrentUser(null);
+        setPendingMfa(null);
+        setPendingMfaEnrollment(false);
+        setPendingEmailMfa(false);
+        setPendingPasswordChange(null);
+        setAuthInitError('');
+      }
+
+      return { success: true };
+    },
+    [],
+  );
 
   const logout = useCallback(async () => {
     // Best-effort audit-log write while the token is still valid, then end
@@ -635,6 +772,7 @@ export function AuthProvider({ children }) {
       setPendingMfa(null);
       setPendingMfaEnrollment(false);
       setPendingEmailMfa(false);
+      setPendingPasswordChange(null);
       setAuthInitError('');
     }
   }, []);
@@ -659,9 +797,45 @@ export function AuthProvider({ children }) {
       setPendingMfa(null);
       setPendingMfaEnrollment(false);
       setPendingEmailMfa(false);
+      setPendingPasswordChange(null);
       setAuthInitError(message);
     }
   }, []);
+
+  // Mid-session credential changes (e.g. an administrator reissued this
+  // account's temporary password while it was signed in). api.js announces a
+  // 403 passwordChangeRequired / reauthenticationRequired; the answer is simply
+  // to re-run the SAME resolver sign-in uses. admitServerUser then routes to the
+  // forced-change step (currentUser cleared, so ProtectedRoute returns to
+  // /login where that step renders) or ends a session that predates a change.
+  // No second password-change mechanism, and no decision made here.
+  const credentialResyncInFlight = useRef(false);
+  useEffect(() => {
+    if (!isSupabaseConfigured || typeof window === 'undefined') return undefined;
+
+    const onCredentialStateChanged = async () => {
+      // Several requests can fail at once; one resync answers all of them.
+      if (credentialResyncInFlight.current) return;
+      credentialResyncInFlight.current = true;
+      try {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) {
+          await signOutDueToSessionIssue('Your session has ended. Please sign in again.');
+          return;
+        }
+        await resolveSupabaseSession(accessToken);
+      } catch {
+        await signOutDueToSessionIssue('Your session has ended. Please sign in again.');
+      } finally {
+        credentialResyncInFlight.current = false;
+      }
+    };
+
+    window.addEventListener(CREDENTIAL_STATE_EVENT, onCredentialStateChanged);
+    return () =>
+      window.removeEventListener(CREDENTIAL_STATE_EVENT, onCredentialStateChanged);
+  }, [resolveSupabaseSession, signOutDueToSessionIssue]);
 
   // Sidebar Profile Settings. Lets ProfileSettingsModal (name edit / avatar
   // upload) push the updated UserResource it gets back from
@@ -706,6 +880,10 @@ export function AuthProvider({ children }) {
     // True when this session owes an emailed one-time code (the account is
     // configured for email MFA). currentUser is null while this is set.
     pendingEmailMfa,
+    // Non-null ({ expired }) when the account must replace a temporary
+    // password before it can continue. currentUser is null while this is set.
+    pendingPasswordChange,
+    changePassword,
     sendEmailMfaCode,
     verifyEmailMfaCode,
     startMfaEnrollment,

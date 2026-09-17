@@ -53,11 +53,21 @@ export const userService = {
 
   // Account Administration — administrator-provisioned account creation.
   //
-  // The payload carries no password and never could: creating the Supabase
-  // Auth identity needs the service-role key, which lives only in the
-  // backend's environment (see App\Services\SupabaseAdminService). This
-  // sends identity and role; the backend writes both systems or neither.
+  // Creating the Supabase Auth identity needs the service-role key, which
+  // lives only in the backend's environment (see
+  // App\Services\SupabaseAdminService). This sends identity and role, plus an
+  // optional `temporaryPassword` the administrator typed or generated; the
+  // backend passes that straight to Supabase Auth and never stores or returns
+  // it. The backend writes both systems or neither.
   create: (data) => api.post('/users', data),
+
+  // Issue a NEW temporary password to an existing account (Administrator
+  // only; POST /users/{id}/temporary-password). The target is the id in the
+  // path — the body carries only the password. Resolves with the updated
+  // account, whose temporaryCredentialStatus is then 'pending'; the password
+  // itself is never in the response.
+  issueTemporaryPassword: (id, temporaryPassword) =>
+    api.post(`/users/${id}/temporary-password`, { temporaryPassword }),
 
   // One account's own audit trail (GET /users/{id}/activity). Scoped
   // server-side by user_id — this is the existing audit_logs data, not a

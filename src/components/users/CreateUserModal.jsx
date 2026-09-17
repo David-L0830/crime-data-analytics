@@ -1,18 +1,24 @@
 import { useState } from 'react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
+import TemporaryPasswordInput from './TemporaryPasswordInput';
 import { ROLE_OPTIONS, validateAccountFields } from './userValidation';
+import { validateTemporaryPassword } from '../../utils/temporaryPassword';
 
 // Create New User.
 //
-// Two things are deliberately absent from this form:
-//
-//  1. There is no password field, and there never can be one. Supabase Auth
-//     owns every credential in this system; the backend provisions the
-//     Supabase identity with the service-role key (server-side only) and the
-//     new user then sets their own password from a recovery email. An
-//     administrator never chooses, sees, or transmits someone else's
-//     password.
+//  1. The password. Supabase Auth owns every credential in this system; the
+//     backend provisions the Supabase identity with the service-role key
+//     (server-side only). There are two ways to give the new account its
+//     first password:
+//       - leave Temporary Password blank: the person receives a setup email
+//         and sets their own (unchanged behaviour); or
+//       - enter or generate a Temporary Password: it is sent once to the
+//         backend, which passes it to Supabase Auth and never stores or
+//         returns it. The administrator is shown it one time to hand over, and
+//         the person must change it at first sign-in.
+//     The value lives only in this form's local state and is cleared on
+//     success and whenever the dialog closes.
 //
 //  2. "Require 2FA" is present but disabled, and says why. Enrolling a factor
 //     is self-service in Supabase and this application does not challenge for
@@ -20,7 +26,13 @@ import { ROLE_OPTIONS, validateAccountFields } from './userValidation';
 //     on. Rendering it as a working control would be a promise the system
 //     cannot keep — showing it plainly unavailable is the honest version of
 //     the same information.
-export default function CreateUserModal({ open, onClose, onCreate, saving }) {
+export default function CreateUserModal({
+  open,
+  onClose,
+  onCreate,
+  saving,
+  onNotice,
+}) {
   const [form, setForm] = useState({
     fullName: '',
     username: '',
@@ -28,6 +40,7 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
     role: 'encoder',
     isActive: true,
   });
+  const [temporaryPassword, setTemporaryPassword] = useState('');
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
 
@@ -39,6 +52,7 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
       role: 'encoder',
       isActive: true,
     });
+    setTemporaryPassword('');
     setErrors({});
     setFormError('');
   };
@@ -57,17 +71,30 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
 
   const handleSubmit = async () => {
     const found = validateAccountFields(form, { requireEmail: true });
+    // Optional: only checked when something was entered.
+    if (temporaryPassword !== '') {
+      const problem = validateTemporaryPassword(temporaryPassword, {
+        username: form.username,
+        email: form.email,
+      });
+      if (problem) found.temporaryPassword = problem;
+    }
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
     setFormError('');
-    const failure = await onCreate({
+    const payload = {
       fullName: form.fullName.trim(),
       username: form.username.trim(),
       email: form.email.trim(),
       role: form.role,
       isActive: form.isActive,
-    });
+    };
+    // Sent exactly as typed (never trimmed) and only when present, so a blank
+    // field keeps the original setup-email path.
+    if (temporaryPassword !== '') payload.temporaryPassword = temporaryPassword;
+
+    const failure = await onCreate(payload);
 
     if (failure) setFormError(failure);
     else reset();
@@ -139,10 +166,25 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           </p>
         )}
         <p className="form-hint">
-          The account is created in Supabase with this address, and the person
-          receives an email to set their own password.
+          {temporaryPassword
+            ? 'The account is created in Supabase with this address and the temporary password below. No setup email is sent.'
+            : 'The account is created in Supabase with this address, and the person receives an email to set their own password.'}
         </p>
       </div>
+
+      <TemporaryPasswordInput
+        id="create-temporary-password"
+        label="Temporary Password (optional)"
+        value={temporaryPassword}
+        onChange={(value) => {
+          setTemporaryPassword(value);
+          setErrors((prev) => ({ ...prev, temporaryPassword: undefined }));
+        }}
+        error={errors.temporaryPassword}
+        hint="Leave blank to send a password setup email instead. A temporary password expires after 72 hours and must be changed at first sign-in."
+        disabled={saving}
+        onNotice={onNotice}
+      />
 
       <div className="form-group">
         <label htmlFor="create-role">Role</label>

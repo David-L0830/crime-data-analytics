@@ -27,6 +27,11 @@ export const authService = {
   // there is no {id} parameter because there is no "edit someone else's
   // profile" path here, unlike userService's admin-only update().
   updateProfile: (data) => api.put('/me', data),
+  // POST /me/password — replaces the caller's own password (the forced change
+  // after an administrator-issued temporary password). The body carries
+  // current_password, password and password_confirmation straight to the
+  // backend; nothing here stores, logs or returns them.
+  changePassword: (data) => api.post('/me/password', data),
   uploadAvatar: (file) => {
     const formData = new FormData();
     formData.append('avatar', file);

@@ -40,6 +40,22 @@ class User extends Authenticatable
     // mass-assign it.
     public const MFA_METHOD_EMAIL_OTP = 'email_otp';
 
+    // How long an administrator-issued temporary password stays acceptable.
+    public const TEMPORARY_PASSWORD_TTL_HOURS = 72;
+
+    // Minimum length for an administrator-supplied temporary password. Mirrors
+    // MIN_PASSWORD_LENGTH in src/pages/ResetPassword.jsx, the project's existing
+    // password minimum. Supabase Auth's own policy still applies on top of it.
+    public const TEMPORARY_PASSWORD_MIN_LENGTH = 8;
+
+    // bcrypt, which Supabase Auth uses, only reads the first 72 BYTES of a
+    // password. Anything longer would be silently truncated, so it is refused.
+    public const TEMPORARY_PASSWORD_MAX_BYTES = 72;
+
+    // POST /me/password is refused unless the caller's session was established
+    // (signed `amr` timestamp) at most this long ago.
+    public const PASSWORD_CHANGE_RECENT_AUTH_SECONDS = 900;
+
     // Final auth migration — 'password' deliberately removed from
     // $fillable. This application no longer authenticates against a local
     // password (Supabase Auth owns every credential now — see
@@ -48,6 +64,12 @@ class User extends Authenticatable
     // unused legacy column rather than dropped outright — see the
     // 2025_02_01_000001 migration's comment for why it's nullable now
     // instead of destructively removed.
+    //
+    // The temporary-password state columns (must_change_password,
+    // temporary_password_expires_at, password_changed_at,
+    // temporary_password_issued_by) are deliberately NOT fillable either. They
+    // decide whether an account must replace an administrator-known
+    // credential, so only server code writes them, via forceFill().
     protected $fillable = [
         'name',
         'username',
@@ -72,12 +94,61 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
+            'temporary_password_expires_at' => 'datetime',
+            'password_changed_at' => 'datetime',
         ];
     }
 
     public function auditLogs()
     {
         return $this->hasMany(AuditLog::class);
+    }
+
+    // The administrator who issued this account's current temporary password.
+    public function temporaryPasswordIssuer()
+    {
+        return $this->belongsTo(User::class, 'temporary_password_issued_by');
+    }
+
+    /**
+     * Owes a password change, but the temporary password has lapsed.
+     *
+     * Exactly at the expiry instant counts as expired (<=). A flagged account
+     * with NO expiry recorded is also treated as expired: every issuing path
+     * sets one, so its absence means the state cannot be trusted, and the safe
+     * reading of an untrustworthy temporary credential is "no longer valid".
+     * Nothing here ever moves the expiry.
+     */
+    public function temporaryPasswordExpired(): bool
+    {
+        if (! $this->must_change_password) {
+            return false;
+        }
+
+        return $this->temporary_password_expires_at === null
+            || $this->temporary_password_expires_at->lessThanOrEqualTo(now());
+    }
+
+    /**
+     * Was the session making this request established before the account's
+     * last password change? Such a session was opened with a credential that
+     * no longer exists — possibly by someone who only knew the old temporary
+     * password — so it must sign in again.
+     *
+     * Always false for an account whose password has never been changed here,
+     * which is every existing account: they are unaffected. When the session
+     * time is unknown (no usable `amr`) and a change HAS happened, the answer
+     * is true — fail closed.
+     */
+    public function sessionPredatesPasswordChange(?int $sessionAuthenticatedAt): bool
+    {
+        if ($this->password_changed_at === null) {
+            return false;
+        }
+
+        return $sessionAuthenticatedAt === null
+            || $sessionAuthenticatedAt < $this->password_changed_at->getTimestamp();
     }
 
     public function incidents()
