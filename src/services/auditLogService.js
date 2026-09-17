@@ -23,6 +23,44 @@ export const auditLogService = {
   // swallowed by logExport() below: a completed download must never be
   // reported to the user as a failure because a follow-up bookkeeping call did
   // not land. The server logs the write failure on its side.
-  logExport: (report) =>
-    api.post('/report-export-audit', { report }).catch(() => {}),
+  //
+  // `meta` is OPTIONAL scope information about the run — { rowCount,
+  // periodFrom, periodTo, filtersSummary } — which the server records as
+  // report execution history (report_runs). Reporting is a process inside the
+  // modules, not a module of its own, so that history has no page: it is
+  // backend data. Omitting `meta` is valid and unchanged in behaviour; every
+  // existing call site does exactly that, and the run is still recorded, just
+  // without its scope. Never send report CONTENT here — only counts and the
+  // filters already shown on screen.
+  logExport: (report, meta = undefined) =>
+    api
+      .post('/report-export-audit', { report, ...clampMeta(meta) })
+      .catch(() => {}),
 };
+
+// filters_summary is a varchar(500) and the endpoint validates it as one, so an
+// over-long summary would fail validation — and because the audit row and the
+// run row are written together, that 422 would cost BOTH. The audit trail has
+// recorded exports since long before this metadata existed and must not become
+// losable because of it, so the summary is trimmed to fit rather than allowed
+// to reject the request.
+//
+// 500 is not reachable by any summary these pages build today; this exists so
+// it stays unreachable when a crime type or sitio is named at length in System
+// Settings. The ellipsis marks the text as shortened, so a truncated line is
+// never read as the whole filter state.
+const SUMMARY_LIMIT = 500;
+
+function clampMeta(meta) {
+  if (!meta) return {};
+
+  const summary = meta.filtersSummary;
+  if (typeof summary !== 'string' || summary.length <= SUMMARY_LIMIT) {
+    return meta;
+  }
+
+  return {
+    ...meta,
+    filtersSummary: `${summary.slice(0, SUMMARY_LIMIT - 1)}…`,
+  };
+}

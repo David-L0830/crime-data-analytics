@@ -7,12 +7,17 @@ import 'leaflet.markercluster';
 import 'leaflet.heat';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import { incidentService } from '../services/incidentService';
+import { exportWorkbook } from '../utils/exportWorkbook';
+import { exportCsv } from '../utils/exportCsv';
+import { auditLogService } from '../services/auditLogService';
 import {
   filterRecords,
   formatDate,
   formatTime,
   countBy,
+  today,
 } from '../utils/helpers';
 import { COLORS, SITIOS, STATUSES } from '../utils/constants';
 import {
@@ -881,6 +886,134 @@ export default function Mapping() {
     setLocationNotice(null);
   };
 
+  // One definition, consumed by the workbook's metadata line and by the
+  // reporting-process record below, so the exported file and the history of
+  // the run always describe the same filter state. Same pattern as
+  // Dashboard.jsx and Analytics.jsx.
+  //
+  // No Category row, deliberately: this page cannot filter by category (see
+  // `filtered` above), so naming one here would describe a filter that was
+  // never applied.
+  const filterSummary = [
+    `From: ${filters['map-dateFrom'] || 'Any'}`,
+    `To: ${filters['map-dateTo'] || 'Any'}`,
+    `Crime Type: ${filters['map-crimeType'] || 'All'}`,
+    `Sitio: ${filters['map-sitio'] || 'All'}`,
+    `Status: ${filters['map-status'] || 'All'}`,
+  ].join(' · ');
+
+  // ONE projection, shared by the .xlsx and the .csv below, so the two files
+  // can never drift apart: same columns, same order, same labels, same rows.
+  //
+  // THE COLUMNS ARE BOUNDED BY THE PAYLOAD, NOT BY CONVENIENCE. Every field
+  // here comes from GET /incidents/map, which carries a location and a
+  // classification and nothing that names a person — see IncidentController::
+  // map(), where that rule is stated. No complainant, victim, suspect or
+  // officer detail exists in this component to export, and none may be fetched
+  // in order to add one: a map export is a record of where crimes happened,
+  // and a named individual attached to a coordinate is precisely the
+  // disclosure this module exists to avoid.
+  //
+  // Rows are `filtered`, not `visible`. `visible` differs only by the
+  // out-of-area display toggle, which is a choice about what to DRAW; an
+  // incident that matched the filters belongs in the export whether or not the
+  // viewer has it switched on, and the coordinates say plainly where it is.
+  const exportSpec = () => ({
+    sheetName: 'Crime Mapping',
+    title: 'Crime Mapping and Visualization Report',
+    subtitle: 'Crime Data Analytics & Reporting System',
+    meta: [`Filters: ${filterSummary}`],
+    columns: [
+      // The incident's identifier as this system shows it — the same
+      // incidentCode the map tooltip prints. NOT the internal database id,
+      // which is row plumbing and not a reporting field.
+      { header: 'Incident ID', key: 'incidentCode', width: 16 },
+      { header: 'Case Number', key: 'caseNumber', width: 16 },
+      { header: 'Date', key: 'date', type: 'date', width: 14 },
+      {
+        header: 'Time',
+        key: 'time',
+        width: 10,
+        align: 'center',
+        value: (r) => formatTime(r.time),
+      },
+      { header: 'Crime Type', key: 'crimeType', width: 20 },
+      { header: 'Category', key: 'category', width: 18 },
+      { header: 'Sitio', key: 'sitio', width: 14 },
+      { header: 'Street / Location', key: 'location', width: 28, wrap: true },
+      { header: 'Status', key: 'status', width: 18, align: 'center' },
+      { header: 'Priority', key: 'priority', width: 12, align: 'center' },
+      // Written as numbers with six decimals rather than text, so a
+      // spreadsheet can plot or join on them. The stored value is exported
+      // exactly as recorded — never rounded to tidy the map's own out-of-area
+      // points into the barangay.
+      {
+        header: 'Latitude',
+        key: 'latitude',
+        type: 'number',
+        width: 14,
+        numFmt: '0.000000',
+      },
+      {
+        header: 'Longitude',
+        key: 'longitude',
+        type: 'number',
+        width: 14,
+        numFmt: '0.000000',
+      },
+    ],
+    rows: filtered,
+    onEmpty: () => showToast('No data to export', 'error'),
+    onError: () => showToast('Could not export report.', 'error'),
+  });
+
+  // The SCOPE of the run, recorded as report execution history (report_runs)
+  // — how many rows it covered, over what period, under which filters. Counts
+  // and filter text only; never the exported rows themselves.
+  //
+  // Nothing is invented: the period is whatever the two date inputs hold, so
+  // an unbounded export reports no period rather than a fabricated one.
+  const exportMeta = () => ({
+    rowCount: filtered.length,
+    periodFrom: filters['map-dateFrom'] || null,
+    periodTo: filters['map-dateTo'] || null,
+    filtersSummary: filterSummary,
+  });
+
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportExcel] = usePendingAction(async () => {
+    const ok = await exportWorkbook({
+      filename: `brgy178_crime_mapping_${today()}.xlsx`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Crime mapping data exported to Excel', 'success');
+      // Recorded only on success, so neither the audit trail nor the run
+      // history ever claims an export that did not happen. Not awaited: a
+      // completed download must not wait on, or be failed by, follow-up
+      // bookkeeping.
+      auditLogService.logExport('mapping', exportMeta());
+    }
+  });
+
+  // Same projection, same filtered rows, comma-separated. Synchronous because
+  // exportCsv needs no dynamic import — see the note there.
+  const handleExportCsv = () => {
+    const ok = exportCsv({
+      filename: `brgy178_crime_mapping_${today()}.csv`,
+      ...exportSpec(),
+    });
+    if (ok) {
+      showToast('Crime mapping data exported to CSV', 'success');
+      // Same report key as the workbook above: the trail records WHICH report
+      // left the system. AuditLogController::REPORTS is the server-side
+      // whitelist it must match.
+      auditLogService.logExport('mapping', exportMeta());
+    }
+  };
+
   // Crime Type comes from the configured, enabled vocabulary (see
   // DataContext), not a hard-coded list — an Administrator adding a crime type
   // in System Settings makes it filterable here immediately.
@@ -1187,6 +1320,36 @@ export default function Mapping() {
           </div>
           <div id="crime-map" ref={mapRef} />
         </div>
+      </div>
+
+      {/* Crime Mapping was the only tabular module with no export at all, so
+          reporting from it meant reading figures off the screen. The same
+          .export-bar every other module uses, in the same place — below the
+          content it exports — so the control is where a user already expects
+          it. No Print button: this page's content is a Leaflet canvas, and a
+          printed screenshot of a map is not the document PrintReport produces
+          elsewhere. */}
+      <div className="export-bar">
+        <Button
+          variant="secondary"
+          onClick={handleExportExcel}
+          disabled={exporting}
+          aria-busy={exporting}
+        >
+          {exporting ? (
+            <>
+              <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+              Exporting…
+            </>
+          ) : (
+            <>
+              <Icons.Download size={15} strokeWidth={2} /> Export Excel
+            </>
+          )}
+        </Button>
+        <Button variant="secondary" onClick={handleExportCsv}>
+          <Icons.Download size={15} strokeWidth={2} /> Export CSV
+        </Button>
       </div>
     </section>
   );

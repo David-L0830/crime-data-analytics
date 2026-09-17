@@ -142,7 +142,7 @@ class ReportExportAuditTest extends TestCase
         $this->actingUser();
 
         $keys = [
-            'dashboard', 'analytics', 'incidents', 'audit-logs',
+            'dashboard', 'analytics', 'incidents', 'mapping', 'audit-logs',
             'criminal-records', 'criminal-profile',
             'victim-records', 'victim-profile', 'incident-record',
         ];

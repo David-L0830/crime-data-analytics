@@ -376,6 +376,18 @@ export default function Analytics() {
     onError: () => showToast('Could not export report.', 'error'),
   });
 
+  // The SCOPE of the run, recorded as report execution history (report_runs)
+  // — how many rows it covered, over what period, under which filters. Counts
+  // and filter text only; never the exported rows themselves. The period is
+  // whatever the two date filters hold, so an unbounded export reports no
+  // period rather than a fabricated one.
+  const exportMeta = () => ({
+    rowCount: filtered.length,
+    periodFrom: filters['ana-dateFrom'] || null,
+    periodTo: filters['ana-dateTo'] || null,
+    filtersSummary: filterSummary,
+  });
+
   // Wrapped in usePendingAction so the button can show that it is working and
   // refuses a second click while it is: exportWorkbook() pulls exceljs in on
   // first use, which is the one operation here slow enough to look broken.
@@ -389,7 +401,7 @@ export default function Analytics() {
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
-      auditLogService.logExport('analytics');
+      auditLogService.logExport('analytics', exportMeta());
     }
   });
 
@@ -404,7 +416,7 @@ export default function Analytics() {
       showToast('Statistical analysis exported to CSV', 'success');
       // Same report key as the workbook above: the audit trail records WHICH
       // report left the system, which is the question it exists to answer.
-      auditLogService.logExport('analytics');
+      auditLogService.logExport('analytics', exportMeta());
     }
   };
 

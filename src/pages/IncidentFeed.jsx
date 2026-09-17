@@ -375,6 +375,32 @@ export default function IncidentFeed() {
     onError: () => showToast('Could not export report.', 'error'),
   });
 
+  // The SCOPE of the run, recorded as report execution history (report_runs)
+  // — how many rows it covered, over what period, under which filters. Counts
+  // and filter text only; never the exported rows themselves.
+  //
+  // NOT filterSummary verbatim, deliberately. That line ends with `Search:
+  // <whatever was typed>`, and this page's search box matches victim, suspect
+  // and complainant names — so storing it as written would put a person's name
+  // into a table whose entire rule is that it holds scope and never personal
+  // data. The run records THAT a search narrowed it, which is what a reader of
+  // the history needs to know, and not who was searched for.
+  const exportMeta = () => ({
+    rowCount: sorted.length,
+    periodFrom: filters['inc-dateFrom'] || null,
+    periodTo: filters['inc-dateTo'] || null,
+    filtersSummary: [
+      `From: ${filters['inc-dateFrom'] || 'Any'}`,
+      `To: ${filters['inc-dateTo'] || 'Any'}`,
+      `Crime Type: ${filters['inc-crimeType'] || 'All'}`,
+      `Category: ${filters['inc-category'] || 'All'}`,
+      `Sitio: ${filters['inc-sitio'] || 'All'}`,
+      `Status: ${filters['inc-status'] || 'All'}`,
+      `Validation: ${filters['inc-validation'] || 'All'}`,
+      `Search: ${debouncedSearch ? 'Applied' : 'None'}`,
+    ].join(' · '),
+  });
+
   // Wrapped in usePendingAction so the button can show that it is working and
   // refuses a second click while it is: exportWorkbook() pulls exceljs in on
   // first use, which is the one operation here slow enough to look broken.
@@ -388,7 +414,7 @@ export default function IncidentFeed() {
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
-      auditLogService.logExport('incidents');
+      auditLogService.logExport('incidents', exportMeta());
     }
   });
 
@@ -404,7 +430,7 @@ export default function IncidentFeed() {
       // Same report key as the workbook above: the audit trail records WHICH
       // report left the system, which is the question it exists to answer.
       // AuditLogController::REPORTS is the server-side whitelist it must match.
-      auditLogService.logExport('incidents');
+      auditLogService.logExport('incidents', exportMeta());
     }
   };
 
