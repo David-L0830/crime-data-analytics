@@ -89,18 +89,17 @@ class IncidentController extends Controller
         $incidents = Incident::query()
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->where('status', '!=', 'Archived')
-            // CP-5A — the map shows OFFICIAL data. Only a validated record is
-            // official (Phase 2B), so a pending or returned incident is not
-            // plotted: a pin on a map projected in the barangay hall asserts
-            // that a crime happened there, and an unreviewed encoding has not
-            // earned that yet.
+            // CP-5A — the map shows OFFICIAL data. Only a validated,
+            // non-archived record is official (Phase 2B), so a pending or
+            // returned incident is not plotted: a pin on a map projected in
+            // the barangay hall asserts that a crime happened there, and an
+            // unreviewed encoding has not earned that yet.
             //
             // Filtered here rather than by handing validation_status to the
             // client, which would put a workflow field into a payload whose
             // whole rule is that it carries the minimum the map needs. The
             // projection below is unchanged.
-            ->where('validation_status', Incident::VALIDATION_VALIDATED)
+            ->official()
             ->get([
                 'id', 'incident_code', 'case_number', 'crime_type', 'category',
                 'incident_date', 'incident_time',
@@ -192,8 +191,17 @@ class IncidentController extends Controller
         // is the guarantee that a notification can never describe an incident
         // that was not actually saved: if the transaction above rolls back,
         // this line is never reached.
+        //
+        // "New Incident" is workflow signalling — a record was filed and needs
+        // review — so it belongs here and stays here.
+        //
+        // The HOTSPOT alert deliberately does NOT. It is an analytic claim, and
+        // this method forces validation_status to pending above, so a create
+        // cannot move the official count at all: announcing here meant the
+        // alert could only ever be computed from unreviewed encodings. It now
+        // fires where the official count actually changes — see
+        // announceHotspotIfCrossed() and its callers in approve()/restore().
         $this->announceNewIncident($created, $request->user());
-        $this->announceHotspotIfCrossed($created);
 
         // fresh() so values the DATABASE supplied are reflected in the 201
         // payload. incidents.status is NOT NULL DEFAULT 'Open', so when the
@@ -393,8 +401,8 @@ class IncidentController extends Controller
     }
 
     /**
-     * Emits the "Hotspot Alert" notification when the incident just saved is
-     * the one that turns its sitio into a hotspot.
+     * Emits the "Hotspot Alert" notification when the transition just committed
+     * is the one that turns its sitio into a hotspot.
      *
      * Why this exists: before this, no code path in the application ever
      * created a Hotspot Alert. The only one that existed was a fixed row
@@ -407,20 +415,52 @@ class IncidentController extends Controller
      * the same way: the message is built from the rows actually counted, so the
      * bell cannot disagree with the database.
      *
-     * "Hotspot" is not redefined here. It reuses the definition the system
-     * already had — documented in docs/API_ENDPOINTS.md and implemented by
-     * DashboardController's hotspotCount — all-time, non-archived incidents
-     * grouped per sitio, qualifying at settings.hotspot_threshold.
+     * WHY IT COUNTS OFFICIAL RECORDS, AND WHY IT IS NOT CALLED FROM store()
+     * ---------------------------------------------------------------------
+     * It used to be called from store(), counting every non-archived incident.
+     * CP-5A made "validated and not archived" the rule for every figure people
+     * act on, and that left this announcement asserting something no other
+     * surface agreed with: a Hotspot Alert routes straight to the Trends
+     * Hotspots panel (see notificationRouting.js), whose table CP-5A made
+     * validated-only — so the bell could announce a sitio the panel showed as
+     * empty, and it escapes the app as a desktop notification while doing it.
+     *
+     * Worse, store() forces validation_status to pending, so a create can
+     * never change the official count. The one place this fired was the one
+     * place the figure provably could not move.
+     *
+     * So it now counts OFFICIAL records via Incident::scopeOfficial(), and it
+     * is called from the two transitions that can actually raise that count:
+     *
+     *   approve()  pending|returned -> validated   (+1)
+     *   restore()  archived+validated -> active+validated  (+1)
+     *
+     * The transitions that LOWER it — archive(), returnForCorrection(), and an
+     * update() material edit sending a record back to pending — need no call:
+     * they cannot cross a threshold upwards, and because this compares counts
+     * rather than recording that an alert was sent, a sitio that recedes below
+     * the threshold and climbs again correctly crosses again.
      *
      * Only the CROSSING announces. The count is read AFTER the commit, so the
-     * incident just saved is included; the count before it is therefore one
-     * lower, and comparing both against the threshold isolates the single save
-     * that takes a sitio from below it to meeting it. Without that, every
-     * later incident in a qualifying sitio would announce again — and with a
-     * default threshold of 3 most sitios qualify quickly, so the bell would
-     * turn into noise. A sitio whose count falls back below the threshold
-     * (archiving) and climbs again crosses again, which is why this compares
-     * counts rather than recording that an alert was already sent.
+     * record that just became official is included; the count before it is
+     * therefore one lower, and comparing both against the threshold isolates
+     * the single transition that takes a sitio from below it to meeting it.
+     * Without that, every later approval in a qualifying sitio would announce
+     * again — and with a default threshold of 3 most sitios qualify quickly, so
+     * the bell would turn into noise.
+     *
+     * The `- 1` is DERIVED, not measured, so it is only sound while every
+     * caller moves exactly one record into the official set. Both callers do:
+     * approve() and restore() each perform a single conditional UPDATE that
+     * either changes one row or reports that nothing changed. Do not call this
+     * from anywhere that can shift the count by more than one.
+     *
+     * Known limitation, unchanged from the store() version and inherent to
+     * deriving the before-count: two approvals into the same sitio committing
+     * simultaneously can both read the post-both count, see a before-count at
+     * or above the threshold, and both stay silent. The race can MISS an alert;
+     * it cannot produce a duplicate. Fixing it would need persisted per-sitio
+     * state, which this deliberately does not have.
      *
      * Expressed as two comparisons rather than the equivalent
      * `$countAfter === $threshold` because the two-sided form is what the rule
@@ -436,8 +476,13 @@ class IncidentController extends Controller
 
             $threshold = (int) Setting::current()->hotspot_threshold;
 
-            $countAfter = Incident::where('sitio', $incident->sitio)
-                ->where('status', '!=', 'Archived')
+            // scopeOfficial() rather than a condition written out here: this is
+            // the same "validated and not archived" rule the map, the reports
+            // and the analytics endpoints apply, and it being one definition is
+            // what stops this announcement drifting away from them again.
+            $countAfter = Incident::query()
+                ->official()
+                ->where('sitio', $incident->sitio)
                 ->count();
             $countBefore = $countAfter - 1;
 
@@ -448,7 +493,11 @@ class IncidentController extends Controller
             AppNotification::create([
                 'title' => 'Hotspot Alert',
                 'message' => sprintf(
-                    '%s has reached %d active incidents, meeting the hotspot threshold of %d.',
+                    // "validated incidents", not "active incidents": the figure
+                    // quoted is the official count, and the message has to say
+                    // which count it is or it invites the reader to compare it
+                    // against a number nothing computes.
+                    '%s has reached %d validated incidents, meeting the hotspot threshold of %d.',
                     $incident->sitio,
                     $countAfter,
                     $threshold
@@ -461,10 +510,11 @@ class IncidentController extends Controller
                 'read' => false,
             ]);
         } catch (\Throwable $e) {
-            // Same isolation as announceNewIncident(): the incident is already
-            // committed and the caller has been told it saved, so a failure to
-            // announce must not turn a successful save into an error.
-            Log::warning('Incident saved but its hotspot alert could not be written', [
+            // Same isolation as announceNewIncident(): the transition is already
+            // committed and the caller has been told it succeeded, so a failure
+            // to announce must not turn a successful validation or restore into
+            // an error.
+            Log::warning('Incident transition saved but its hotspot alert could not be written', [
                 'incident_id' => $incident->id,
                 'sitio' => $incident->sitio,
                 'error' => $e->getMessage(),
@@ -606,7 +656,29 @@ class IncidentController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
+        $active = $incident->fresh();
+
+        // Restoring is the OTHER way a sitio's official count goes up: an
+        // archived record that was already validated re-enters official data
+        // the moment it stops being archived, without anybody validating
+        // anything. A sitio can therefore become a hotspot here.
+        //
+        // ONLY when the record is validated, and this condition is load-bearing
+        // rather than an optimisation. announceHotspotIfCrossed() derives the
+        // before-count as `countAfter - 1`, which is only true if the caller
+        // moved exactly one record into the official set. Restoring a PENDING
+        // or RETURNED record leaves the official count untouched, so the
+        // derived before-count would be one too low — and a sitio already
+        // sitting exactly at the threshold would announce a second time for a
+        // transition that changed nothing.
+        //
+        // The guard above already refused anything that was not archived, so
+        // reaching here means this record genuinely just left the archive.
+        if ($active->validation_status === Incident::VALIDATION_VALIDATED) {
+            $this->announceHotspotIfCrossed($active);
+        }
+
+        return new IncidentResource($active->load(self::DETAIL_RELATIONS));
     }
 
     // PUT /api/incidents/{incident}/validate — BADAC Administrator or BADAC
@@ -721,7 +793,19 @@ class IncidentController extends Controller
             return response()->json(['message' => 'This incident is already validated.'], 422);
         }
 
-        return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
+        // OUTSIDE and AFTER the transaction, exactly as store() announces: if
+        // the update above rolled back, this line is never reached, so the bell
+        // cannot describe a validation that did not happen.
+        //
+        // Reached only when $changed was 1 — the conditional UPDATE above moves
+        // exactly one record into the official set, and a second attempt on the
+        // same record returns the 422 instead. That is what makes this
+        // exactly-once per genuine transition without any dedup state, and what
+        // keeps announceHotspotIfCrossed()'s `countAfter - 1` sound.
+        $validated = $incident->fresh();
+        $this->announceHotspotIfCrossed($validated);
+
+        return new IncidentResource($validated->load(self::DETAIL_RELATIONS));
     }
 
     // PUT /api/incidents/{incident}/return — BADAC Administrator or BADAC

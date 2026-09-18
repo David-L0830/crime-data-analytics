@@ -129,9 +129,7 @@ class ReportGenerator
         // reviewed, presented beside validated ones and indistinguishable from
         // them. Only validated, non-archived records are official (Phase 2B),
         // and a report is the one artefact that travels outside the system.
-        $query = Incident::query()
-            ->where('status', '!=', 'Archived')
-            ->where('validation_status', Incident::VALIDATION_VALIDATED);
+        $query = Incident::query()->official();
 
         foreach (['crimeType' => 'crime_type', 'category' => 'category', 'sitio' => 'sitio', 'status' => 'status'] as $key => $column) {
             $value = $filters[$key] ?? null;

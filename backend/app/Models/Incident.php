@@ -166,6 +166,40 @@ class Incident extends Model
         ];
     }
 
+    /**
+     * THE definition of official data, in one place.
+     *
+     * An incident is OFFICIAL when it is validated and not archived (Phase 2B).
+     * Only official records may reach Crime Mapping, the Dashboard, Statistical
+     * Analysis, Trend and Pattern Detection, Report Generation and the hotspot
+     * alert — everything, in other words, that presents a figure people act on.
+     *
+     * WHY THIS IS A SCOPE RATHER THAN A CONDITION EACH CALLER WRITES
+     * --------------------------------------------------------------
+     * CP-5A applied the rule by hand at five call sites and three more were
+     * missed: DashboardController, AnalyticsController and the hotspot alert
+     * kept counting unreviewed encodings, so the bell could announce a hotspot
+     * for a sitio the Trends page showed as empty. That is the same failure
+     * AppNotification::scopeVisibleTo() was extracted to end, for the same
+     * reason — a rule copied into every caller is a rule the next caller
+     * forgets. There is now one sentence to read and one place to change it.
+     *
+     * The two conditions are independent and both are load-bearing: archiving
+     * retires a case whether or not it was ever reviewed, and validation
+     * decides whether anybody has vouched for it. A validated ARCHIVED record
+     * is excluded by the first, an active PENDING one by the second.
+     *
+     * Fails closed by construction: a record whose validation_status is
+     * anything other than 'validated' — including a row that predates the
+     * column — is simply not official.
+     */
+    public function scopeOfficial($query)
+    {
+        return $query
+            ->where('status', '!=', 'Archived')
+            ->where('validation_status', self::VALIDATION_VALIDATED);
+    }
+
     public function reporter()
     {
         return $this->belongsTo(User::class, 'reported_by');
