@@ -10,6 +10,7 @@ use App\Models\ReportSchedule;
 use App\Models\User;
 use App\Services\ReportGenerator;
 use App\Services\ScheduledReportDispatcher;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,22 @@ use Tests\TestCase;
  */
 class ScheduledReportTest extends TestCase
 {
+    /**
+     * A report-eligible incident: validated, and not archived.
+     *
+     * Stated here rather than moved into IncidentFactory's definition, which
+     * still mirrors the database default of 'pending' — a newly encoded
+     * incident really is unreviewed, and a factory claiming otherwise would
+     * quietly weaken every other suite. CP-5A made validation the gate on
+     * report content, so a fixture for a report has to say that it passed it.
+     */
+    private function officialIncidents(): Factory
+    {
+        return Incident::factory()->state([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+    }
+
     use RefreshDatabase;
 
     private function admin(): User
@@ -936,8 +953,8 @@ class ScheduledReportTest extends TestCase
         Mail::fake();
         Carbon::setTestNow('2026-05-15 06:00:00');
 
-        Incident::factory()->count(2)->create(['sitio' => 'Sitio 1', 'incident_date' => '2026-05-10']);
-        Incident::factory()->create(['sitio' => 'Sitio 3', 'incident_date' => '2026-05-10']);
+        $this->officialIncidents()->count(2)->create(['sitio' => 'Sitio 1', 'incident_date' => '2026-05-10']);
+        $this->officialIncidents()->create(['sitio' => 'Sitio 3', 'incident_date' => '2026-05-10']);
 
         $schedule = $this->schedule([
             'period' => 'last_30_days',
@@ -1015,7 +1032,7 @@ class ScheduledReportTest extends TestCase
 
     public function test_the_message_body_describes_the_report_without_containing_it(): void
     {
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-CONFIDENTIAL-1',
             'victim_name' => 'Juana Dela Cruz',
             'incident_date' => Carbon::now()->toDateString(),
@@ -1049,7 +1066,7 @@ class ScheduledReportTest extends TestCase
         Mail::fake();
         Carbon::setTestNow('2026-05-15 06:00:00');
 
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-CONFIDENTIAL-2',
             'victim_name' => 'Juana Dela Cruz',
             'incident_date' => '2026-05-10',

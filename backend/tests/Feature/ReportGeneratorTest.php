@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Incident;
 use App\Services\ReportGenerator;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -25,6 +26,22 @@ use Tests\TestCase;
  */
 class ReportGeneratorTest extends TestCase
 {
+    /**
+     * A report-eligible incident: validated, and not archived.
+     *
+     * Stated here rather than moved into IncidentFactory's definition, which
+     * still mirrors the database default of 'pending' — a newly encoded
+     * incident really is unreviewed, and a factory claiming otherwise would
+     * quietly weaken every other suite. CP-5A made validation the gate on
+     * report content, so a fixture for a report has to say that it passed it.
+     */
+    private function officialIncidents(): Factory
+    {
+        return Incident::factory()->state([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+    }
+
     use RefreshDatabase;
 
     private function generator(): ReportGenerator
@@ -41,7 +58,7 @@ class ReportGeneratorTest extends TestCase
 
     public function test_it_writes_a_header_row_and_one_row_per_record(): void
     {
-        Incident::factory()->count(3)->create(['incident_date' => '2026-05-10']);
+        $this->officialIncidents()->count(3)->create(['incident_date' => '2026-05-10']);
 
         $report = $this->generator()->generate('incidents');
 
@@ -54,7 +71,7 @@ class ReportGeneratorTest extends TestCase
 
     public function test_it_writes_only_the_named_columns_and_no_internal_fields(): void
     {
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-PROJECTION-1',
             'incident_date' => '2026-05-10',
             'latitude' => 14.7601234,
@@ -81,7 +98,7 @@ class ReportGeneratorTest extends TestCase
 
     public function test_it_applies_every_filter_it_offers(): void
     {
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-KEEP-1',
             'crime_type' => 'Theft',
             'category' => 'Property Crime',
@@ -89,7 +106,7 @@ class ReportGeneratorTest extends TestCase
             'status' => 'Solved',
             'incident_date' => '2026-05-10',
         ]);
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-DROP-TYPE',
             'crime_type' => 'Robbery',
             'category' => 'Property Crime',
@@ -97,7 +114,7 @@ class ReportGeneratorTest extends TestCase
             'status' => 'Solved',
             'incident_date' => '2026-05-10',
         ]);
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-DROP-STATUS',
             'crime_type' => 'Theft',
             'category' => 'Property Crime',
@@ -105,7 +122,7 @@ class ReportGeneratorTest extends TestCase
             'status' => 'Open',
             'incident_date' => '2026-05-10',
         ]);
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-DROP-SITIO',
             'crime_type' => 'Theft',
             'category' => 'Property Crime',
@@ -129,10 +146,10 @@ class ReportGeneratorTest extends TestCase
 
     public function test_the_date_range_is_inclusive_at_both_ends(): void
     {
-        Incident::factory()->create(['case_number' => 'CN-BEFORE', 'incident_date' => '2026-04-30']);
-        Incident::factory()->create(['case_number' => 'CN-FIRST', 'incident_date' => '2026-05-01']);
-        Incident::factory()->create(['case_number' => 'CN-LAST', 'incident_date' => '2026-05-31']);
-        Incident::factory()->create(['case_number' => 'CN-AFTER', 'incident_date' => '2026-06-01']);
+        $this->officialIncidents()->create(['case_number' => 'CN-BEFORE', 'incident_date' => '2026-04-30']);
+        $this->officialIncidents()->create(['case_number' => 'CN-FIRST', 'incident_date' => '2026-05-01']);
+        $this->officialIncidents()->create(['case_number' => 'CN-LAST', 'incident_date' => '2026-05-31']);
+        $this->officialIncidents()->create(['case_number' => 'CN-AFTER', 'incident_date' => '2026-06-01']);
 
         $report = $this->generator()->generate('incidents', [], '2026-05-01', '2026-05-31');
 
@@ -148,7 +165,7 @@ class ReportGeneratorTest extends TestCase
         // The React FilterBar sends '' for a control the user has not touched.
         // If that became WHERE crime_type = '' the report would arrive empty
         // and look like a quiet month rather than a broken filter.
-        Incident::factory()->count(2)->create(['incident_date' => '2026-05-10']);
+        $this->officialIncidents()->count(2)->create(['incident_date' => '2026-05-10']);
 
         $report = $this->generator()->generate('incidents', [
             'crimeType' => '',
@@ -162,7 +179,7 @@ class ReportGeneratorTest extends TestCase
     {
         // An incident description is free text typed by an encoder. Opened in
         // Excel, a cell beginning '=' or '+' is a formula, not a string.
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-FORMULA',
             'incident_date' => '2026-05-10',
             'description' => '=HYPERLINK("http://example.test","click")',
@@ -177,7 +194,7 @@ class ReportGeneratorTest extends TestCase
 
     public function test_it_quotes_and_escapes_values_containing_commas_and_quotes(): void
     {
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-QUOTING',
             'incident_date' => '2026-05-10',
             'description' => 'Suspect said "stop", then fled',
@@ -193,7 +210,7 @@ class ReportGeneratorTest extends TestCase
 
     public function test_it_starts_with_a_byte_order_mark_so_excel_reads_utf8(): void
     {
-        Incident::factory()->create(['incident_date' => '2026-05-10', 'street' => 'Peñaranda Street']);
+        $this->officialIncidents()->create(['incident_date' => '2026-05-10', 'street' => 'Peñaranda Street']);
 
         $report = $this->generator()->generate('incidents');
 
@@ -203,7 +220,7 @@ class ReportGeneratorTest extends TestCase
 
     public function test_the_scope_summary_describes_the_report_without_quoting_it(): void
     {
-        Incident::factory()->create([
+        $this->officialIncidents()->create([
             'case_number' => 'CN-SECRET-0001',
             'crime_type' => 'Theft',
             'incident_date' => '2026-05-10',
@@ -218,5 +235,150 @@ class ReportGeneratorTest extends TestCase
         // The summary is stored on a report_email_logs row. It must describe
         // the scope, never carry a record from the report.
         $this->assertStringNotContainsString('CN-SECRET-0001', $report['summary']);
+    }
+
+    // ===== CP-5A — a generated report carries OFFICIAL data only =====
+    //
+    // A report is the one artefact that leaves the system, and it arrives
+    // without the screen around it to qualify what it holds. Before CP-5A this
+    // query applied the caller's filters and nothing else, so a scheduled file
+    // could contain archived cases and encodings nobody had reviewed, set
+    // beside validated ones and indistinguishable from them by anyone reading
+    // the spreadsheet.
+
+    public function test_a_report_includes_validated_non_archived_incidents(): void
+    {
+        $this->officialIncidents()->create([
+            'case_number' => 'CN-OFFICIAL',
+            'incident_date' => '2026-05-10',
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertSame(1, $report['rowCount']);
+        $this->assertStringContainsString('CN-OFFICIAL', $report['contents']);
+    }
+
+    public function test_a_report_excludes_pending_incidents(): void
+    {
+        Incident::factory()->create([
+            'case_number' => 'CN-PENDING',
+            'incident_date' => '2026-05-10',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertSame(0, $report['rowCount']);
+        $this->assertStringNotContainsString('CN-PENDING', $report['contents']);
+    }
+
+    public function test_a_report_excludes_returned_incidents(): void
+    {
+        Incident::factory()->create([
+            'case_number' => 'CN-RETURNED',
+            'incident_date' => '2026-05-10',
+            'validation_status' => Incident::VALIDATION_RETURNED,
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertSame(0, $report['rowCount']);
+        $this->assertStringNotContainsString('CN-RETURNED', $report['contents']);
+    }
+
+    public function test_a_report_excludes_archived_incidents_even_when_validated(): void
+    {
+        // This one was never filtered at all before CP-5A: the query had no
+        // archive condition, so retired cases were being emailed out.
+        $this->officialIncidents()->create([
+            'case_number' => 'CN-ARCHIVED',
+            'incident_date' => '2026-05-10',
+            'status' => 'Archived',
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertSame(0, $report['rowCount']);
+        $this->assertStringNotContainsString('CN-ARCHIVED', $report['contents']);
+    }
+
+    public function test_a_report_excludes_an_archived_pending_incident(): void
+    {
+        Incident::factory()->create([
+            'case_number' => 'CN-ARCHIVED-PENDING',
+            'incident_date' => '2026-05-10',
+            'status' => 'Archived',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertSame(0, $report['rowCount']);
+    }
+
+    public function test_a_report_of_a_mixed_set_contains_only_the_official_record(): void
+    {
+        $this->officialIncidents()->create([
+            'case_number' => 'CN-OFFICIAL',
+            'incident_date' => '2026-05-10',
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-PENDING',
+            'incident_date' => '2026-05-10',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-RETURNED',
+            'incident_date' => '2026-05-10',
+            'validation_status' => Incident::VALIDATION_RETURNED,
+        ]);
+        $this->officialIncidents()->create([
+            'case_number' => 'CN-ARCHIVED-VALIDATED',
+            'incident_date' => '2026-05-10',
+            'status' => 'Archived',
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-ARCHIVED-PENDING',
+            'incident_date' => '2026-05-10',
+            'status' => 'Archived',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertSame(1, $report['rowCount']);
+        $this->assertStringContainsString('CN-OFFICIAL', $report['contents']);
+        foreach (['CN-PENDING', 'CN-RETURNED', 'CN-ARCHIVED-VALIDATED', 'CN-ARCHIVED-PENDING'] as $excluded) {
+            $this->assertStringNotContainsString($excluded, $report['contents']);
+        }
+    }
+
+    public function test_the_official_rule_is_not_something_a_caller_can_filter_away(): void
+    {
+        // The caller controls crime type, category, sitio, status and dates.
+        // None of those may readmit an unreviewed record — asking for
+        // "status: Open" is not a way around review.
+        Incident::factory()->create([
+            'case_number' => 'CN-PENDING-OPEN',
+            'incident_date' => '2026-05-10',
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+
+        $report = app(ReportGenerator::class)->generate('incidents', ['status' => 'Open']);
+
+        $this->assertSame(0, $report['rowCount']);
+    }
+
+    public function test_the_scope_summary_states_that_the_report_is_validated_only(): void
+    {
+        // A report_email_logs row saying "12 records" should not leave the
+        // reader guessing whether unreviewed encodings were among them.
+        $this->officialIncidents()->create(['incident_date' => '2026-05-10']);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
+        $this->assertStringContainsString('Validation: Validated only', $report['summary']);
     }
 }

@@ -90,6 +90,17 @@ class IncidentController extends Controller
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
             ->where('status', '!=', 'Archived')
+            // CP-5A — the map shows OFFICIAL data. Only a validated record is
+            // official (Phase 2B), so a pending or returned incident is not
+            // plotted: a pin on a map projected in the barangay hall asserts
+            // that a crime happened there, and an unreviewed encoding has not
+            // earned that yet.
+            //
+            // Filtered here rather than by handing validation_status to the
+            // client, which would put a workflow field into a payload whose
+            // whole rule is that it carries the minimum the map needs. The
+            // projection below is unchanged.
+            ->where('validation_status', Incident::VALIDATION_VALIDATED)
             ->get([
                 'id', 'incident_code', 'case_number', 'crime_type', 'category',
                 'incident_date', 'incident_time',

@@ -56,7 +56,21 @@ export default function Dashboard() {
   const filtered = useMemo(
     () =>
       filterRecords(
-        records.filter((r) => r.status !== 'Archived'),
+        // CP-5A — OFFICIAL DATA ONLY.
+        //
+        // Only a validated, non-archived incident counts as official downstream
+        // data (Phase 2B). A figure on this page is read as a statement about
+        // crime in the barangay, so an encoding nobody has reviewed must not
+        // contribute to one: it would be indistinguishable from a reviewed
+        // record and would move a number that people act on.
+        //
+        // Applied to the base set rather than inside filterRecords(), which is
+        // shared with Crime Mapping and must not change underneath it. Every
+        // count, chart, alert, export and printed document on this page derives
+        // from `filtered`, so all of them inherit this rule by construction.
+        records.filter(
+          (r) => r.status !== 'Archived' && r.validationStatus === 'validated',
+        ),
         {
           // Restored FROM/TO range filtering (matches Records/Mapping/Analytics/
           // Trends). filterRecords compares r.date ('YYYY-MM-DD' string, no Date
@@ -345,6 +359,10 @@ export default function Dashboard() {
     `Category: ${filters['dash-category'] || 'All'}`,
     `Sitio: ${filters['dash-sitio'] || 'All'}`,
     `Status: ${filters['dash-status'] || 'All'}`,
+    // CP-5A — fixed, not a filter. Without it the reader of a printed report
+    // or an exported workbook has no way to tell whether unreviewed encodings
+    // were counted, and the absence of any Validation line implied they were.
+    'Validation: Validated only',
   ].join(' · ');
 
   // ONE projection, shared by the .xlsx and the .csv below, so the two files

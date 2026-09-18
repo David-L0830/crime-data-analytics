@@ -122,7 +122,16 @@ class ReportGenerator
      */
     private function incidentRows(array $filters, ?string $from, ?string $to): array
     {
-        $query = Incident::query();
+        // CP-5A — a generated report is official data.
+        //
+        // Neither condition was here before, so a scheduled file leaving the
+        // barangay could contain archived incidents and incidents nobody had
+        // reviewed, presented beside validated ones and indistinguishable from
+        // them. Only validated, non-archived records are official (Phase 2B),
+        // and a report is the one artefact that travels outside the system.
+        $query = Incident::query()
+            ->where('status', '!=', 'Archived')
+            ->where('validation_status', Incident::VALIDATION_VALIDATED);
 
         foreach (['crimeType' => 'crime_type', 'category' => 'category', 'sitio' => 'sitio', 'status' => 'status'] as $key => $column) {
             $value = $filters[$key] ?? null;
@@ -164,6 +173,9 @@ class ReportGenerator
             'Category: '.($filters['category'] ?? null ?: 'All'),
             'Sitio: '.($filters['sitio'] ?? null ?: 'All'),
             'Status: '.($filters['status'] ?? null ?: 'All'),
+            // Fixed, not a filter: the reader of a report_email_logs row can
+            // otherwise only guess whether an unreviewed encoding was counted.
+            'Validation: Validated only',
         ];
 
         return implode(' · ', $parts);

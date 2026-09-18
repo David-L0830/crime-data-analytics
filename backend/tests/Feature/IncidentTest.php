@@ -476,6 +476,8 @@ class IncidentTest extends TestCase
         $this->actingUser();
 
         Incident::factory()->create([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+
             'status' => 'Open',
             'victim_name' => 'Maria Santos',
             'victim_age' => 34,
@@ -516,7 +518,9 @@ class IncidentTest extends TestCase
     public function test_the_map_payload_carries_exactly_the_fields_the_map_needs(): void
     {
         $this->actingUser();
-        Incident::factory()->create(['status' => 'Open']);
+        Incident::factory()->create([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+            'status' => 'Open']);
 
         $row = $this->getJson('/api/incidents/map')->assertOk()->json()[0];
 
@@ -539,13 +543,132 @@ class IncidentTest extends TestCase
     {
         $this->actingUser();
 
-        Incident::factory()->create(['status' => 'Open']);
-        Incident::factory()->create(['status' => 'Archived']);
-        Incident::factory()->create(['status' => 'Open', 'latitude' => null, 'longitude' => null]);
+        Incident::factory()->create([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+            'status' => 'Open']);
+        Incident::factory()->create([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+            'status' => 'Archived']);
+        Incident::factory()->create([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+            'status' => 'Open', 'latitude' => null, 'longitude' => null]);
 
         // The endpoint filters server-side, so the page receives only plottable,
         // non-archived incidents.
         $this->assertCount(1, $this->getJson('/api/incidents/map')->assertOk()->json());
+    }
+
+    // ===== CP-5A — the map plots OFFICIAL data only =====
+    //
+    // A pin on a map that gets projected in the barangay hall asserts that a
+    // crime happened at that spot. An encoding nobody has reviewed has not
+    // earned that assertion, so the endpoint withholds it rather than leaving
+    // the page to decide. Filtered server-side on purpose: the payload never
+    // carries validation_status, because a workflow field has no business in a
+    // projection whose whole rule is that it carries the minimum the map needs.
+
+    public function test_the_map_payload_includes_validated_non_archived_incidents(): void
+    {
+        $this->actingUser();
+
+        Incident::factory()->create([
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+
+        $this->assertCount(1, $this->getJson('/api/incidents/map')->assertOk()->json());
+    }
+
+    public function test_the_map_payload_omits_pending_incidents(): void
+    {
+        $this->actingUser();
+
+        Incident::factory()->create([
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+
+        $this->assertCount(0, $this->getJson('/api/incidents/map')->assertOk()->json());
+    }
+
+    public function test_the_map_payload_omits_returned_incidents(): void
+    {
+        $this->actingUser();
+
+        Incident::factory()->create([
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_RETURNED,
+        ]);
+
+        $this->assertCount(0, $this->getJson('/api/incidents/map')->assertOk()->json());
+    }
+
+    public function test_the_map_payload_omits_a_validated_but_archived_incident(): void
+    {
+        // The archive rule is independent of the new one: being reviewed does
+        // not put a retired case back on the barangay's current map.
+        $this->actingUser();
+
+        Incident::factory()->create([
+            'status' => 'Archived',
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+
+        $this->assertCount(0, $this->getJson('/api/incidents/map')->assertOk()->json());
+    }
+
+    public function test_the_map_payload_plots_only_the_official_incident_of_a_mixed_set(): void
+    {
+        $this->actingUser();
+
+        $official = Incident::factory()->create([
+            'case_number' => 'CN-OFFICIAL',
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-PENDING',
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-RETURNED',
+            'status' => 'Under Investigation',
+            'validation_status' => Incident::VALIDATION_RETURNED,
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-ARCHIVED-VALIDATED',
+            'status' => 'Archived',
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+        Incident::factory()->create([
+            'case_number' => 'CN-ARCHIVED-PENDING',
+            'status' => 'Archived',
+            'validation_status' => Incident::VALIDATION_PENDING,
+        ]);
+
+        $rows = $this->getJson('/api/incidents/map')->assertOk()->json();
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($official->case_number, $rows[0]['caseNumber']);
+    }
+
+    public function test_the_map_payload_still_withholds_the_field_it_filters_on(): void
+    {
+        // The filtering happens in the query, not by handing the client a
+        // workflow column to filter on itself.
+        $this->actingUser();
+
+        Incident::factory()->create([
+            'status' => 'Open',
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+        ]);
+
+        $response = $this->getJson('/api/incidents/map')->assertOk();
+
+        $this->assertArrayNotHasKey('validationStatus', $response->json()[0]);
+        $this->assertArrayNotHasKey('validation_status', $response->json()[0]);
+        $this->assertStringNotContainsString('validation', $response->getContent());
     }
 
     public function test_the_map_endpoint_requires_authentication(): void
