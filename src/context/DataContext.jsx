@@ -740,28 +740,6 @@ export function DataProvider({ children }) {
     [notifications],
   );
 
-  // How many newly submitted incidents this user has not looked at yet, for
-  // the Validation control on Crime Data Collection. Derived from the
-  // notifications already in state — no extra request, no extra poll, no
-  // server-side counter.
-  //
-  // THIS IS A READ/UNREAD COUNT, NOT A WORKLOAD COUNT. It answers "how many
-  // submissions have I not seen", which is why opening the control clears it
-  // while every pending record stays exactly as pending as it was. The
-  // outstanding-work number is a property of `records`
-  // (validationStatus === 'pending'), not of this inbox, and the two are
-  // deliberately allowed to differ.
-  //
-  // 'New Incident' is the title IncidentController::announceNewIncident()
-  // writes on every successful store(). Reusing it means the same rows also
-  // feed the topbar bell, so clearing one lowers the other — intended, since
-  // both are reporting the same events to the same person.
-  const unreadValidationCount = useMemo(
-    () =>
-      notifications.filter((n) => n.title === 'New Incident' && !n.read).length,
-    [notifications],
-  );
-
   // ===== Crime types =====
   // Only an Administrator can reach these (the API enforces it — see
   // routes/api.php); the Settings page is simply where the UI for them lives.
@@ -878,7 +856,6 @@ export function DataProvider({ children }) {
     markAllNotificationsRead,
     unreadNotificationCount,
     unreadHotspotAlertCount,
-    unreadValidationCount,
     newNotifications,
     consumeNewNotifications,
     refreshNotifications,

@@ -18,6 +18,7 @@ import {
   IncidentEditModal,
   IncidentCreateModal,
 } from '../components/incidents/IncidentModal';
+import ValidationQueueModal from '../components/incidents/ValidationQueueModal';
 import {
   filterRecords,
   formatDate,
@@ -57,8 +58,6 @@ export default function IncidentFeed() {
     returnRecordForCorrection,
     addRecord,
     holdRecordsRefresh,
-    unreadValidationCount,
-    markAllNotificationsRead,
   } = useData();
   const { can, currentUser } = useAuth();
   const { showToast } = useToast();
@@ -92,7 +91,10 @@ export default function IncidentFeed() {
   const [archivingId, setArchivingId] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
-  const [openingValidation, setOpeningValidation] = useState(false);
+  const [validationOpen, setValidationOpen] = useState(false);
+  // Whether the record currently open was reached from the queue, so closing
+  // it can send the validator back there.
+  const [returnToQueue, setReturnToQueue] = useState(false);
 
   // The background poll replaces `records` wholesale (see DataContext's
   // refreshRecords). That must not happen while a record is open for reading,
@@ -127,6 +129,48 @@ export default function IncidentFeed() {
     }
   }, [location.state]);
 
+  // CP-4 — who may see an UNVALIDATED record.
+  //
+  // Crime Data Collection is the official record list, so by default it shows
+  // validated records only. Two different questions decide the rest, and
+  // collapsing them into one breaks the page:
+  //
+  //   permitted      — what this viewer may EVER see here. Absolute: an
+  //                    Encoder stays confined to their own unvalidated
+  //                    records whichever Validation filter they select.
+  //   defaultVisible — what shows when no Validation filter is chosen.
+  //
+  // Keeping them apart is what lets a BADAC Administrator or Validator select
+  // "Pending Validation" and actually audit the backlog. If the default rule
+  // were applied unconditionally, that filter would return nothing for the
+  // two roles whose job it is — the default would silently outrank an
+  // explicit request.
+  //
+  // `reportedBy` and `currentUser.id` are both strings: IncidentResource
+  // sends `(string) $this->reported_by` and UserResource sends
+  // `(string) $this->id`, and nothing transforms them in transit. `===` is
+  // therefore correct without normalisation — the same comparison
+  // canEditRecord below already depends on. A record with no creator
+  // (`reportedBy: null`) matches nobody, which is the backend's own rule.
+  const canAuditValidation = can('validate_record');
+  const isOwningEncoder = can('edit_own_incident');
+  const currentUserId = currentUser?.id;
+
+  // Hoisted out of the memo below so the export/print header can describe the
+  // same scope the table is showing.
+  const validationKey = VALIDATION_KEY_BY_LABEL[filters['inc-validation']];
+
+  // "All" is no longer true of an unfiltered list, so the printed document
+  // and the stored export run must state what was actually included.
+  const validationScope = (() => {
+    const ownOnly = isOwningEncoder && !canAuditValidation;
+    if (!validationKey)
+      return ownOnly ? 'Validated + own pending/returned' : 'Validated only';
+    if (ownOnly && validationKey !== 'validated')
+      return `${filters['inc-validation']} (own records)`;
+    return filters['inc-validation'];
+  })();
+
   const filtered = useMemo(() => {
     const results = filterRecords(records, {
       crimeType: filters['inc-crimeType'],
@@ -146,17 +190,38 @@ export default function IncidentFeed() {
     // Validation is filtered here rather than in the shared filterRecords
     // helper, which also drives the Metabase-backed analytics pages and must
     // not change underneath them.
-    const validationKey = VALIDATION_KEY_BY_LABEL[filters['inc-validation']];
+    // Boolean(r.reportedBy) first: a record with no creator must match
+    // NOBODY. Without it, `null === null` would make every ownerless record
+    // look owned to a viewer whose own id had not loaded.
+    const ownedByViewer = (r) =>
+      isOwningEncoder && Boolean(r.reportedBy) && r.reportedBy === currentUserId;
+    const permitted = (r) =>
+      r.validationStatus === 'validated' ||
+      canAuditValidation ||
+      ownedByViewer(r);
+    const defaultVisible = (r) =>
+      r.validationStatus === 'validated' || ownedByViewer(r);
     const withArchiveRule = validationKey
-      ? archiveRuled.filter((r) => r.validationStatus === validationKey)
-      : archiveRuled;
+      ? archiveRuled.filter(
+          (r) => r.validationStatus === validationKey && permitted(r),
+        )
+      : archiveRuled.filter(defaultVisible);
     const group = location.state?.statusGroup;
     if (group === 'solved')
       return withArchiveRule.filter((r) => SOLVED_STATUSES.includes(r.status));
     if (group === 'pending')
       return withArchiveRule.filter((r) => PENDING_STATUSES.includes(r.status));
     return withArchiveRule;
-  }, [records, filters, debouncedSearch, location.state]);
+  }, [
+    records,
+    filters,
+    debouncedSearch,
+    location.state,
+    validationKey,
+    canAuditValidation,
+    isOwningEncoder,
+    currentUserId,
+  ]);
 
   // Column sorting for this report. `sorted` — not `filtered` — is what the
   // table renders, what the printed document shows and what both exporters
@@ -181,6 +246,9 @@ export default function IncidentFeed() {
       return;
     }
     setViewing(null);
+    // Editing leaves the review flow deliberately, so closing the edit form
+    // must not bounce the user back into the queue.
+    setReturnToQueue(false);
     setEditing(record);
   };
 
@@ -277,34 +345,45 @@ export default function IncidentFeed() {
     };
   }, [records]);
 
-  // Opening Validation is a READ action and nothing more. It clears this
-  // user's unread markers for the 'New Incident' announcements — the same
-  // mechanism the Trends page's "Mark All as Read" uses for Hotspot Alerts —
-  // and touches no incident at all: no validate call, no return call, no
-  // status change. Records that were pending stay pending; the badge is about
-  // what has been seen, not about what has been dealt with.
+  // The validation queue's contents, derived from the records already in
+  // memory. Same basis as validationCounts above, kept as lists rather than
+  // lengths so the queue and its badge can never disagree.
   //
-  // CP-3 will open the validation drawer from here. Until then this is the
-  // whole behaviour, deliberately.
-  const handleOpenValidation = async () => {
-    if (openingValidation) return;
-    // Nothing unread means nothing to mark — skip the pointless request
-    // rather than issuing a write that would change no row.
-    if (unreadValidationCount === 0) return;
+  // Archived records are excluded because approve() refuses them outright
+  // (422, "Restore it first") — offering them for review would only produce a
+  // guaranteed failure.
+  const validationQueue = useMemo(() => {
+    const active = records.filter((r) => r.status !== 'Archived');
+    return {
+      pending: active.filter((r) => r.validationStatus === 'pending'),
+      returned: active.filter((r) => r.validationStatus === 'returned'),
+    };
+  }, [records]);
 
-    setOpeningValidation(true);
-    try {
-      await markAllNotificationsRead('New Incident');
-    } catch {
-      // markAllNotificationsRead restores the previous list and rethrows, so
-      // the badge comes back on failure. Say so rather than letting it look
-      // like nothing happened.
-      showToast(
-        'Could not mark new incidents as read. Check your connection and try again.',
-        'error',
-      );
-    } finally {
-      setOpeningValidation(false);
+  // Opening the queue is a pure read: it sets local UI state and does nothing
+  // else. No request, no notification marker, no record change. The badge
+  // falls only when a record is actually validated or returned, because it
+  // counts records and not announcements — reading is not reviewing.
+  const handleOpenValidation = () => setValidationOpen(true);
+
+  // Opening a record from the queue hands it to the page's existing
+  // IncidentViewModal, which already carries the approve/return controls. The
+  // queue closes first: two modals open at once would mean two competing
+  // focus traps, and Modal restores focus to whatever opened it.
+  const handleReviewFromQueue = (record) => {
+    setValidationOpen(false);
+    setReturnToQueue(true);
+    setViewing(record);
+  };
+
+  // Closing a record that was opened from the queue puts the validator back
+  // where they were, mid-queue, rather than dropping them on the full table.
+  // A record opened from the table itself just closes.
+  const handleCloseViewing = () => {
+    setViewing(null);
+    if (returnToQueue) {
+      setReturnToQueue(false);
+      setValidationOpen(true);
     }
   };
 
@@ -361,7 +440,7 @@ export default function IncidentFeed() {
     `Category: ${filters['inc-category'] || 'All'}`,
     `Sitio: ${filters['inc-sitio'] || 'All'}`,
     `Status: ${filters['inc-status'] || 'All'}`,
-    `Validation: ${filters['inc-validation'] || 'All'}`,
+    `Validation: ${validationScope}`,
     `Search: ${debouncedSearch || 'None'}`,
   ].join(' \u00B7 ');
 
@@ -445,7 +524,7 @@ export default function IncidentFeed() {
       `Category: ${filters['inc-category'] || 'All'}`,
       `Sitio: ${filters['inc-sitio'] || 'All'}`,
       `Status: ${filters['inc-status'] || 'All'}`,
-      `Validation: ${filters['inc-validation'] || 'All'}`,
+      `Validation: ${validationScope}`,
       `Search: ${debouncedSearch ? 'Applied' : 'None'}`,
     ].join(' · '),
   });
@@ -569,21 +648,26 @@ export default function IncidentFeed() {
                 variant="secondary"
                 onClick={handleOpenValidation}
                 aria-label={
-                  unreadValidationCount > 0
-                    ? `Validation, ${unreadValidationCount} new submissions`
+                  validationQueue.pending.length > 0
+                    ? `Validation, ${validationQueue.pending.length} records pending validation`
                     : 'Validation'
                 }
               >
                 <Icons.ShieldCheck size={15} strokeWidth={2} /> Validation
-                {unreadValidationCount > 0 && (
-                  // Same unread badge the topbar bell uses, positioned
-                  // statically inside the button exactly as the Trends
-                  // "Mark All as Read" control does it.
+                {validationQueue.pending.length > 0 && (
+                  // The count is of RECORDS awaiting validation, not of
+                  // notifications: it falls when a record is validated or
+                  // returned, never because somebody looked at it. Same badge
+                  // styling the topbar bell uses, positioned statically inside
+                  // the button exactly as the Trends "Mark All as Read"
+                  // control does it.
                   <span
                     className="notif-bell-count"
                     style={{ position: 'static', marginLeft: 6 }}
                   >
-                    {unreadValidationCount > 99 ? '99+' : unreadValidationCount}
+                    {validationQueue.pending.length > 99
+                      ? '99+'
+                      : validationQueue.pending.length}
                   </span>
                 )}
               </Button>
@@ -764,9 +848,21 @@ export default function IncidentFeed() {
 
       </PrintReport>
 
+      {/* Mounted only for a caller who may actually validate — the same
+          permission that gates the button above. An Encoder never renders it.
+          Opening it is a pure read of `records`; it issues no request. */}
+      {canValidate && (
+        <ValidationQueueModal
+          open={validationOpen}
+          onClose={() => setValidationOpen(false)}
+          pending={validationQueue.pending}
+          returned={validationQueue.returned}
+          onOpenRecord={handleReviewFromQueue}
+        />
+      )}
       <IncidentViewModal
         incident={viewing}
-        onClose={() => setViewing(null)}
+        onClose={handleCloseViewing}
         onEdit={viewing && canEditRecord(viewing) ? handleEdit : null}
         onArchive={viewing && canArchiveRecord(viewing) ? handleArchive : null}
         archiving={viewing && archivingId === viewing.id}
