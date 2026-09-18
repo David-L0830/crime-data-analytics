@@ -266,19 +266,31 @@ class IncidentController extends Controller
             // change as a side effect of this request.
             $statusBefore = $locked->status;
 
-            // An Encoder's edit is a (re)submission: whatever the record's
-            // validation state was, the changed record has not been reviewed,
-            // so it goes back to pending. Without this an Encoder could alter a
-            // validated record and it would stay "official". A returned record
-            // corrected this way is how it re-enters the review queue. The
-            // previous correction reason is kept so the reviewer can see what
-            // was asked for. Administrator edits leave the validation state
-            // alone — the Administrator is the reviewer. The validation columns
-            // are appended here, after mapToColumns(), so nothing the client
-            // sent can supply or override them.
-            $resubmitted = $user?->isEncoder()
+            // Any MATERIAL edit is a (re)submission: the changed record has
+            // not been reviewed in the shape it is now in, so it goes back to
+            // pending. Who made the edit does not enter into it — an
+            // Administrator editing a record they approved is editing content
+            // nobody has reviewed since, exactly as an Encoder is. A returned
+            // record corrected this way is how it re-enters the review queue.
+            // The previous correction reason is kept so the reviewer can still
+            // see what was asked for.
+            //
+            // `status` is the ONE exempt field. Moving a case Open -> Under
+            // Investigation -> Solved is case progress, not a change to what
+            // was recorded about the crime, and it must not drop the record out
+            // of official data until somebody re-approves it.
+            //
+            // Computed BEFORE the validation and last_edited_by columns are
+            // appended below, so the bookkeeping this decision writes can never
+            // feed back into the decision itself.
+            $materiallyChanged = $this->hasMaterialChange($locked, $columns)
+                || $this->evidenceSetChanged($locked, $request->validated());
+
+            // The validation columns are appended here, after mapToColumns(),
+            // so nothing the client sent can supply or override them.
+            $resubmitted = $materiallyChanged
                 && $locked->validation_status !== Incident::VALIDATION_PENDING;
-            if ($user?->isEncoder()) {
+            if ($resubmitted) {
                 $columns['validation_status'] = Incident::VALIDATION_PENDING;
                 $columns['validated_by'] = null;
                 $columns['validated_at'] = null;
@@ -762,6 +774,141 @@ class IncidentController extends Controller
         }
 
         return new IncidentResource($incident->fresh()->load(self::DETAIL_RELATIONS));
+    }
+
+    /**
+     * The only column whose change does NOT send a record back for review.
+     *
+     * Case status is progress ON a record, not a change TO what was recorded
+     * about the crime. Everything else mapToColumns() can write — including
+     * priority, investigating_officer, reporting_officer, badge_number and
+     * unit — is crime data and does trigger revalidation.
+     */
+    private const REVALIDATION_EXEMPT_COLUMNS = ['status'];
+
+    /**
+     * Did this request actually change the recorded crime data?
+     *
+     * Decided by comparing VALUES, never by which keys arrived. The edit form
+     * posts the entire record on every save (IncidentModal's handleSubmit
+     * spreads the whole form), so "the client sent `sitio`" says nothing about
+     * whether `sitio` changed. Deciding on key presence would mark every save
+     * material and revalidate records nobody had really edited.
+     */
+    private function hasMaterialChange(Incident $locked, array $columns): bool
+    {
+        foreach ($columns as $column => $value) {
+            if (in_array($column, self::REVALIDATION_EXEMPT_COLUMNS, true)) {
+                continue;
+            }
+
+            $submitted = $this->comparableValue($column, $value);
+            $stored = $this->comparableValue($column, $locked->getRawOriginal($column));
+
+            if ($submitted !== $stored) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * One column's value reduced to the form in which two sides can honestly
+     * be compared, or null for "no value".
+     *
+     * Three normalisations, each for a difference that is presentational only
+     * and would otherwise revalidate a record on every save:
+     *
+     *  - EMPTY. The edit form seeds its inputs with `incident.field || ''`, so
+     *    a NULL column comes back as an empty string. Collapsing both to null
+     *    keeps "still empty" from reading as a change.
+     *  - TIME. incidents.incident_time is `time without time zone`, so the
+     *    database returns '14:30:00' while the form posts the '14:30' that
+     *    IncidentResource gave it. Compared to the minute, which is the
+     *    precision the application actually records.
+     *  - CASTS. latitude/longitude are decimal:7, incident_date is date:Y-m-d,
+     *    the ages are integers and complainant_is_victim is a boolean. Both
+     *    sides are round-tripped through the model's own cast pipeline, so
+     *    14.75 and '14.7500000' — or '2026-05-10' and a date-time — compare
+     *    equal because they are equal.
+     */
+    private function comparableValue(string $column, mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if ($column === 'incident_time') {
+            return substr((string) $value, 0, 5);
+        }
+
+        // setRawAttributes() then attributesToArray() applies exactly the casts
+        // the model declares, and nothing else: the probe holds one attribute,
+        // is never saved, and Incident declares no accessors or $appends that
+        // could reach for a column that is not there.
+        $probe = new Incident;
+        $probe->setRawAttributes([$column => $value]);
+        $normalized = $probe->attributesToArray()[$column] ?? null;
+
+        if ($normalized === null) {
+            return null;
+        }
+
+        if (is_bool($normalized)) {
+            return $normalized ? '1' : '0';
+        }
+
+        return (string) $normalized;
+    }
+
+    /**
+     * Did the evidence attached to this incident change?
+     *
+     * Evidence is part of the record — adding, removing or rewriting an item
+     * changes how completely the case is documented — but it lives in its own
+     * table, so it never appears in a column comparison. Read BEFORE
+     * syncEvidence() runs, because that method deletes every row and writes the
+     * submitted set back.
+     *
+     * Compared as a SET — trimmed, blank rows dropped, both sides sorted.
+     * Order is not a fact about the case, and the relation reads back ordered
+     * by evidence_code while the form posts in the order it displays, so an
+     * order-sensitive comparison would call an unchanged list changed. A
+     * brand-new item whose reference the encoder left blank is stored
+     * auto-numbered ('EV-001'), so it reads as changed on the save that
+     * introduces it — which it is — and matches from then on.
+     *
+     * Absent `evidenceItems` means the caller did not touch evidence at all
+     * (the same guard syncEvidence() uses), so nothing changed.
+     */
+    private function evidenceSetChanged(Incident $incident, array $validated): bool
+    {
+        if (! array_key_exists('evidenceItems', $validated)) {
+            return false;
+        }
+
+        $submitted = collect($validated['evidenceItems'] ?? [])
+            ->map(fn ($item) => [
+                trim((string) ($item['evidenceId'] ?? '')),
+                trim((string) ($item['description'] ?? '')),
+            ])
+            ->filter(fn ($pair) => $pair[0] !== '' || $pair[1] !== '')
+            ->sortBy(fn ($pair) => $pair)
+            ->values()
+            ->all();
+
+        $stored = $incident->evidenceItems()
+            ->get(['id', 'incident_id', 'evidence_code', 'description'])
+            ->map(fn ($item) => [
+                (string) $item->evidence_code,
+                (string) $item->description,
+            ])
+            ->sortBy(fn ($pair) => $pair)
+            ->values()
+            ->all();
+
+        return $submitted !== $stored;
     }
 
     private function mapToColumns(array $v): array

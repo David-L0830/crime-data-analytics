@@ -52,6 +52,55 @@ class RecordValidationTest extends TestCase
         ], $overrides));
     }
 
+    /**
+     * Every field the edit form posts, carrying the record's CURRENT values.
+     *
+     * IncidentModal spreads its whole form on save, so this is the shape a
+     * real edit arrives in — the shape in which "I changed nothing" and "I
+     * changed the street" are indistinguishable by key presence alone. The
+     * partial payloads used elsewhere in this file cannot exercise that.
+     *
+     * Values are read back through the model's casts and through the same
+     * HH:MM truncation IncidentResource applies, because that is what the
+     * browser was given and therefore what it posts back.
+     */
+    private function fullPayload(Incident $incident, array $overrides = []): array
+    {
+        return array_merge([
+            'caseNumber' => $incident->case_number,
+            'crimeType' => $incident->crime_type,
+            'category' => $incident->category,
+            'date' => $incident->incident_date?->format('Y-m-d'),
+            'time' => substr((string) $incident->incident_time, 0, 5),
+            'street' => $incident->street,
+            'sitio' => $incident->sitio,
+            'latitude' => $incident->latitude,
+            'longitude' => $incident->longitude,
+            'victimName' => $incident->victim_name,
+            'victimAge' => $incident->victim_age,
+            'victimGender' => $incident->victim_gender,
+            'suspectName' => $incident->suspect_name,
+            'suspectAge' => $incident->suspect_age,
+            'complainantIsVictim' => true,
+            'reportingOfficer' => $incident->reporting_officer,
+            'investigatingOfficer' => $incident->investigating_officer,
+            'badgeNumber' => $incident->badge_number,
+            'unit' => $incident->unit,
+            'status' => $incident->status,
+            'priority' => $incident->priority,
+            'description' => $incident->description,
+        ], $overrides);
+    }
+
+    private function validatedIncident(User $approver, array $overrides = []): Incident
+    {
+        return $this->pendingIncident(array_merge([
+            'validation_status' => Incident::VALIDATION_VALIDATED,
+            'validated_by' => $approver->id,
+            'validated_at' => now(),
+        ], $overrides));
+    }
+
     // ---------------------------------------------------------------
     // Submission
     // ---------------------------------------------------------------
@@ -730,19 +779,30 @@ class RecordValidationTest extends TestCase
         $this->assertNull($fresh->validated_at);
     }
 
-    public function test_an_administrator_edit_keeps_the_validation_state(): void
+    /**
+     * Inverted at CP-5A-1.
+     *
+     * This test previously asserted that an Administrator's edit left the
+     * record validated, on the reasoning that the Administrator is the
+     * reviewer. The locked Phase 2B rule is the opposite and is the one that
+     * holds: revalidation happens "whoever made the edit". Being entitled to
+     * approve a record is not the same as having approved the version that now
+     * exists — the Administrator who edits has, at that moment, produced
+     * content nobody has reviewed. Separation of duties then applies as usual:
+     * EnsureNotLastEditor stops them approving their own edit, so the record
+     * genuinely goes to a second pair of eyes.
+     */
+    public function test_an_administrator_material_edit_sends_the_record_back_to_pending(): void
     {
         $admin = $this->admin();
-        $incident = $this->pendingIncident([
-            'validation_status' => 'validated',
-            'validated_by' => $admin->id,
-            'validated_at' => now(),
-        ]);
+        $incident = $this->validatedIncident($admin);
 
         $this->putJson("/api/incidents/{$incident->id}", ['street' => '5 Luna St.'])->assertOk();
 
-        $this->assertSame('validated', $incident->fresh()->validation_status);
-        $this->assertSame($admin->id, $incident->fresh()->validated_by);
+        $fresh = $incident->fresh();
+        $this->assertSame('pending', $fresh->validation_status);
+        $this->assertNull($fresh->validated_by);
+        $this->assertNull($fresh->validated_at);
     }
 
     public function test_an_encoder_cannot_keep_a_record_validated_with_crafted_request_data(): void
@@ -786,18 +846,38 @@ class RecordValidationTest extends TestCase
             'validated_at' => now(),
         ]);
 
+        // A status-only edit, so the server's own rule leaves the record
+        // validated — which is what makes this a real test of the crafted
+        // fields. Sending a material change too would send it to pending for
+        // an honest reason and prove nothing about the crafted values.
         $this->putJson("/api/incidents/{$incident->id}", [
-            'street' => '5 Luna St.',
+            'status' => 'Under Investigation',
             'validationStatus' => 'pending',
             'validation_status' => 'pending',
             'validated_by' => null,
         ])->assertOk()->assertJsonPath('data.validationStatus', 'validated');
 
         $fresh = $incident->fresh();
-        $this->assertSame('5 Luna St.', $fresh->street);
+        $this->assertSame('Under Investigation', $fresh->status);
         $this->assertSame('validated', $fresh->validation_status);
         $this->assertSame($admin->id, $fresh->validated_by);
         $this->assertNotNull($fresh->validated_at);
+    }
+
+    public function test_an_administrator_cannot_hold_a_record_validated_through_crafted_update_data(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin);
+
+        $this->putJson("/api/incidents/{$incident->id}", [
+            'street' => '5 Luna St.',
+            'validationStatus' => 'validated',
+            'validation_status' => 'validated',
+            'validatedBy' => $admin->id,
+            'validated_by' => $admin->id,
+        ])->assertOk()->assertJsonPath('data.validationStatus', 'pending');
+
+        $this->assertNull($incident->fresh()->validated_by);
     }
 
     /**
@@ -926,5 +1006,297 @@ class RecordValidationTest extends TestCase
         $this->getJson('/api/incidents?validationStatus=pending')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/incidents?validationStatus=validated')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/incidents')->assertOk()->assertJsonCount(3, 'data');
+    }
+
+    // ---------------------------------------------------------------
+    // CP-5A-1 — what counts as a MATERIAL edit
+    //
+    // The rule is about the edit, not the editor. A change to the recorded
+    // crime data sends the record back for review whoever made it; a change to
+    // case status alone does not, because status is progress ON a record
+    // rather than a change TO what was recorded.
+    //
+    // These use the FULL payload the browser actually posts. The partial
+    // payloads elsewhere in this file cannot distinguish "sent the field" from
+    // "changed the field", which is precisely the distinction the rule turns
+    // on.
+    // ---------------------------------------------------------------
+
+    public function test_an_encoder_material_edit_sends_the_record_back_to_pending(): void
+    {
+        $admin = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);
+        $encoder = $this->encoder();
+        $incident = $this->validatedIncident($admin, ['reported_by' => $encoder->id]);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['street' => '12 Rizal Ave.']),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'pending');
+    }
+
+    public function test_an_administrator_status_only_edit_keeps_the_record_validated(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin, ['status' => 'Open']);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['status' => 'Solved']),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'validated');
+
+        $this->assertSame('Solved', $incident->fresh()->status);
+    }
+
+    public function test_an_encoder_status_only_edit_keeps_the_record_validated(): void
+    {
+        // The other half of the old bug: before CP-5A-1 every Encoder save
+        // revalidated, so moving a case to Solved silently dropped it out of
+        // official data until somebody approved it again.
+        $admin = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);
+        $encoder = $this->encoder();
+        $incident = $this->validatedIncident($admin, [
+            'reported_by' => $encoder->id,
+            'status' => 'Open',
+        ]);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['status' => 'Under Investigation']),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'validated');
+
+        $this->assertSame('Under Investigation', $incident->fresh()->status);
+    }
+
+    public function test_an_administrator_no_op_save_keeps_the_record_validated(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin);
+
+        $this->putJson("/api/incidents/{$incident->id}", $this->fullPayload($incident))
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated');
+    }
+
+    public function test_an_encoder_no_op_save_keeps_the_record_validated(): void
+    {
+        $admin = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);
+        $encoder = $this->encoder();
+        $incident = $this->validatedIncident($admin, ['reported_by' => $encoder->id]);
+
+        $this->putJson("/api/incidents/{$incident->id}", $this->fullPayload($incident))
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated');
+    }
+
+    public function test_formatting_differences_do_not_count_as_a_material_edit(): void
+    {
+        // The hazard that makes a naive dirty-check useless here. The form
+        // seeds empty inputs with '' where the column is NULL, the browser
+        // gets the time truncated to the minute while the column is a
+        // `time without time zone`, and latitude/longitude are decimal:7 —
+        // so an untouched record posts back values that differ from storage
+        // in spelling and not at all in meaning.
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin, [
+            'incident_date' => '2026-05-10',
+            'incident_time' => '14:30',
+            'latitude' => 14.7500000,
+            'longitude' => 121.0600000,
+            'victim_name' => null,
+            'suspect_name' => null,
+            'victim_age' => 25,
+        ]);
+
+        $this->putJson("/api/incidents/{$incident->id}", $this->fullPayload($incident, [
+            // Same instant, same place, same emptiness — spelled differently.
+            'date' => '2026-05-10',
+            'time' => '14:30',
+            'latitude' => 14.75,
+            'longitude' => 121.06,
+            'victimName' => '',
+            'suspectName' => '',
+            'victimAge' => '25',
+        ]))->assertOk()->assertJsonPath('data.validationStatus', 'validated');
+
+        $this->assertSame($admin->id, $incident->fresh()->validated_by);
+    }
+
+    public function test_validation_metadata_survives_an_edit_that_changes_nothing_material(): void
+    {
+        $admin = $this->admin();
+        $approvedAt = now()->subDay();
+        $incident = $this->validatedIncident($admin, [
+            'status' => 'Open',
+            'validated_at' => $approvedAt,
+        ]);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['status' => 'Closed']),
+        )->assertOk();
+
+        $fresh = $incident->fresh();
+        $this->assertSame('validated', $fresh->validation_status);
+        $this->assertSame($admin->id, $fresh->validated_by);
+        $this->assertSame(
+            $approvedAt->toDateTimeString(),
+            $fresh->validated_at->toDateTimeString(),
+        );
+    }
+
+    public function test_a_status_only_edit_leaves_a_returned_record_returned(): void
+    {
+        // A return is an outstanding instruction to the Encoder. Marking the
+        // case Solved does not answer it, so the record must not quietly
+        // re-enter the queue as though it had been corrected.
+        $admin = $this->admin();
+        $incident = $this->pendingIncident([
+            'validation_status' => 'returned',
+            'correction_reason' => 'Sitio is wrong.',
+            'returned_by' => $admin->id,
+            'returned_at' => now(),
+            'status' => 'Open',
+        ]);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['status' => 'Under Investigation']),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'returned');
+
+        $this->assertSame('Sitio is wrong.', $incident->fresh()->correction_reason);
+    }
+
+    public function test_an_administrator_correction_resubmits_a_returned_record(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->pendingIncident([
+            'validation_status' => 'returned',
+            'correction_reason' => 'Sitio is wrong.',
+            'returned_by' => $admin->id,
+            'returned_at' => now(),
+            // Pinned: the factory picks a sitio at random, so the corrected
+            // value below has to be one it cannot already have chosen.
+            'sitio' => 'Sitio 1',
+        ]);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['sitio' => 'Sitio 4']),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'pending');
+
+        // Kept, exactly as for an Encoder's correction: the reviewer still
+        // needs to see what had been asked for.
+        $this->assertSame('Sitio is wrong.', $incident->fresh()->correction_reason);
+    }
+
+    public function test_editing_a_pending_record_leaves_it_pending_and_writes_no_validation_metadata(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->pendingIncident();
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['street' => '77 Bonifacio St.']),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'pending');
+
+        $fresh = $incident->fresh();
+        $this->assertNull($fresh->validated_by);
+        $this->assertNull($fresh->validated_at);
+    }
+
+    public function test_only_a_material_edit_is_recorded_as_a_resubmission_in_the_audit_trail(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin, ['status' => 'Open']);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['status' => 'Solved']),
+        )->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'UPDATE',
+            'description' => "Updated incident {$incident->case_number}",
+        ]);
+        $this->assertDatabaseMissing('audit_logs', [
+            'description' => "Updated incident {$incident->case_number} and resubmitted it for validation",
+        ]);
+    }
+
+    // ---------------------------------------------------------------
+    // Evidence is part of the record
+    // ---------------------------------------------------------------
+
+    public function test_adding_an_evidence_item_is_a_material_edit(): void
+    {
+        // Evidence lives in its own table, so it never shows up in a column
+        // comparison — but what evidence a case holds is part of how
+        // completely it is documented, and a reviewer approved the case with
+        // the evidence it had at the time.
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin);
+
+        $this->putJson("/api/incidents/{$incident->id}", $this->fullPayload($incident, [
+            'evidenceItems' => [
+                ['evidenceId' => 'EV-001', 'description' => 'CCTV still'],
+            ],
+        ]))->assertOk()->assertJsonPath('data.validationStatus', 'pending');
+    }
+
+    public function test_removing_an_evidence_item_is_a_material_edit(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin);
+        $incident->evidenceItems()->create([
+            'evidence_code' => 'EV-001',
+            'description' => 'CCTV still',
+        ]);
+
+        $this->putJson(
+            "/api/incidents/{$incident->id}",
+            $this->fullPayload($incident, ['evidenceItems' => []]),
+        )->assertOk()->assertJsonPath('data.validationStatus', 'pending');
+    }
+
+    public function test_resaving_the_same_evidence_is_not_a_material_edit(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin);
+        $incident->evidenceItems()->create([
+            'evidence_code' => 'EV-001',
+            'description' => 'CCTV still',
+        ]);
+        $incident->evidenceItems()->create([
+            'evidence_code' => 'EV-002',
+            'description' => 'Witness statement',
+        ]);
+
+        $this->putJson("/api/incidents/{$incident->id}", $this->fullPayload($incident, [
+            // Posted back in the opposite order: order is not a fact about
+            // the case, so it must not read as a change.
+            'evidenceItems' => [
+                ['evidenceId' => 'EV-002', 'description' => 'Witness statement'],
+                ['evidenceId' => 'EV-001', 'description' => 'CCTV still'],
+            ],
+        ]))->assertOk()->assertJsonPath('data.validationStatus', 'validated');
+    }
+
+    public function test_an_edit_that_omits_evidence_entirely_does_not_touch_it(): void
+    {
+        $admin = $this->admin();
+        $incident = $this->validatedIncident($admin, ['status' => 'Open']);
+        $incident->evidenceItems()->create([
+            'evidence_code' => 'EV-001',
+            'description' => 'CCTV still',
+        ]);
+
+        $payload = $this->fullPayload($incident, ['status' => 'Solved']);
+        $this->assertArrayNotHasKey('evidenceItems', $payload);
+
+        $this->putJson("/api/incidents/{$incident->id}", $payload)
+            ->assertOk()
+            ->assertJsonPath('data.validationStatus', 'validated');
+
+        $this->assertSame(1, $incident->evidenceItems()->count());
     }
 }
