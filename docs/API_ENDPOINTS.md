@@ -509,7 +509,7 @@ A duplicate case number returns `422` with the message *"Case number already exi
 
 ## Analytics
 
-All four endpoints exclude `status = 'Archived'` at the database level.
+All four endpoints answer with **official data only** — `status != 'Archived'` **and** `validation_status = 'validated'` — applied at the database level in `AnalyticsController::baseQuery()`. A pending or returned incident is counted by none of them, so a sitio or crime type holding nothing but unreviewed encodings is absent from these responses rather than present with an overstated count.
 
 ### GET `/api/analytics`
 
@@ -572,7 +572,7 @@ All four endpoints exclude `status = 'Archived'` at the database level.
 
 ### GET `/api/dashboard`
 
-**Purpose** — a single aggregate payload for the dashboard summary. Excludes archived incidents.
+**Purpose** — a single aggregate payload for the dashboard summary. Every incident-derived figure below counts **official data only** — `status != 'Archived'` **and** `validation_status = 'validated'`. `totalCriminalRecords`, `lastSync` and `settings` are not incident figures and are unaffected by that rule.
 
 **Authentication** — **admin** or **readonly**.
 
@@ -603,7 +603,7 @@ All four endpoints exclude `status = 'Archived'` at the database level.
 }
 ```
 
-`hotspotCount` counts sitios whose incident total meets or exceeds `settings.hotspot_threshold`.
+`hotspotCount` counts sitios whose **official** incident total meets or exceeds `settings.hotspot_threshold`. This is the same definition the *"Hotspot Alert"* notification announces on (see **Notifications**), so the two cannot disagree about which sitios qualify.
 
 **Status codes** — `200`, `401`, `403`
 

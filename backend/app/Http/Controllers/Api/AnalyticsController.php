@@ -8,9 +8,24 @@ use Illuminate\Support\Facades\DB;
 
 class AnalyticsController extends Controller
 {
+    /**
+     * The one query every figure on these four endpoints is built from.
+     *
+     * OFFICIAL data only — validated and not archived (Phase 2B), via
+     * Incident::scopeOfficial(). This used to exclude archived records alone,
+     * which meant every statistic here counted encodings nobody had reviewed
+     * and presented them as the barangay's figures. CP-5A closed that on the
+     * Statistical Analysis page, which computes client-side from useData(), but
+     * these endpoints kept the old rule — so the API still answered with
+     * unreviewed data to anything that called it.
+     *
+     * Kept as one method deliberately: index(), crimeTypes(), monthly() and
+     * locations() all start here, so the rule cannot hold for some of them and
+     * not others.
+     */
     private function baseQuery()
     {
-        return Incident::where('status', '!=', 'Archived');
+        return Incident::query()->official();
     }
 
     // GET /api/analytics — general overview used by the Analytics page.
