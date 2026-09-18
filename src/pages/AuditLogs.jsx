@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import FilterBar from '../components/ui/FilterBar';
+import useTableSort from '../hooks/useTableSort';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
@@ -80,25 +82,31 @@ const TARGET_TYPES = [
   'settings',
 ];
 
+// These are rendered as the action cell's TEXT colour, so they use the -text
+// variants of the status tokens rather than the fill variants. The fill
+// colours measured as low as 2.35:1 on a white card and lower again on a
+// hovered row; the -text variants are the same hues calculated to stay at or
+// above 4.5:1 on every background this table puts them on. See the token
+// block in global.css.
 const ACTION_COLORS = {
-  LOGIN: 'var(--accent)',
-  LOGOUT: 'var(--warning)',
-  SYNC_STARTED: 'var(--info)',
-  SYNC_COMPLETED: 'var(--success)',
-  SYNC_FAILED: 'var(--danger)',
-  REPORT_GENERATED: 'var(--accent)',
-  REPORT_EXPORTED: 'var(--accent)',
-  CREATE: 'var(--success)',
-  UPDATE: 'var(--info)',
-  ARCHIVE: 'var(--warning)',
+  LOGIN: 'var(--accent-text)',
+  LOGOUT: 'var(--warning-text)',
+  SYNC_STARTED: 'var(--info-text)',
+  SYNC_COMPLETED: 'var(--success-text)',
+  SYNC_FAILED: 'var(--danger-text)',
+  REPORT_GENERATED: 'var(--accent-text)',
+  REPORT_EXPORTED: 'var(--accent-text)',
+  CREATE: 'var(--success-text)',
+  UPDATE: 'var(--info-text)',
+  ARCHIVE: 'var(--warning-text)',
   // Restoring returns a record to service, so it reads as a success/positive
   // action — same token CREATE uses, and deliberately distinct from ARCHIVE's
   // warning tone so the two sides of the pair are easy to tell apart.
-  RESTORE: 'var(--success)',
+  RESTORE: 'var(--success-text)',
   // DELETE kept so any historical DELETE audit entries still render with a
   // color instead of falling back to plain text — it's just no longer a
   // filter option (removed from ACTIONS above) or something new code emits.
-  DELETE: 'var(--danger)',
+  DELETE: 'var(--danger-text)',
 };
 
 import { useLocation } from 'react-router-dom';
@@ -166,6 +174,14 @@ export default function AuditLogs() {
   // It is a real date-time in the workbook and a sortable 'YYYY-MM-DD HH:mm' in
   // the .csv, which is what the numFmt below asks both exporters for; the id,
   // which identifies nothing outside this database, is left out of both.
+
+  // Column sorting for this report. `sorted` — not `filtered` — is what the
+  // table renders and what both exporters project, so the order on screen and
+  // the order in the generated file are the same order by construction. The
+  // default (no sort) keeps the newest-first ordering the rows already arrive
+  // in. See useTableSort / sortRecords.
+  const { sort, sorted, toggleSort, sortSummary } = useTableSort(filtered);
+
   const exportSpec = () => ({
     sheetName: 'Audit Logs',
     title: 'Audit Log Report',
@@ -175,6 +191,7 @@ export default function AuditLogs() {
       `Target Type: ${filters['audit-target'] || 'All'}`,
       `From: ${filters['audit-dateFrom'] || 'Any'}`,
       `To: ${filters['audit-dateTo'] || 'Any'}`,
+      sortSummary,
     ],
     columns: [
       {
@@ -190,12 +207,15 @@ export default function AuditLogs() {
       { header: 'Target Type', key: 'targetType', width: 18 },
       { header: 'Details', key: 'details', width: 60, wrap: true },
     ],
-    rows: filtered,
+    rows: sorted,
     onEmpty: () => showToast('No data to export', 'error'),
     onError: () => showToast('Could not export report.', 'error'),
   });
 
-  const handleExportLogs = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportLogs] = usePendingAction(async () => {
     const ok = await exportWorkbook({
       filename: `audit_logs_${today()}.xlsx`,
       ...exportSpec(),
@@ -207,7 +227,7 @@ export default function AuditLogs() {
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('audit-logs');
     }
-  };
+  });
 
   // Same projection, same filtered rows, comma-separated. Synchronous because
   // exportCsv needs no dynamic import — see the note there.
@@ -230,8 +250,22 @@ export default function AuditLogs() {
         <h2 className="module-toolbar-title">
           <Icons.Report size={18} strokeWidth={2} /> Audit Logs
         </h2>
-        <Button variant="secondary" onClick={handleExportLogs}>
-          <Icons.Download size={15} strokeWidth={2} /> Export Logs
+        <Button
+          variant="secondary"
+          onClick={handleExportLogs}
+          disabled={exporting}
+          aria-busy={exporting}
+        >
+          {exporting ? (
+            <>
+              <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+              Exporting…
+            </>
+          ) : (
+            <>
+              <Icons.Download size={15} strokeWidth={2} /> Export Logs
+            </>
+          )}
         </Button>
         <Button variant="secondary" onClick={handleExportLogsCsv}>
           <Icons.Download size={15} strokeWidth={2} /> Export CSV
@@ -265,6 +299,9 @@ export default function AuditLogs() {
               key: 'timestamp',
               label: 'Date/Time',
               render: (v) => new Date(v).toLocaleString('en-PH'),
+              // Ordered as a real date-time, not as the localised string the
+              // renderer produces — that text sorts '1/9' before '10/2'.
+              sortType: 'date',
             },
             {
               key: 'action',
@@ -284,7 +321,9 @@ export default function AuditLogs() {
             { key: 'targetType', label: 'Target Type' },
             { key: 'details', label: 'Details' },
           ]}
-          rows={filtered}
+          rows={sorted}
+          sort={sort}
+          onSort={toggleSort}
           emptyMessage={
             secondaryLoading
               ? 'Loading audit logs…'

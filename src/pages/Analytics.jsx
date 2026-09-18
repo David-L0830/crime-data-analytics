@@ -2,6 +2,7 @@ import { Icons } from '../components/icons';
 import { useMemo, useState } from 'react';
 import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import FilterBar from '../components/ui/FilterBar';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
@@ -19,6 +20,7 @@ import {
 import {
   filterRecords,
   countBy,
+  UNCATEGORISED,
   mean,
   median,
   variance,
@@ -36,6 +38,73 @@ import { COLORS, SITIOS, STATUSES } from '../utils/constants';
 
 import { useLocation, useNavigate } from 'react-router-dom';
 // ...(add to existing import block near the top)
+
+// The emptiness rule this page treats as "no value recorded". It is deliberately
+// the same test groupBy() applies in src/utils/helpers.js — null, undefined and
+// the empty string, with 0 and false left alone — so the figures computed here
+// and the buckets countBy() produces for the charts can never disagree about
+// whether a record has a sitio, a street or a category.
+const hasValue = (v) => v !== null && v !== undefined && v !== '';
+
+// Distinct recorded values of one field. A missing value is not a distinct
+// place: an incident with no sitio does not make an extra sitio "affected", and
+// an incident with no street does not make an extra location, so absent values
+// are dropped before the set is sized rather than collapsing into one phantom
+// member of it. Exported so the arithmetic can be tested directly.
+export function countDistinctValues(records, key) {
+  return new Set(records.map((r) => r[key]).filter(hasValue)).size;
+}
+
+// Category × Sitio cross tabulation over the filtered records.
+//
+// Two properties this must hold, and previously did not:
+//
+//  * The category buckets are the ones countBy() already produces for the
+//    Category pie chart and the "<category> %" statistical measures — a record
+//    saved without a category is labelled UNCATEGORISED here exactly as it is
+//    there, instead of reaching the table as a coerced "null" key or a blank
+//    row label.
+//
+//  * Every filtered incident lands in exactly one cell, so the table reconciles
+//    with Crime Frequency. The columns used to be the hard-coded SITIOS list
+//    alone, which silently discarded any incident whose sitio was missing or
+//    whose sitio is not in that list (a sitio renamed or retired in the data,
+//    say). SITIOS still leads the columns so the table keeps its familiar shape
+//    and a sitio with no incidents still shows its zeros; any other sitio value
+//    actually present is appended, and incidents with no sitio at all get the
+//    same UNCATEGORISED column the Sitio Breakdown chart already gives them.
+export function buildCrosstab(records, baseSitios) {
+  const bucket = (v) => (hasValue(v) ? v : UNCATEGORISED);
+
+  const categories = Object.keys(countBy(records, 'category')).sort();
+
+  const present = new Set(records.map((r) => bucket(r.sitio)));
+  const extras = [...present]
+    .filter((s) => s !== UNCATEGORISED && !baseSitios.includes(s))
+    .sort();
+  const sitioColumns = [
+    ...baseSitios,
+    ...extras,
+    ...(present.has(UNCATEGORISED) ? [UNCATEGORISED] : []),
+  ];
+
+  // A composite key, so groupBy() leaves it alone — see the note there.
+  const counts = countBy(
+    records,
+    (r) => `${bucket(r.category)}|${bucket(r.sitio)}`,
+  );
+
+  const rows = categories.map((cat) => {
+    const row = { category: cat };
+    sitioColumns.forEach((s) => {
+      row[s] = counts[`${cat}|${s}`] || 0;
+    });
+    row.total = sitioColumns.reduce((sum, s) => sum + row[s], 0);
+    return row;
+  });
+
+  return { sitioColumns, rows };
+}
 
 export default function Analytics() {
   const { records, settings, CATEGORIES, CRIME_TYPES } = useData();
@@ -56,7 +125,21 @@ export default function Analytics() {
   const filtered = useMemo(
     () =>
       filterRecords(
-        records.filter((r) => r.status !== 'Archived'),
+        // CP-5A — OFFICIAL DATA ONLY.
+        //
+        // Only a validated, non-archived incident counts as official
+        // downstream data (Phase 2B). A figure on this page is read as a
+        // statement about crime in the barangay, so an encoding nobody has
+        // reviewed must not contribute to one: it would be indistinguishable
+        // from a reviewed record and would move a number that people act on.
+        //
+        // Applied to the base set rather than inside filterRecords(), which is
+        // shared with Crime Mapping and must not change underneath it.
+        // Everything on this page derives from `filtered`, so all of it
+        // inherits this rule by construction.
+        records.filter(
+          (r) => r.status !== 'Archived' && r.validationStatus === 'validated',
+        ),
         {
           dateFrom: filters['ana-dateFrom'],
           dateTo: filters['ana-dateTo'],
@@ -125,13 +208,13 @@ export default function Analytics() {
     },
     {
       label: 'Unique Locations',
-      value: new Set(filtered.map((r) => r.street)).size,
-      hint: 'Number of distinct streets/addresses represented in the filtered incidents.',
+      value: countDistinctValues(filtered, 'street'),
+      hint: 'Number of distinct streets/addresses represented in the filtered incidents. Incidents with no street recorded are not counted as a location.',
     },
     {
       label: 'Sitios Affected',
-      value: new Set(filtered.map((r) => r.sitio)).size,
-      hint: 'Number of distinct sitios with at least one filtered incident.',
+      value: countDistinctValues(filtered, 'sitio'),
+      hint: 'Number of distinct sitios with at least one filtered incident. Incidents with no sitio recorded are not counted as a sitio.',
     },
   ];
 
@@ -249,14 +332,15 @@ export default function Analytics() {
     })),
   ];
 
-  const crosstabCategories = [
-    ...new Set(filtered.map((r) => r.category)),
-  ].sort();
-  const crosstabData = {};
-  filtered.forEach((r) => {
-    const key = `${r.category}|${r.sitio}`;
-    crosstabData[key] = (crosstabData[key] || 0) + 1;
-  });
+  const { sitioColumns: crosstabSitios, rows: crosstabRows } = buildCrosstab(
+    filtered,
+    SITIOS,
+  );
+  const crosstabCols = [
+    { key: 'category', label: 'Category' },
+    ...crosstabSitios.map((s) => ({ key: s, label: s })),
+    { key: 'total', label: 'Total' },
+  ];
   // One definition, consumed by the printed report header and the Excel
   // metadata line, so the document and the workbook always describe the same
   // filter state. Same pattern as Dashboard.jsx.
@@ -267,21 +351,12 @@ export default function Analytics() {
     `Crime Type: ${filters['ana-crimeType'] || 'All'}`,
     `Sitio: ${filters['ana-sitio'] || 'All'}`,
     `Status: ${filters['ana-status'] || 'All'}`,
+    // CP-5A - fixed, not a filter. Without it the reader of a printed
+    // report or an exported workbook has no way to tell whether unreviewed
+    // encodings were counted, and the absence of any Validation line
+    // implied they were.
+    'Validation: Validated only',
   ].join(' \u00B7 ');
-
-  const crosstabRows = crosstabCategories.map((cat) => {
-    const row = { category: cat };
-    SITIOS.forEach((s) => {
-      row[s] = crosstabData[`${cat}|${s}`] || 0;
-    });
-    row.total = SITIOS.reduce((sum, s) => sum + row[s], 0);
-    return row;
-  });
-  const crosstabCols = [
-    { key: 'category', label: 'Category' },
-    ...SITIOS.map((s) => ({ key: s, label: s })),
-    { key: 'total', label: 'Total' },
-  ];
 
   // ONE projection, shared by the .xlsx and the .csv below, so the two files
   // can never drift apart: same columns, same order, same labels, same rows.
@@ -320,7 +395,22 @@ export default function Analytics() {
     onError: () => showToast('Could not export report.', 'error'),
   });
 
-  const handleExportExcel = async () => {
+  // The SCOPE of the run, recorded as report execution history (report_runs)
+  // — how many rows it covered, over what period, under which filters. Counts
+  // and filter text only; never the exported rows themselves. The period is
+  // whatever the two date filters hold, so an unbounded export reports no
+  // period rather than a fabricated one.
+  const exportMeta = () => ({
+    rowCount: filtered.length,
+    periodFrom: filters['ana-dateFrom'] || null,
+    periodTo: filters['ana-dateTo'] || null,
+    filtersSummary: filterSummary,
+  });
+
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportExcel] = usePendingAction(async () => {
     const ok = await exportWorkbook({
       filename: `brgy178_analytics_${today()}.xlsx`,
       ...exportSpec(),
@@ -330,9 +420,9 @@ export default function Analytics() {
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
-      auditLogService.logExport('analytics');
+      auditLogService.logExport('analytics', exportMeta());
     }
-  };
+  });
 
   // Same projection, same filtered rows, comma-separated. Synchronous because
   // exportCsv needs no dynamic import — see the note there.
@@ -345,7 +435,7 @@ export default function Analytics() {
       showToast('Statistical analysis exported to CSV', 'success');
       // Same report key as the workbook above: the audit trail records WHICH
       // report left the system, which is the question it exists to answer.
-      auditLogService.logExport('analytics');
+      auditLogService.logExport('analytics', exportMeta());
     }
   };
 
@@ -644,8 +734,22 @@ export default function Analytics() {
         <Button variant="secondary" onClick={() => window.print()}>
           <Icons.Printer size={15} strokeWidth={2} /> Print Report
         </Button>
-        <Button variant="secondary" onClick={handleExportExcel}>
-          <Icons.Download size={15} strokeWidth={2} /> Export Excel
+        <Button
+          variant="secondary"
+          onClick={handleExportExcel}
+          disabled={exporting}
+          aria-busy={exporting}
+        >
+          {exporting ? (
+            <>
+              <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+              Exporting…
+            </>
+          ) : (
+            <>
+              <Icons.Download size={15} strokeWidth={2} /> Export Excel
+            </>
+          )}
         </Button>
         <Button variant="secondary" onClick={handleExportCsv}>
           <Icons.Download size={15} strokeWidth={2} /> Export CSV

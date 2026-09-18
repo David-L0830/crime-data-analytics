@@ -87,9 +87,14 @@ export default function EditUserModal({ user, open, onClose, onSave, saving }) {
           type="text"
           value={form.fullName}
           aria-invalid={Boolean(errors.fullName)}
+          aria-describedby={errors.fullName ? 'edit-full-name-error' : undefined}
           onChange={(e) => set('fullName', e.target.value)}
         />
-        {errors.fullName && <p className="field-error">{errors.fullName}</p>}
+        {errors.fullName && (
+          <p className="field-error" id="edit-full-name-error">
+            {errors.fullName}
+          </p>
+        )}
       </div>
 
       <div className="form-group">
@@ -99,9 +104,14 @@ export default function EditUserModal({ user, open, onClose, onSave, saving }) {
           type="text"
           value={form.username}
           aria-invalid={Boolean(errors.username)}
+          aria-describedby={errors.username ? 'edit-username-error' : undefined}
           onChange={(e) => set('username', e.target.value)}
         />
-        {errors.username && <p className="field-error">{errors.username}</p>}
+        {errors.username && (
+          <p className="field-error" id="edit-username-error">
+            {errors.username}
+          </p>
+        )}
       </div>
 
       <div className="form-group">

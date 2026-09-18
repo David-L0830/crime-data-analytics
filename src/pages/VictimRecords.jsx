@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import { useDebounce } from '../hooks/useDebounce';
 import FilterBar from '../components/ui/FilterBar';
+import useTableSort from '../hooks/useTableSort';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
@@ -62,6 +64,13 @@ export default function VictimRecords() {
   // database id and a column of JSON for relatedCases. Related cases are now a
   // readable comma list of case numbers; previousStatus stays out because it is
   // restore plumbing, not reportable data. No record value is altered.
+
+  // Column sorting for this report. `sorted` — not `filtered` — is what the
+  // table renders and what both exporters project, so the order on screen and
+  // the order in the generated file are the same order by construction. See
+  // useTableSort / sortRecords.
+  const { sort, sorted, toggleSort, sortSummary } = useTableSort(filtered);
+
   const exportSpec = () => ({
     sheetName: 'Victim Records',
     title: 'Victim Records Report',
@@ -70,6 +79,7 @@ export default function VictimRecords() {
       `Gender: ${filters['victim-gender'] || 'All'}`,
       `Status: ${filters['victim-status'] || 'All'}`,
       `Search: ${debouncedSearch || 'None'}`,
+      sortSummary,
     ],
     columns: [
       { header: 'Victim ID', key: 'victimId', width: 14 },
@@ -104,12 +114,15 @@ export default function VictimRecords() {
           ].join(', '),
       },
     ],
-    rows: filtered,
+    rows: sorted,
     onEmpty: () => showToast('No data to export', 'error'),
     onError: () => showToast('Could not export report.', 'error'),
   });
 
-  const handleExportExcel = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportExcel] = usePendingAction(async () => {
     const ok = await exportWorkbook({
       filename: `victim_records_${today()}.xlsx`,
       ...exportSpec(),
@@ -121,7 +134,7 @@ export default function VictimRecords() {
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('victim-records');
     }
-  };
+  });
 
   // Same projection, same filtered rows, comma-separated. Synchronous because
   // exportCsv needs no dynamic import — see the note there.
@@ -200,8 +213,22 @@ export default function VictimRecords() {
           />
         </div>
         <div className="toolbar-actions">
-          <Button variant="secondary" onClick={handleExportExcel}>
-            <Icons.Download size={15} strokeWidth={2} /> Export Excel
+          <Button
+            variant="secondary"
+            onClick={handleExportExcel}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? (
+              <>
+                <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Icons.Download size={15} strokeWidth={2} /> Export Excel
+              </>
+            )}
           </Button>
           <Button variant="secondary" onClick={handleExportCsv}>
             <Icons.Download size={15} strokeWidth={2} /> Export CSV
@@ -266,9 +293,16 @@ export default function VictimRecords() {
               label: 'Cases',
               render: (v) =>
                 (v || []).map((c) => c.caseNumber).join(', ') || '—',
+              // An array of case objects; it sorts on the same joined case
+              // numbers the cell displays rather than on the raw array, which
+              // would compare "[object Array]" against itself for every row.
+              sortValue: (row) =>
+                (row.relatedCases || []).map((c) => c.caseNumber).join(', '),
             },
           ]}
-          rows={filtered}
+          rows={sorted}
+          sort={sort}
+          onSort={toggleSort}
           actions={(row) => (
             <>
               <Button

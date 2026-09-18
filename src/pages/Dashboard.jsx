@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import FilterBar from '../components/ui/FilterBar';
 import KpiCard from '../components/ui/KpiCard';
 import Table from '../components/ui/Table';
@@ -24,6 +25,7 @@ import {
   monthLabelToRange,
   SOLVED_STATUSES,
   PENDING_STATUSES,
+  repeatLocationKey,
 } from '../utils/helpers';
 import {
   buildCrimeTrendInsight,
@@ -54,7 +56,21 @@ export default function Dashboard() {
   const filtered = useMemo(
     () =>
       filterRecords(
-        records.filter((r) => r.status !== 'Archived'),
+        // CP-5A — OFFICIAL DATA ONLY.
+        //
+        // Only a validated, non-archived incident counts as official downstream
+        // data (Phase 2B). A figure on this page is read as a statement about
+        // crime in the barangay, so an encoding nobody has reviewed must not
+        // contribute to one: it would be indistinguishable from a reviewed
+        // record and would move a number that people act on.
+        //
+        // Applied to the base set rather than inside filterRecords(), which is
+        // shared with Crime Mapping and must not change underneath it. Every
+        // count, chart, alert, export and printed document on this page derives
+        // from `filtered`, so all of them inherit this rule by construction.
+        records.filter(
+          (r) => r.status !== 'Archived' && r.validationStatus === 'validated',
+        ),
         {
           // Restored FROM/TO range filtering (matches Records/Mapping/Analytics/
           // Trends). filterRecords compares r.date ('YYYY-MM-DD' string, no Date
@@ -306,17 +322,10 @@ export default function Dashboard() {
         (b.time || '').localeCompare(a.time || ''),
     )
     .slice(0, 8);
-  // Group by STREET, not by exact address. `street` is stored house-number
-  // first ("116 Tupas St."), and in practice every incident has a different
-  // number, so keying on the raw value put every incident in its own group and
-  // the table could only ever show a column of 1s — never an actual hotspot.
-  // Stripping the leading house number groups the whole street together. No
-  // street name spans more than one sitio, so the Sitio column stays coherent.
-  // `street` is nullable in the schema, hence the `|| ''` guard before replace.
-  const locCounts = countBy(
-    filtered,
-    (r) => `${r.sitio}|${(r.street || '').replace(/^\s*\d+[A-Za-z]?\s+/, '')}`,
-  );
+  // Group by STREET, not by exact address — see repeatLocationKey() for why the
+  // house number is stripped. Trends counts its Repeat Locations through the
+  // same helper, so both pages group identical data identically.
+  const locCounts = countBy(filtered, repeatLocationKey);
   const hotspots = Object.entries(locCounts)
     // Alphabetical tie-break so equal counts render in a stable, predictable
     // order instead of whatever order the records happened to arrive in.
@@ -350,6 +359,10 @@ export default function Dashboard() {
     `Category: ${filters['dash-category'] || 'All'}`,
     `Sitio: ${filters['dash-sitio'] || 'All'}`,
     `Status: ${filters['dash-status'] || 'All'}`,
+    // CP-5A — fixed, not a filter. Without it the reader of a printed report
+    // or an exported workbook has no way to tell whether unreviewed encodings
+    // were counted, and the absence of any Validation line implied they were.
+    'Validation: Validated only',
   ].join(' · ');
 
   // ONE projection, shared by the .xlsx and the .csv below, so the two files
@@ -384,7 +397,22 @@ export default function Dashboard() {
     onError: () => showToast('Could not export report.', 'error'),
   });
 
-  const handleExportExcel = async () => {
+  // The SCOPE of the run, recorded as report execution history (report_runs)
+  // — how many rows it covered, over what period, under which filters. Counts
+  // and filter text only; never the exported rows themselves. The period is
+  // whatever the two date filters hold, so an unbounded export reports no
+  // period rather than a fabricated one.
+  const exportMeta = () => ({
+    rowCount: filtered.length,
+    periodFrom: filters['dash-dateFrom'] || null,
+    periodTo: filters['dash-dateTo'] || null,
+    filtersSummary: filterSummary,
+  });
+
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportExcel] = usePendingAction(async () => {
     const ok = await exportWorkbook({
       filename: `brgy178_dashboard_${today()}.xlsx`,
       ...exportSpec(),
@@ -394,9 +422,9 @@ export default function Dashboard() {
       // Recorded only on success, so the audit trail never claims an
       // export that did not happen. Not awaited: a completed download
       // must not wait on, or be failed by, follow-up bookkeeping.
-      auditLogService.logExport('dashboard');
+      auditLogService.logExport('dashboard', exportMeta());
     }
-  };
+  });
 
   // Same projection, same filtered rows, comma-separated. Synchronous because
   // exportCsv needs no dynamic import — see the note there.
@@ -409,7 +437,7 @@ export default function Dashboard() {
       showToast('Dashboard data exported to CSV', 'success');
       // Same report key as the workbook above: the audit trail records WHICH
       // report left the system, which is the question it exists to answer.
-      auditLogService.logExport('dashboard');
+      auditLogService.logExport('dashboard', exportMeta());
     }
   };
 
@@ -772,8 +800,22 @@ export default function Dashboard() {
       </PrintReport>
 
       <div className="export-bar">
-        <Button variant="secondary" onClick={handleExportExcel}>
-          <Icons.Download size={15} strokeWidth={2} /> Export Excel
+        <Button
+          variant="secondary"
+          onClick={handleExportExcel}
+          disabled={exporting}
+          aria-busy={exporting}
+        >
+          {exporting ? (
+            <>
+              <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+              Exporting…
+            </>
+          ) : (
+            <>
+              <Icons.Download size={15} strokeWidth={2} /> Export Excel
+            </>
+          )}
         </Button>
         <Button variant="secondary" onClick={handleExportCsv}>
           <Icons.Download size={15} strokeWidth={2} /> Export CSV

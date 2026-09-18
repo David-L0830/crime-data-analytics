@@ -182,7 +182,7 @@ export function DataProvider({ children }) {
     // used to be - only the gate moved.
     //
     // Checkpoint 18 - these used to be a single Promise.all(...). Some roles
-    // (badac_readonly) are intentionally denied a subset of these endpoints
+    // (badac_validator) are intentionally denied a subset of these endpoints
     // (GET /settings, GET /sync-logs - see routes/api.php) as part of their
     // normal, correct permissions, not as a failure. Promise.all rejects the
     // instant ANY one call rejects, so that one expected 403 was wiping out
@@ -324,6 +324,69 @@ export function DataProvider({ children }) {
       .catch(() => {});
   }, []);
 
+  // ===== Live incident list =====
+  //
+  // `records` used to be fetched exactly once, in the mount effect above, and
+  // afterwards changed only by THIS user's own writes. The bell, meanwhile,
+  // has always been polled. So an incident logged by an encoder announced
+  // itself in the topbar while the table underneath it stayed as it was until
+  // somebody reloaded the page — a validator was told there was a new record
+  // and then could not see it.
+  //
+  // The fix deliberately reuses the notification poll rather than adding a
+  // second one: same interval, same visibility cadence, same catch-up on
+  // focus. Nothing here subscribes to Postgres. Incident data keeps arriving
+  // through Laravel, which is what applies the per-role redaction in
+  // IncidentResource (a BADAC Validator is not shown complainant or victim
+  // contact details) — a direct database subscription would deliver the raw
+  // row and quietly defeat that.
+  const recordsFetchInFlight = useRef(false);
+
+  // A refresh replaces the whole array. That is what keeps duplicates
+  // impossible, but it is also why it must not land while somebody is reading
+  // or editing a record: the row behind the open modal would be swapped for a
+  // different object mid-review. While held, a refresh records that it was
+  // wanted and runs as soon as the hold lifts.
+  const recordsRefreshHeld = useRef(false);
+  const recordsRefreshMissed = useRef(false);
+
+  const refreshRecords = useCallback(() => {
+    if (recordsRefreshHeld.current) {
+      recordsRefreshMissed.current = true;
+      return;
+    }
+    if (recordsFetchInFlight.current) return;
+    recordsFetchInFlight.current = true;
+
+    incidentService
+      .list()
+      // Whole-array replacement, exactly as the mount effect does it — never
+      // an append or a merge, so a row cannot appear twice however many ticks
+      // overlap.
+      .then((list) => setRecords(list || []))
+      // Swallowed like every other background refresh here: a poll that could
+      // not reach the server is not something to interrupt the user with
+      // every thirty seconds, and the next tick will try again.
+      .catch(() => {})
+      .finally(() => {
+        recordsFetchInFlight.current = false;
+      });
+  }, []);
+
+  // Called by the page that owns the modals (IncidentFeed) so this context
+  // does not have to know what a modal is. Releasing runs the catch-up if a
+  // refresh was wanted while held.
+  const holdRecordsRefresh = useCallback(
+    (held) => {
+      recordsRefreshHeld.current = Boolean(held);
+      if (!recordsRefreshHeld.current && recordsRefreshMissed.current) {
+        recordsRefreshMissed.current = false;
+        refreshRecords();
+      }
+    },
+    [refreshRecords],
+  );
+
   // The server now writes a real notification when an incident is created or
   // genuinely transitions into a resolved status (see
   // IncidentController::announceResolutionIfNewlyResolved). The topbar bell
@@ -333,55 +396,117 @@ export function DataProvider({ children }) {
   // the incident write itself already succeeded and has its own error
   // handling at the call site - a stale bell must never be reported to the
   // user as a failed save.
+  // In-flight guard for the poll below.
+  //
+  // A hidden tab's timers are throttled and coalesced by the browser, so a slow
+  // response can be followed immediately by the next tick firing — without this
+  // the requests would overlap and, worse, two responses could interleave
+  // through applyNotificationList and announce the same arrival twice. A ref
+  // rather than state on purpose: this must be read and written synchronously
+  // within one tick, and a state update would not have landed in time.
+  const notificationFetchInFlight = useRef(false);
+
   const refreshNotifications = useCallback(() => {
+    if (notificationFetchInFlight.current) return;
+    notificationFetchInFlight.current = true;
+
     notificationService
       .list()
       .then(applyNotificationList)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        notificationFetchInFlight.current = false;
+      });
   }, [applyNotificationList]);
+
+  // What one tick of the poll below does. The two refreshes are independent —
+  // separate in-flight guards, separate promises, each swallowing its own
+  // failure — so a records fetch that fails cannot stop the bell updating,
+  // and a notifications fetch that fails cannot stop the table updating.
+  const refreshPolledData = useCallback(() => {
+    refreshNotifications();
+    refreshRecords();
+  }, [refreshNotifications, refreshRecords]);
 
   // Polls for notifications raised elsewhere — another encoder logging an
   // incident, an Administrator resolving a case. Without this the bell would
   // only ever change on a full page load or on this user's own writes.
   //
-  // Paused while the tab is hidden (and refreshed once on becoming visible
-  // again) so a backgrounded tab is not requesting on a timer all day; the
-  // notification is still there when the person comes back, because the
-  // announcement is a database row, not an event that can be missed.
+  // POLLING CONTINUES WHILE THE TAB IS HIDDEN. That is the change, and it is
+  // the whole point.
+  //
+  // This used to stop entirely when the tab was backgrounded: the interval was
+  // cleared on 'hidden' and its callback additionally checked
+  // visibilityState === 'visible' before fetching. The reasoning was that a
+  // notification is a database row, not an event that can be missed, so it
+  // would still be there on return. True for the BELL — and exactly wrong for
+  // the case this system needs, which is somebody being told about a new
+  // incident WHILE they are in another tab or another application. A desk
+  // officer cannot be alerted by a row they will discover later.
+  //
+  // The tab is not stopped, it is SLOWED. A hidden tab polls at a longer
+  // interval than a visible one, which keeps a backgrounded session from
+  // requesting at full rate all day while still detecting arrivals within a
+  // couple of minutes — and it is a system notification, not a repaint, that
+  // does the alerting from there (see MainLayout and utils/browserNotifications).
+  //
+  // BROWSER THROTTLING IS REAL AND IS NOT WORKED AROUND. Chrome and Firefox
+  // clamp timers in hidden tabs (to roughly once a minute, and harder still
+  // once a tab has been backgrounded for several minutes or the machine is on
+  // battery). So HIDDEN_POLL_MS is a floor, not a promise: the actual interval
+  // may stretch. Nothing here tries to defeat that — a Web Worker or an audio
+  // keep-alive would evade the throttle at the cost of the user's battery, for
+  // a feature that is not worth it. Becoming visible always triggers an
+  // immediate catch-up fetch, so nothing is ever lost, only delayed.
   useEffect(() => {
     if (!isAuthenticated) return undefined;
 
-    const POLL_MS = 30000;
-    let timer = null;
+    const VISIBLE_POLL_MS = 30000;
+    // Two minutes while hidden. Long enough to be a considerate background
+    // task, short enough that "somebody logged an incident" reaches a
+    // backgrounded desk within a useful window.
+    const HIDDEN_POLL_MS = 120000;
 
-    const start = () => {
-      if (timer) return;
-      timer = setInterval(() => {
-        if (document.visibilityState === 'visible') refreshNotifications();
-      }, POLL_MS);
+    let timer = null;
+    // Tracked so a visibility change only rebuilds the interval when the
+    // CADENCE actually needs to change — switching tabs back and forth
+    // repeatedly must not restart the timer on every flip.
+    let currentInterval = null;
+
+    const schedule = (intervalMs) => {
+      if (timer && currentInterval === intervalMs) return;
+      if (timer) clearInterval(timer);
+      currentInterval = intervalMs;
+      timer = setInterval(refreshPolledData, intervalMs);
     };
+
     const stop = () => {
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       timer = null;
+      currentInterval = null;
     };
+
+    const intervalForCurrentVisibility = () =>
+      document.visibilityState === 'visible' ? VISIBLE_POLL_MS : HIDDEN_POLL_MS;
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
-        refreshNotifications();
-        start();
-      } else {
-        stop();
+        // Catch-up on return: whatever the hidden cadence missed (or whatever
+        // the browser's throttle delayed) is fetched immediately, so coming
+        // back to the tab never shows a stale bell — or, now, a stale table.
+        refreshPolledData();
       }
+      schedule(intervalForCurrentVisibility());
     };
 
-    if (document.visibilityState === 'visible') start();
+    schedule(intervalForCurrentVisibility());
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [isAuthenticated, refreshNotifications]);
+  }, [isAuthenticated, refreshPolledData]);
 
   // Local audit-log entries are no longer created client-side — every
   // mutating API call already writes its own audit_logs row server-side.
@@ -475,6 +600,30 @@ export function DataProvider({ children }) {
       const updated = await incidentService.restore(id);
       setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
       refreshAuditLogs();
+    },
+    [refreshAuditLogs],
+  );
+
+  // Record validation. Same replace-in-place shape as archive/restore: the
+  // server decides the resulting state (and who/when), and the response row
+  // replaces the record in state. Returns the updated record so the open view
+  // modal can show the new state immediately.
+  const approveRecord = useCallback(
+    async (id) => {
+      const updated = await incidentService.validate(id);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+      return updated;
+    },
+    [refreshAuditLogs],
+  );
+
+  const returnRecordForCorrection = useCallback(
+    async (id, reason) => {
+      const updated = await incidentService.returnForCorrection(id, reason);
+      setRecords((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      refreshAuditLogs();
+      return updated;
     },
     [refreshAuditLogs],
   );
@@ -696,6 +845,8 @@ export function DataProvider({ children }) {
     updateRecord,
     archiveRecord,
     restoreRecord,
+    approveRecord,
+    returnRecordForCorrection,
     addRecord,
     archiveVictim,
     restoreVictim,
@@ -708,6 +859,11 @@ export function DataProvider({ children }) {
     newNotifications,
     consumeNewNotifications,
     refreshNotifications,
+    // Live incident list — the poll drives this itself; the page that owns
+    // the incident modals calls holdRecordsRefresh so an open record is not
+    // swapped underneath the person reading it.
+    refreshRecords,
+    holdRecordsRefresh,
     saveSettings,
     getLastSync,
     backup,

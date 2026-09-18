@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsurePasswordChanged;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\EnsureSupabaseAal2;
 use App\Http\Middleware\LogAuditAction;
@@ -24,6 +25,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // 401. This forces it to never attempt a redirect.
         $middleware->redirectGuestsTo(fn () => null);
 
+        // TrimStrings only exempts fields literally named `password`,
+        // `current_password` and `password_confirmation`. An administrator-
+        // supplied temporary password must reach Supabase byte-for-byte as
+        // typed; trimming it would silently set a different credential from
+        // the one the administrator hands to the new user.
+        $middleware->trimStrings(except: ['temporaryPassword']);
+
         // Final auth migration — this API is fully stateless (Bearer
         // Supabase JWTs only). Sanctum's statefulApi() cookie/CSRF
         // middleware was removed along with the laravel/sanctum package
@@ -36,6 +44,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // EnsureSupabaseAal2's own comment for exactly which routes
             // apply this and why.
             'supabase.mfa' => EnsureSupabaseAal2::class,
+            // Blocks normal access while a password change is owed, or for a
+            // session opened before one — see EnsurePasswordChanged.
+            'password.changed' => EnsurePasswordChanged::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

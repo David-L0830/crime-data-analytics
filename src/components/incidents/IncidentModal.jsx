@@ -1,13 +1,27 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import Badge from '../ui/Badge';
+import ValidationBadge from '../ui/ValidationBadge';
 import Button from '../ui/Button';
-import { formatDate, formatTime, today } from '../../utils/helpers';
+import {
+  formatDate,
+  formatDateTime,
+  formatTime,
+  today,
+} from '../../utils/helpers';
+import { VALIDATION_STATUS_LABELS } from '../../utils/constants';
 import { exportWorkbook } from '../../utils/exportWorkbook';
 import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
+import { usePendingAction } from '../../hooks/usePendingAction';
 import PrintReport from '../ui/PrintReport';
 import { Icons } from '../icons';
+import {
+  coordinatePayload,
+  submissionErrorMessages,
+} from './incidentSubmission';
+import LocationPicker from './LocationPicker';
+import { formatCoordinate } from './locationPickerState';
 
 // The complainant is whoever filed the report. Usually that is the victim
 // themselves, which is what complainantIsVictim records; when it is not, the
@@ -28,6 +42,179 @@ function evidenceSummary(r) {
   return items.map((e) => `${e.evidenceId}: ${e.description}`).join('\n');
 }
 
+// Record validation panel shown at the top of an incident's view.
+//
+// Everyone who can open the record sees its validation state, who reviewed it
+// and when, and — for a returned record — the reason, because the encoder is
+// the person who has to act on it. Only a caller that passes onApprove /
+// onReturn (IncidentFeed does so for the Administrator alone) gets the review
+// controls, and even then the server is the authority: both endpoints are
+// role:badac_admin.
+function ValidationPanel({ record, onApprove, onReturn, busy }) {
+  const [returning, setReturning] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
+  const reasonId = useId();
+
+  // A different record, or the same record in a new state, starts clean.
+  useEffect(() => {
+    setReturning(false);
+    setReason('');
+    setReasonError('');
+  }, [record.id, record.validationStatus]);
+
+  const status = record.validationStatus;
+  const archived = record.status === 'Archived';
+  const canReview = !archived && (onApprove || onReturn);
+
+  const submitReturn = async () => {
+    const trimmed = reason.trim();
+    if (trimmed.length < 5) {
+      setReasonError('Give the encoder a reason of at least 5 characters.');
+      return;
+    }
+    setReasonError('');
+    await onReturn(record, trimmed);
+  };
+
+  let detail = null;
+  if (status === 'validated') {
+    detail = record.validatedAt ? (
+      <p className="validation-meta">
+        Validated by <strong>{record.validatedBy || 'a former account'}</strong>{' '}
+        on {formatDateTime(record.validatedAt)}.
+      </p>
+    ) : (
+      <p className="validation-meta">
+        Recorded before record validation was introduced and accepted as part
+        of the existing official records.
+      </p>
+    );
+  } else if (status === 'returned') {
+    detail = (
+      <>
+        <p className="validation-meta">
+          Returned by <strong>{record.returnedBy || 'a former account'}</strong>
+          {record.returnedAt
+            ? ` on ${formatDateTime(record.returnedAt)}`
+            : ''}
+          . Edit the record to correct it and resubmit it for validation.
+        </p>
+        {record.correctionReason && (
+          <blockquote className="validation-reason">
+            <span className="validation-reason-label">Correction requested</span>
+            {record.correctionReason}
+          </blockquote>
+        )}
+      </>
+    );
+  } else {
+    detail = (
+      <>
+        <p className="validation-meta">
+          Awaiting review by a BADAC Administrator. This record is not yet an
+          official validated record.
+        </p>
+        {record.correctionReason && (
+          <blockquote className="validation-reason">
+            <span className="validation-reason-label">
+              Previously returned for correction
+            </span>
+            {record.correctionReason}
+          </blockquote>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <section
+      className={`validation-panel validation-panel-${status || 'unknown'}`}
+      aria-label="Record validation"
+    >
+      <div className="validation-panel-head">
+        <span className="validation-panel-title">Record Validation</span>
+        <ValidationBadge status={status} />
+      </div>
+      {detail}
+
+      {canReview && !returning && (
+        <div className="validation-actions print-hidden">
+          {onApprove && status !== 'validated' && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onApprove(record)}
+              disabled={busy}
+            >
+              <Icons.CheckCircle2 size={15} strokeWidth={2} />{' '}
+              {busy ? 'Saving…' : 'Validate Record'}
+            </Button>
+          )}
+          {onReturn && status !== 'returned' && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setReturning(true)}
+              disabled={busy}
+            >
+              <Icons.Return size={15} strokeWidth={2} /> Return for Correction
+            </Button>
+          )}
+        </div>
+      )}
+
+      {canReview && returning && (
+        <div className="validation-return-form print-hidden">
+          <label htmlFor={reasonId}>
+            Reason for returning <span aria-hidden="true">*</span>
+          </label>
+          <textarea
+            id={reasonId}
+            rows={3}
+            maxLength={1000}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="State what the encoder needs to correct."
+            aria-required="true"
+            aria-invalid={reasonError ? true : undefined}
+            aria-describedby={reasonError ? `${reasonId}-error` : undefined}
+            /* eslint-disable-next-line jsx-a11y/no-autofocus */
+            autoFocus
+          />
+          {reasonError && (
+            <div
+              className="field-error"
+              id={`${reasonId}-error`}
+              role="alert"
+            >
+              {reasonError}
+            </div>
+          )}
+          <div className="validation-actions print-hidden">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setReturning(false)}
+              disabled={busy}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={submitReturn}
+              disabled={busy}
+            >
+              {busy ? 'Returning…' : 'Return Record'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function IncidentViewModal({
   incident,
   onClose,
@@ -36,6 +223,9 @@ export function IncidentViewModal({
   archiving,
   onRestore,
   restoring,
+  onApprove,
+  onReturn,
+  reviewing,
 }) {
   const { showToast } = useToast();
 
@@ -52,7 +242,11 @@ export function IncidentViewModal({
   const lastIncident = useRef(incident);
   if (incident) lastIncident.current = incident;
   const r = incident || lastIncident.current;
-  if (!r) return null;
+  // The `if (!r) return null` that used to sit here has moved below the export
+  // handler: that handler is now built with a hook (usePendingAction), and a
+  // hook cannot be called after a conditional return without changing the hook
+  // order between renders. Nothing else changes — the component still renders
+  // null when there is no record, it just decides to a few lines later.
 
   // Single-record export, matching the Field / Value sheet that Criminal
   // Profile and Victim Profile produce - one shared exportWorkbook helper
@@ -62,7 +256,13 @@ export function IncidentViewModal({
   // This replaces a CSV of the raw API object, which carried the internal
   // database id, reportedBy and synced_at as reporting columns and laid a
   // single record out as one very wide row.
-  const handleExportRecord = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportRecord] = usePendingAction(async () => {
+    // Unreachable in practice — the button that calls this only exists once
+    // there is a record — but the hook now runs on the empty render too.
+    if (!r) return;
     const rows = [
       ['Case Number', r.caseNumber],
       ['Incident ID', r.incidentId],
@@ -71,6 +271,10 @@ export function IncidentViewModal({
       ['Date', formatDate(r.date)],
       ['Time', formatTime(r.time)],
       ['Status', r.status],
+      [
+        'Validation',
+        VALIDATION_STATUS_LABELS[r.validationStatus] || r.validationStatus,
+      ],
       ['Priority', r.priority],
       ['Sitio', r.sitio],
       ['Location / Street', r.street],
@@ -129,7 +333,10 @@ export function IncidentViewModal({
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('incident-record');
     }
-  };
+  });
+
+  // Every hook has now run, so the conditional return is safe from here on.
+  if (!r) return null;
 
   return (
     <Modal
@@ -175,13 +382,33 @@ export function IncidentViewModal({
           >
             <Icons.Printer size={15} strokeWidth={2} /> Print Record
           </Button>
-          <Button variant="secondary" onClick={handleExportRecord}>
-            <Icons.Download size={15} strokeWidth={2} /> Export Excel
+          <Button
+            variant="secondary"
+            onClick={handleExportRecord}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? (
+              <>
+                <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Icons.Download size={15} strokeWidth={2} /> Export Excel
+              </>
+            )}
           </Button>
         </>
       }
     >
       <PrintReport title={`Incident Report: ${r.caseNumber}`} />
+      <ValidationPanel
+        record={r}
+        onApprove={onApprove}
+        onReturn={onReturn}
+        busy={reviewing}
+      />
       <div className="detail-body">
         <div className="detail-grid">
           <div>
@@ -354,6 +581,29 @@ const emptyForm = {
   evidenceItems: [{ evidenceId: '', description: '' }],
 };
 
+/** Whether a coordinate field holds nothing at all. */
+function isBlankCoordinate(value) {
+  return value === null || value === undefined || String(value).trim() === '';
+}
+
+/**
+ * One coordinate as the read-only display shows it.
+ *
+ * The formatting itself is formatCoordinate's — seven places, matching what
+ * `incidents.latitude` / `longitude` store — and is not duplicated here. This
+ * only decides what to show when there is nothing to format.
+ *
+ * An empty field reads "Not set". A stored value that CANNOT be formatted is
+ * shown exactly as it is stored, rather than as "Not set": hiding a malformed
+ * coordinate behind an empty-looking placeholder would misrepresent the record,
+ * and this form is not allowed to correct it either. The encoder has to be able
+ * to see what is actually there before deciding to replace or clear it.
+ */
+function coordinateDisplay(value) {
+  if (isBlankCoordinate(value)) return 'Not set';
+  return formatCoordinate(value) || String(value);
+}
+
 // Shared form body for both create and edit — keeps the two modals visually
 // and behaviorally identical (Part H-27: Encoder needs this same form to
 // "enter crime type/category, incident date/time, location, sitio/street,
@@ -366,6 +616,11 @@ function IncidentFormFields({
   categories,
   sitios,
   statuses,
+  // Set by IncidentEditModal when the incident being edited is Archived.
+  // `statuses` never contains 'Archived', so without this the select would
+  // fall back to its blank first option and a plain "fix a typo" save would
+  // read as a status change away from Archived.
+  statusLocked = false,
 }) {
   // These fields are rendered twice in this file — once inside
   // IncidentCreateModal and once inside IncidentEditModal — and IncidentFeed
@@ -455,14 +710,27 @@ function IncidentFormFields({
           id={`${uid}-status`}
           value={form.status}
           onChange={set('status')}
+          disabled={statusLocked}
         >
-          <option value="">Select…</option>
-          {statuses.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
+          {statusLocked ? (
+            <option value={form.status}>{form.status}</option>
+          ) : (
+            <>
+              <option value="">Select…</option>
+              {statuses.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </>
+          )}
         </select>
+        {statusLocked && (
+          <p className="form-hint">
+            An archived incident keeps its status while you edit it. Use Restore
+            to return it to its previous status.
+          </p>
+        )}
       </div>
       <div className="form-group">
         <label htmlFor={`${uid}-date`}>Date *</label>
@@ -507,25 +775,93 @@ function IncidentFormFields({
           onChange={set('street')}
         />
       </div>
-      <div className="form-group">
-        <label htmlFor={`${uid}-latitude`}>Latitude</label>
-        <input
-          id={`${uid}-latitude`}
-          type="number"
-          step="any"
-          value={form.latitude}
-          onChange={set('latitude')}
-        />
-      </div>
-      <div className="form-group">
-        <label htmlFor={`${uid}-longitude`}>Longitude</label>
-        <input
-          id={`${uid}-longitude`}
-          type="number"
-          step="any"
-          value={form.longitude}
-          onChange={set('longitude')}
-        />
+      {/* LOCATION — a map, not two number boxes.
+
+          Latitude and longitude are no longer typed. They are produced by
+          LocationPicker, which refuses a point outside Barangay 178 and never
+          moves one that already is. Both values stay visible, read-only, so
+          the record's exact coordinates can still be read and exported — but
+          the only ways to change them are to move the pin or clear them.
+
+          Full width, because the map needs both columns of .form-grid to be
+          usable at all.
+
+          THE PICKER IS ADVISORY, NOT AUTHORITATIVE. StoreIncidentRequest /
+          UpdateIncidentRequest and the ValidatesIncidentLocation concern parse
+          their own copy of the boundary and remain the thing that decides what
+          may be stored. Nothing here weakens that, and a coordinate that
+          reached the payload another way still meets the same server test. */}
+      <div className="form-group full incident-location">
+        <span className="incident-location-title" id={`${uid}-location`}>
+          Pin exact location on map
+        </span>
+        <p className="form-hint" id={`${uid}-location-hint`}>
+          Click inside the Barangay 178 boundary to place the pin, or drag the
+          pin to adjust it. Optional — leave it unset if this report has no
+          exact location.
+        </p>
+
+        {/* Named and described for a screen reader here rather than inside the
+            picker: the map is a reusable component and should not have to know
+            which form it is standing in. */}
+        <div
+          role="group"
+          aria-labelledby={`${uid}-location`}
+          aria-describedby={`${uid}-location-hint`}
+        >
+          <LocationPicker
+            latitude={form.latitude}
+            longitude={form.longitude}
+            // The form's own setter, twice — not a second coordinate state.
+            // React applies both in one update, and the form stays the single
+            // place the pair is held.
+            onChange={(latitude, longitude) => {
+              setValue('latitude', latitude);
+              setValue('longitude', longitude);
+            }}
+          />
+        </div>
+
+        <div className="incident-location-footer">
+          {/* A live region. Moving the pin changes these two values, and
+              somebody who cannot see the map still has to be told what was
+              selected. Both sit in ONE region so a single move is announced
+              once rather than twice. */}
+          <div className="incident-location-readout" role="status">
+            <span>
+              <span className="incident-location-key">Latitude</span>
+              <span className="incident-location-value">
+                {coordinateDisplay(form.latitude)}
+              </span>
+            </span>
+            <span>
+              <span className="incident-location-key">Longitude</span>
+              <span className="incident-location-value">
+                {coordinateDisplay(form.longitude)}
+              </span>
+            </span>
+          </div>
+
+          {/* Clearing belongs to the form, not to the picker: it changes the
+              FORM's value, and it has to empty BOTH halves — coordinatePayload
+              then sends null for each, which the server accepts, rather than
+              leaving half a pair its required_with rule would reject. */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setValue('latitude', '');
+              setValue('longitude', '');
+            }}
+            disabled={
+              isBlankCoordinate(form.latitude) &&
+              isBlankCoordinate(form.longitude)
+            }
+          >
+            Clear location
+          </Button>
+        </div>
       </div>
       <div className="form-group">
         <label htmlFor={`${uid}-victim-name`}>Victim Name</label>
@@ -749,6 +1085,14 @@ export function IncidentCreateModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState([]);
+  // Focus target for a rejected submission — see the error summary in the
+  // markup below. An effect rather than a call inside handleSubmit, because
+  // setErrors does not apply synchronously and the element does not exist yet
+  // at the point the handler decides there are errors.
+  const errorSummaryRef = useRef(null);
+  useEffect(() => {
+    if (errors.length) errorSummaryRef.current?.focus();
+  }, [errors]);
   // Guards against a double-click submitting the form twice. Without it two
   // POST /api/incidents fire before the first resolves; the case_number and
   // incident_code UNIQUE constraints stop a duplicate row being written, but
@@ -786,8 +1130,7 @@ export function IncidentCreateModal({
       ...form,
       victimAge: form.victimAge ? parseInt(form.victimAge, 10) : null,
       suspectAge: form.suspectAge ? parseInt(form.suspectAge, 10) : null,
-      latitude: form.latitude ? parseFloat(form.latitude) : null,
-      longitude: form.longitude ? parseFloat(form.longitude) : null,
+      ...coordinatePayload(form),
       status: form.status || 'Open',
       // Blank rows are dropped here as well as server-side, so a record saved
       // with the default empty row does not travel with a meaningless item.
@@ -801,9 +1144,17 @@ export function IncidentCreateModal({
       setErrors(validationErrors);
       return;
     }
+    // Clears any messages left by a previous rejected attempt, so a retry
+    // never shows stale errors next to a form that has since been corrected.
+    setErrors([]);
     setSubmitting(true);
     try {
       await onSave(data);
+    } catch (err) {
+      // A rejected save leaves the modal open with everything the encoder
+      // typed still in it, and reports the server's field-level messages in
+      // the same area the client-side ones use. Nothing is re-validated here.
+      setErrors(submissionErrorMessages(err, 'Could not save incident.'));
     } finally {
       setSubmitting(false);
     }
@@ -814,11 +1165,27 @@ export function IncidentCreateModal({
       <form onSubmit={handleSubmit}>
         {errors.length > 0 && (
           <div className="form-errors">
-            <ul>
-              {errors.map((err) => (
-                <li key={err}>{err}</li>
-              ))}
-            </ul>
+            {/* role="alert" makes a rejected submission audible. Before this,
+                the summary appeared silently at the top of a form that is
+                long enough to scroll, so a screen reader user pressed Save
+                and was told nothing at all — not that it failed, and not why.
+
+                The alert region is nested inside .form-errors rather than
+                being the same element, so the list keeps its own list
+                semantics ("list, 3 items") instead of having them replaced by
+                the alert role.
+
+                tabIndex={-1} plus the focus effect above is the other half:
+                being told there are errors is only useful if you are also put
+                where they are. The summary is the one place that holds all of
+                them, and it sits directly above the fields they refer to. */}
+            <div role="alert" ref={errorSummaryRef} tabIndex={-1}>
+              <ul>
+                {errors.map((err) => (
+                  <li key={err}>{err}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
         <IncidentFormFields
@@ -857,6 +1224,14 @@ export function IncidentEditModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState([]);
+  // Focus target for a rejected submission — see the error summary in the
+  // markup below. An effect rather than a call inside handleSubmit, because
+  // setErrors does not apply synchronously and the element does not exist yet
+  // at the point the handler decides there are errors.
+  const errorSummaryRef = useRef(null);
+  useEffect(() => {
+    if (errors.length) errorSummaryRef.current?.focus();
+  }, [errors]);
   // Same in-flight guard as IncidentCreateModal above — a double-click here
   // fired two PUT /api/incidents/{id} requests for one edit.
   const [submitting, setSubmitting] = useState(false);
@@ -935,10 +1310,7 @@ export function IncidentEditModal({
       ...form,
       victimAge: form.victimAge ? parseInt(form.victimAge, 10) : null,
       suspectAge: form.suspectAge ? parseInt(form.suspectAge, 10) : null,
-      latitude: form.latitude ? parseFloat(form.latitude) : incident.latitude,
-      longitude: form.longitude
-        ? parseFloat(form.longitude)
-        : incident.longitude,
+      ...coordinatePayload(form),
       // Blank rows are dropped here as well as server-side, so a record saved
       // with the default empty row does not travel with a meaningless item.
       evidenceItems: (form.evidenceItems || []).filter(
@@ -946,14 +1318,30 @@ export function IncidentEditModal({
           item.evidenceId.trim() !== '' || item.description.trim() !== '',
       ),
     };
+    // 'Archived' is not an assignable status — PUT /api/incidents/{id}
+    // rejects it (UpdateIncidentRequest), and only the archive endpoint may
+    // write it, because only that endpoint also records previous_status.
+    // Omitting the key entirely leaves the column untouched
+    // (IncidentController::mapToColumns copies only keys that are present),
+    // so an archived incident can still have its details corrected.
+    if (incident?.status === 'Archived') {
+      delete data.status;
+    }
     const validationErrors = validate(data, incident?.id);
     if (validationErrors.length) {
       setErrors(validationErrors);
       return;
     }
+    // Clears any messages left by a previous rejected attempt, so a retry
+    // never shows stale errors next to a form that has since been corrected.
+    setErrors([]);
     setSubmitting(true);
     try {
       await onSave(incident.id, data);
+    } catch (err) {
+      // See IncidentCreateModal: the modal stays open, the entered values
+      // stay put, and the server's messages are shown inline.
+      setErrors(submissionErrorMessages(err, 'Could not update incident.'));
     } finally {
       setSubmitting(false);
     }
@@ -984,11 +1372,27 @@ export function IncidentEditModal({
       <form onSubmit={handleSubmit}>
         {errors.length > 0 && (
           <div className="form-errors">
-            <ul>
-              {errors.map((err) => (
-                <li key={err}>{err}</li>
-              ))}
-            </ul>
+            {/* role="alert" makes a rejected submission audible. Before this,
+                the summary appeared silently at the top of a form that is
+                long enough to scroll, so a screen reader user pressed Save
+                and was told nothing at all — not that it failed, and not why.
+
+                The alert region is nested inside .form-errors rather than
+                being the same element, so the list keeps its own list
+                semantics ("list, 3 items") instead of having them replaced by
+                the alert role.
+
+                tabIndex={-1} plus the focus effect above is the other half:
+                being told there are errors is only useful if you are also put
+                where they are. The summary is the one place that holds all of
+                them, and it sits directly above the fields they refer to. */}
+            <div role="alert" ref={errorSummaryRef} tabIndex={-1}>
+              <ul>
+                {errors.map((err) => (
+                  <li key={err}>{err}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
         <IncidentFormFields
@@ -999,6 +1403,7 @@ export function IncidentEditModal({
           categories={categories}
           sitios={sitios}
           statuses={statuses}
+          statusLocked={shown.status === 'Archived'}
         />
         <div className="modal-footer">
           <Button type="button" variant="ghost" onClick={onClose}>

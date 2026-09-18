@@ -32,7 +32,7 @@ export default function CrimeMappingPreview() {
               boundary view
             </li>
             <li>
-              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Heatmap-style
+              <Icons.CheckCircle2 size={16} strokeWidth={2.25} /> Crime Heatmap
               risk visualization
             </li>
             <li>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\SupabasePasswordUpdateException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
@@ -9,10 +10,14 @@ use App\Http\Resources\AuditLogResource;
 use App\Http\Resources\UserResource;
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Rules\AcceptablePassword;
 use App\Services\SupabaseAdminService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 // Phase 4 — Admin User Management.
@@ -90,14 +95,45 @@ class UserController extends Controller
     //      gets Supabase's actionable reason (e.g. the address is already
     //      registered there).
     //
-    // The administrator never chooses or sees a password. The new user
-    // receives a Supabase password-recovery email (requested from the
-    // frontend through the same supabase.auth.resetPasswordForEmail
-    // mechanism the public Forgot Password page already uses) and sets their
-    // own.
+    // Two ways to give the new account its first password:
+    //
+    //   * No `temporaryPassword` (the original path): nobody chooses or sees a
+    //     password. The new user receives a Supabase password-recovery email
+    //     (requested from the frontend through the same
+    //     supabase.auth.resetPasswordForEmail mechanism the public Forgot
+    //     Password page uses) and sets their own.
+    //
+    //   * `temporaryPassword` supplied: Supabase Auth is provisioned with that
+    //     password, and the local row is marked must_change_password with a
+    //     TEMPORARY_PASSWORD_TTL_HOURS expiry and the issuing administrator. No
+    //     recovery email is involved on this path — sending one is the
+    //     frontend's job, and it is not requested here.
+    //
+    // The temporary password is only ever an argument to the Supabase call. It
+    // is not stored on the local row, not returned, and not written to the
+    // audit trail or the log. (Enforcing the change on next sign-in is a later
+    // phase; this only records that it is owed.)
     public function store(StoreUserRequest $request, SupabaseAdminService $supabaseAdmin)
     {
         $data = $request->validated();
+
+        // Pulled out of $data at once so nothing below can pass the whole
+        // validated array — password and all — anywhere by accident.
+        $temporaryPassword = $data['temporaryPassword'] ?? null;
+        unset($data['temporaryPassword']);
+        $issuedBy = $request->user()?->id;
+
+        // Validated to one of User::MFA_METHOD_CHOICES. The two methods are
+        // stored in the two places enforcement already reads:
+        //   email_otp         -> users.mfa_method = 'email_otp'
+        //                        (EnsureSupabaseAal2::handleEmailOtpAccount)
+        //   authenticator_app -> users.mfa_method stays NULL, and the Supabase
+        //                        identity is created with
+        //                        app_metadata.mfa_required = true, so the first
+        //                        sign-in is sent through authenticator
+        //                        enrolment (SupabaseAdminService::requiresAal2)
+        $mfaMethod = $data['mfaMethod'];
+        $usesAuthenticatorApp = $mfaMethod === User::MFA_METHOD_AUTHENTICATOR_APP;
 
         // Captured by reference so it survives the transaction being rolled
         // back. Supabase is a separate system: a database rollback undoes the
@@ -106,7 +142,7 @@ class UserController extends Controller
         $supabaseUserId = null;
 
         try {
-            $user = DB::transaction(function () use ($data, $supabaseAdmin, &$supabaseUserId) {
+            $user = DB::transaction(function () use ($data, $supabaseAdmin, &$supabaseUserId, $temporaryPassword, $issuedBy, $usesAuthenticatorApp) {
                 $user = User::create([
                     'name' => $data['fullName'],
                     'username' => $data['username'],
@@ -115,7 +151,11 @@ class UserController extends Controller
                     'is_active' => $data['isActive'] ?? true,
                 ]);
 
-                $supabaseUserId = $supabaseAdmin->createUser($data['email']);
+                $supabaseUserId = $supabaseAdmin->createUser(
+                    $data['email'],
+                    $temporaryPassword,
+                    $usesAuthenticatorApp ? ['mfa_required' => true] : [],
+                );
 
                 // The compensating delete below is only ever allowed to touch
                 // an identity THIS operation created. Supabase is expected to
@@ -143,10 +183,41 @@ class UserController extends Controller
                     throw new RuntimeException('That email address is already registered in Supabase Auth.');
                 }
 
-                $user->forceFill([
+                // An Authenticator App account whose requirement did not stick
+                // would be an account with no MFA at all, which is exactly what
+                // choosing a method is meant to rule out. So the flag is read
+                // back from Supabase itself, not assumed from the create call,
+                // and if it is not there the account is not created: the throw
+                // rolls back the local row and the catch below deletes the
+                // Supabase identity this operation just made. A failed lookup
+                // throws too, with the same effect.
+                if ($usesAuthenticatorApp && ! $supabaseAdmin->mfaRequiredByAdmin($supabaseUserId)) {
+                    throw new RuntimeException('Supabase did not confirm the authenticator app requirement, so the account was not created. Please try again.');
+                }
+
+                $state = [
                     'supabase_user_id' => $supabaseUserId,
                     'email_verified_at' => now(),
-                ])->save();
+                ];
+
+                // Not fillable (see User), so it is set here alongside the other
+                // state, in the same save and under the same rollback.
+                if (! $usesAuthenticatorApp) {
+                    $state['mfa_method'] = User::MFA_METHOD_EMAIL_OTP;
+                }
+
+                // Written in the SAME save as the Supabase link, so a failure
+                // here is covered by exactly the same rollback + compensating
+                // delete as any other failure after provisioning.
+                if ($temporaryPassword !== null) {
+                    $state += [
+                        'must_change_password' => true,
+                        'temporary_password_expires_at' => now()->addHours(User::TEMPORARY_PASSWORD_TTL_HOURS),
+                        'temporary_password_issued_by' => $issuedBy,
+                    ];
+                }
+
+                $user->forceFill($state)->save();
 
                 return $user;
             });
@@ -186,7 +257,14 @@ class UserController extends Controller
             'action' => 'CREATE',
             'module' => 'users',
             'target_type' => 'user',
-            'description' => "Created {$user->role_label} account {$user->username}",
+            // Records THAT a temporary password was issued, never anything
+            // about the password itself.
+            // The MFA method is recorded by name; nothing about a factor,
+            // secret or code exists at this point to record.
+            'description' => ($temporaryPassword !== null
+                ? "Created {$user->role_label} account {$user->username} with a temporary password"
+                : "Created {$user->role_label} account {$user->username}")
+                .($usesAuthenticatorApp ? ' (MFA method: Authenticator App)' : ' (MFA method: Email OTP)'),
             'ip_address' => $request->ip(),
         ]);
 
@@ -321,11 +399,11 @@ class UserController extends Controller
      * it let an administrator get past somebody else's challenge - the flag
      * only ever adds an obligation to that account's own sessions.
      *
-     * Turning the requirement OFF is the same endpoint with required=false. It
-     * does not remove an enrolled factor: somebody who has already set up an
-     * authenticator keeps it, and keeps being challenged for it, because the
-     * factor itself is an obligation independent of this flag. Removing a
-     * factor is disableTwoFactor() below.
+     * Turning the requirement OFF (required=false) is accepted only for an
+     * email_otp account, whose emailed code stays mandatory regardless. Every
+     * other account is refused, because for it this flag is the second factor
+     * and lifting it would leave the account with no MFA. Replacing a lost
+     * authenticator is disableTwoFactor() below, which resets enrolment.
      */
     public function requireTwoFactor(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
     {
@@ -340,6 +418,21 @@ class UserController extends Controller
         }
 
         $required = (bool) $validated['required'];
+
+        // Lifting the requirement is refused for every account that is not
+        // configured for email OTP. For those accounts the Supabase
+        // requirement (or an enrolled factor) IS their second factor, so
+        // lifting it would leave an Authenticator App account with no MFA at
+        // all -- the "none" option account creation deliberately does not
+        // offer. Losing an authenticator is handled by disableTwoFactor(),
+        // which resets the enrolment instead. For an email_otp account the
+        // emailed code stays mandatory whatever this flag says, so lifting the
+        // separate authenticator requirement there is still allowed.
+        if (! $required && ! $user->usesEmailOtpMfa()) {
+            return response()->json([
+                'message' => 'Two-factor authentication cannot be switched off for an Authenticator App account. To replace a lost authenticator, use Reset Authenticator, which requires the person to set up a new one.',
+            ], 422);
+        }
 
         try {
             $supabaseAdmin->setMfaRequired($user->supabase_user_id, $required);
@@ -361,6 +454,248 @@ class UserController extends Controller
         return new UserResource($user);
     }
 
+    /**
+     * POST /api/users/{user}/temporary-password  { "temporaryPassword": "..." }
+     *
+     * Replaces an account's password with a new administrator-issued temporary
+     * password and puts the account back under the forced-change requirement.
+     * The recovery path for an expired or lost temporary password.
+     *
+     * Administrator only (`role:badac_admin` on the route). The target is ONLY
+     * ever the {user} in the route; nothing in the body can redirect it.
+     *
+     * The temporary password is supplied by the caller — generated in the
+     * administrator's browser — because a server-generated one would have to be
+     * sent back in this response. It is passed straight to Supabase Auth and is
+     * never stored, returned, audited or logged.
+     *
+     * FAIL CLOSED. Supabase Auth and this database are not one transaction and
+     * this does not pretend they are. Instead, every way the two can end up
+     * disagreeing leaves the account LOCKED out of CDARS, never open:
+     *
+     *   A. Lock, committed before Supabase is contacted: must_change_password,
+     *      an expiry of now (so temporaryPasswordExpired() refuses every route,
+     *      /me/password included) and the issuer. If this fails, Supabase is
+     *      never called and nothing has changed.
+     *   B. Supabase, with no database transaction or row lock held.
+     *   C. A DEFINITE refusal: the previous state is restored, but only if the
+     *      lock is still ours. If restoring fails, the account stays locked.
+     *   D. An UNKNOWN outcome (timeout, network, 5xx): nothing is restored.
+     *      Supabase may hold the new password, so the account stays locked
+     *      until an administrator reissues successfully.
+     *   E. Success: the real 72-hour expiry and the audit row are written,
+     *      retried once; if both attempts fail the account stays locked.
+     *
+     * password_changed_at is deliberately untouched: the account holder has not
+     * changed anything. Existing sessions are blocked by EnsurePasswordChanged
+     * from the moment the lock in step A commits.
+     */
+    public function issueTemporaryPassword(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
+    {
+        if ($user->id === $request->user()?->id) {
+            return response()->json([
+                'message' => 'You cannot issue a temporary password to your own account.',
+            ], 422);
+        }
+
+        if (! $user->is_active) {
+            return response()->json([
+                'message' => 'Activate this account before issuing it a temporary password.',
+            ], 422);
+        }
+
+        if (! $user->supabase_user_id) {
+            return response()->json([
+                'message' => 'This account has no Supabase sign-in yet, so a temporary password cannot be issued for it.',
+            ], 422);
+        }
+
+        $request->validate([
+            'temporaryPassword' => [
+                'required',
+                'string',
+                'min:'.User::TEMPORARY_PASSWORD_MIN_LENGTH,
+                new AcceptablePassword('the temporary password', $user->username, $user->email),
+            ],
+        ], [
+            'temporaryPassword.required' => 'Enter or generate a temporary password.',
+            'temporaryPassword.string' => 'The temporary password must be text.',
+            'temporaryPassword.min' => 'The temporary password must be at least '.User::TEMPORARY_PASSWORD_MIN_LENGTH.' characters.',
+        ]);
+
+        $temporaryPassword = $request->input('temporaryPassword');
+        $issuedBy = $request->user()?->id;
+        // Whole seconds: the column stores seconds, and the restore in step C
+        // recognises its own lock by comparing this exact value.
+        $lockedAt = now()->startOfSecond();
+        $expiresAt = $lockedAt->copy()->addHours(User::TEMPORARY_PASSWORD_TTL_HOURS);
+
+        // A. Commit the lock BEFORE Supabase is contacted.
+        $previous = null;
+
+        try {
+            DB::transaction(function () use ($user, $issuedBy, $lockedAt, &$previous) {
+                $row = User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+                $previous = [
+                    'must_change_password' => (bool) $row->must_change_password,
+                    'temporary_password_expires_at' => $row->temporary_password_expires_at,
+                    'temporary_password_issued_by' => $row->temporary_password_issued_by,
+                ];
+
+                $row->forceFill([
+                    'must_change_password' => true,
+                    'temporary_password_expires_at' => $lockedAt,
+                    'temporary_password_issued_by' => $issuedBy,
+                ])->save();
+            });
+        } catch (\Throwable $e) {
+            Log::error('Could not lock an account before issuing a temporary password. Supabase was not contacted.', [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return response()->json([
+                'message' => 'The temporary password could not be issued right now. Nothing was changed. Please try again.',
+            ], 503);
+        }
+
+        // B. Supabase, with no transaction open.
+        try {
+            $supabaseAdmin->setPassword($user->supabase_user_id, $temporaryPassword);
+        } catch (SupabasePasswordUpdateException $e) {
+            if (! $e->wasDefinitelyNotApplied()) {
+                // D. Supabase may already hold the new password.
+                Log::warning('Supabase did not confirm a temporary password update. The account was left locked.', [
+                    'user_id' => $user->id,
+                    'outcome' => $e->outcome,
+                ]);
+
+                return $this->accountLeftLocked('The temporary password could not be confirmed, so this account has been locked. Issue a new temporary password.');
+            }
+
+            // C. Definitely not applied.
+            return $this->restoreAfterRefusal($user, $previous, $lockedAt, $issuedBy, $e->isWeakPassword()
+                ? response()->json([
+                    'message' => 'Please check the form for errors.',
+                    'errors' => ['temporaryPassword' => ['That temporary password was rejected. Choose a longer, less predictable one.']],
+                ], 422)
+                : response()->json([
+                    'message' => 'The temporary password could not be issued right now. Please try again.',
+                ], 502));
+        } catch (\Throwable $e) {
+            // Anything unexpected is an unknown outcome too.
+            Log::error('Unexpected failure while issuing a temporary password. The account was left locked.', [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return $this->accountLeftLocked('The temporary password could not be confirmed, so this account has been locked. Issue a new temporary password.');
+        }
+
+        // E. Supabase confirmed it: record the real expiry and the audit row.
+        $persist = function () use ($user, $issuedBy, $expiresAt, $request) {
+            $row = User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+            $row->forceFill([
+                'must_change_password' => true,
+                'temporary_password_expires_at' => $expiresAt,
+                'temporary_password_issued_by' => $issuedBy,
+            ])->save();
+
+            AuditLog::create([
+                'user_id' => $issuedBy,
+                'action' => 'UPDATE',
+                'module' => 'users',
+                'target_type' => 'user',
+                'description' => "Issued a new temporary password to {$user->username}",
+                'ip_address' => $request->ip(),
+            ]);
+        };
+
+        try {
+            DB::transaction($persist);
+        } catch (\Throwable) {
+            return $this->recoverAfterSupabaseChange($user, $persist, 'issuing a temporary password');
+        }
+
+        return new UserResource($user->fresh());
+    }
+
+    /**
+     * Step C of issueTemporaryPassword(): Supabase definitely did not apply the
+     * password, so the lock taken in step A is undone and the refusal returned.
+     *
+     * Only OUR lock is undone. If the row no longer carries it, another
+     * issuance has locked the account since, and its outcome is not this
+     * request's to erase. If restoring fails, the account simply stays locked:
+     * inconvenient, never unsafe.
+     *
+     * @param  array{must_change_password: bool, temporary_password_expires_at: mixed, temporary_password_issued_by: mixed}  $previous
+     */
+    private function restoreAfterRefusal(User $user, array $previous, Carbon $lockedAt, ?int $issuedBy, JsonResponse $refusal): JsonResponse
+    {
+        try {
+            DB::transaction(function () use ($user, $previous, $lockedAt, $issuedBy) {
+                $row = User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
+                $stillOurs = $row->must_change_password
+                    && $row->temporary_password_expires_at?->getTimestamp() === $lockedAt->getTimestamp()
+                    && (int) $row->temporary_password_issued_by === (int) $issuedBy;
+
+                if ($stillOurs) {
+                    $row->forceFill($previous)->save();
+                }
+            });
+        } catch (\Throwable $e) {
+            Log::error('Supabase refused a temporary password, and the account lock could not be undone. The account was left locked.', [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return $this->accountLeftLocked('The temporary password was not accepted, and this account could not be unlocked. It remains locked; issue a new temporary password.');
+        }
+
+        return $refusal;
+    }
+
+    /**
+     * Supabase Auth accepted the new temporary password, but recording its
+     * expiry and audit row failed. The account is still locked by step A, so
+     * nobody holding the new password can use CDARS.
+     *
+     * The write is idempotent, so it is retried once. If that also fails the
+     * account stays locked, the administrator is told to reissue, and the event
+     * is logged with the account id only.
+     */
+    private function recoverAfterSupabaseChange(User $user, \Closure $persist, string $operation)
+    {
+        try {
+            DB::transaction($persist);
+
+            return new UserResource($user->fresh());
+        } catch (\Throwable $e) {
+            Log::error("Supabase password was changed while {$operation}, but the local account state could not be saved. The account was left locked.", [
+                'user_id' => $user->id,
+                'exception' => $e::class,
+            ]);
+
+            return $this->accountLeftLocked('The temporary password was set, but CDARS could not finish recording it. This account remains locked; issue a new temporary password.');
+        }
+    }
+
+    /**
+     * Every outcome that ends with the account locked pending a new issuance.
+     * The message is a fixed sentence; nothing from Supabase or the exception.
+     */
+    private function accountLeftLocked(string $message): JsonResponse
+    {
+        return response()->json([
+            'message' => $message,
+            'temporaryPasswordPendingSync' => true,
+        ], 503);
+    }
+
     // POST /api/users/{user}/two-factor/disable
     // Final auth migration — Laravel TOTP is retired; Supabase MFA is now
     // the only second factor. Reachable only via the same role:badac_admin
@@ -369,7 +704,8 @@ class UserController extends Controller
     // stepped up to aal2, gets rejected before this method ever runs. This
     // exists for the "lost my phone and my recovery codes" case: an Admin
     // can strip a user's enrolled Supabase MFA factor(s) so they can sign
-    // in and re-enroll, without needing the target's own code (that
+    // in and re-enroll (for a non-email_otp account that re-enrolment is
+    // REQUIRED -- see the reset note in the method), without needing the target's own code (that
     // self-service path — supabase.auth.mfa.unenroll() — lives entirely on
     // the frontend; see supabaseMfaService.js).
     //
@@ -389,34 +725,48 @@ class UserController extends Controller
             return response()->json(['message' => 'Two-factor authentication is not enabled for this account.'], 422);
         }
 
+        // For an account that is NOT configured for email OTP, the authenticator
+        // is its only second factor, so this is a RESET, not a removal: the
+        // requirement is switched on BEFORE any factor is deleted, and the
+        // person must enrol a new authenticator at their next sign-in. The
+        // lost-device case this action exists for is still unblocked -- they
+        // enrol the replacement device -- but the account is never left with
+        // no MFA. If the requirement cannot be written, nothing is deleted.
+        $isAuthenticatorReset = ! $user->usesEmailOtpMfa();
+
+        if ($isAuthenticatorReset) {
+            try {
+                $supabaseAdmin->setMfaRequired($user->supabase_user_id, true);
+            } catch (RuntimeException $e) {
+                return response()->json([
+                    'message' => 'Could not reset this account\'s authenticator right now, so nothing was changed. Please try again.',
+                ], 502);
+            }
+        }
+
         $removed = $supabaseAdmin->deleteAllFactors($user->supabase_user_id);
         if ($removed === 0) {
+            // For a reset the requirement is already on, which is the safe
+            // state to be left in: the existing factor still satisfies it.
             return response()->json(['message' => 'Could not remove this account\'s MFA factor(s) right now. Please try again.'], 502);
         }
 
-        // Login-time MFA enforcement reads a CACHED "has a verified factor"
-        // answer on every protected request (EnsureSupabaseAal2 ->
-        // SupabaseAdminService::hasVerifiedFactor). Without this line the
-        // account whose factor was just removed would keep being told a second
-        // factor is required for up to a full cache TTL -- which is exactly the
-        // lost-device lockout this administrator action exists to end. It also
-        // makes the twoFactorEnabled badge in the response below current,
-        // rather than a stale read of the value we just made wrong.
-        // Clearing an account's second factor must leave it genuinely without
-        // one, so any administrator-imposed requirement is lifted at the same
-        // time. Leaving the flag set would force the person straight back into
-        // enrolment on their very next sign-in, which is the opposite of what
-        // this break-glass action is for - they have just lost their device.
-        // Requiring it again afterwards is one deliberate click away.
-        try {
-            $supabaseAdmin->setMfaRequired($user->supabase_user_id, false);
-        } catch (RuntimeException $e) {
-            // The factors are already gone, which is the part that unblocks
-            // the person. Reporting failure now would misdescribe what
-            // happened; the requirement flag is reconciled on the next
-            // deliberate change, and the cache is dropped below either way.
+        // Email OTP accounts keep their previous behaviour: the emailed code
+        // stays mandatory (it follows users.mfa_method), so removing the
+        // authenticator also lifts the separate authenticator requirement.
+        if (! $isAuthenticatorReset) {
+            try {
+                $supabaseAdmin->setMfaRequired($user->supabase_user_id, false);
+            } catch (RuntimeException $e) {
+                // The factors are already gone. The email requirement is
+                // unaffected either way, and the cache is dropped below.
+            }
         }
 
+        // Login-time MFA enforcement reads a CACHED security state on every
+        // protected request (EnsureSupabaseAal2 -> SupabaseAdminService). The
+        // cached entry still claims a verified factor that no longer exists,
+        // so it is dropped; the next request reads the current state.
         $supabaseAdmin->forgetFactorStatus($user->supabase_user_id);
 
         AuditLog::create([
@@ -424,7 +774,9 @@ class UserController extends Controller
             'action' => 'UPDATE',
             'module' => 'users',
             'target_type' => 'user',
-            'description' => "Disabled two-factor authentication for {$user->username}",
+            'description' => $isAuthenticatorReset
+                ? "Reset the authenticator for {$user->username}; a new authenticator must be set up at next sign-in"
+                : "Disabled two-factor authentication for {$user->username}",
             'ip_address' => $request->ip(),
         ]);
 

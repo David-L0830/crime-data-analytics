@@ -62,6 +62,12 @@ import {
   ChevronRight,
   Camera,
   Plus,
+  Map as MapIcon,
+  Globe,
+  Crosshair,
+  CalendarClock,
+  Send,
+  Undo2,
 } from 'lucide-react';
 
 // Login redesign (BADAC Analytics visual refresh) — small inline icon that
@@ -106,6 +112,7 @@ export const NAV_ICONS = {
   auditLogs: ScrollText,
   settings: SettingsIcon,
   userManagement: Users,
+  scheduledReports: CalendarClock,
 };
 
 export const Icons = {
@@ -180,6 +187,22 @@ export const Icons = {
   Camera,
   // Structured evidence rows in the incident form
   Plus,
+  // Crime Mapping base-map selector. `Map` is the street basemap and `Globe`
+  // the satellite one; MapPin above is already taken by the nav entry for the
+  // module itself, and reusing it here would give the page's navigation icon
+  // and one of its radio options the same glyph.
+  Map: MapIcon,
+  Globe,
+  // Crime Mapping's My Location control. A crosshair rather than another pin:
+  // MapPin already means "the Mapping module" in the nav and "an incident" on
+  // the map itself, so a third meaning on the same glyph would make the one
+  // button that is about the VIEWER look like one more thing about the data.
+  Crosshair,
+  // Scheduled Reports module (Create / Run now) and record validation
+  // (Return for Correction).
+  CalendarClock,
+  Send,
+  Return: Undo2,
 };
 
 export default Icons;

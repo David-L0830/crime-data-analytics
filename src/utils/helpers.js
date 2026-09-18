@@ -236,6 +236,56 @@ export function forecastNext(slope, intercept, n) {
   return Math.max(0, +(slope * n + intercept).toFixed(1));
 }
 
+// The Linear Regression chart's series, derived from the continuous monthly
+// axis and its counts.
+//
+// A line needs two points. With a single matching month linearRegression()
+// returns its {slope: 0, intercept: 0} placeholder, and the chart drew a fitted
+// line at zero through a month that had incidents, appended a forecast point of
+// 0 for the following month, and described the result as a flat trajectory —
+// a fabricated statistic rather than a weak one, printed into barangay reports.
+// Below two periods there is no fitted line, no forecast point and no forecast
+// column: the chart shows the actual series alone and buildRegressionInsight()
+// reports the data as insufficient. At two or more periods every value returned
+// here is exactly what the page computed before.
+//
+// Lives here beside forecastNext(), for the same two reasons that function
+// gives: the rule is unit-testable without importing a React page, and a
+// component file does not export a non-component.
+export function buildRegressionSeries(monthKeys, counts) {
+  const points = monthKeys.map((_, i) => [i, counts[i] ?? 0]);
+  const hasRegression = monthKeys.length >= 2;
+  const { slope, intercept } = linearRegression(points);
+  const regression = hasRegression
+    ? monthKeys.map((_, i) => +(slope * i + intercept).toFixed(1))
+    : [];
+  let nextLabel = 'Forecast';
+  if (monthKeys.length) {
+    const lastKey = monthKeys[monthKeys.length - 1];
+    const year = parseInt(lastKey.slice(0, 4), 10);
+    const month = parseInt(lastKey.slice(5), 10);
+    const nextMonth = (month % 12) + 1;
+    // December (12) rolls into January of the following year, not the same one.
+    const nextYear = month === 12 ? year + 1 : year;
+    nextLabel = `Forecast (${nextYear}-${String(nextMonth).padStart(2, '0')})`;
+  }
+  const forecast = hasRegression
+    ? [...regression, forecastNext(slope, intercept, monthKeys.length)]
+    : [];
+  return {
+    hasRegression,
+    slope,
+    intercept,
+    regression,
+    nextLabel,
+    forecast,
+    regLabels: hasRegression ? [...monthKeys, nextLabel] : [...monthKeys],
+    // The Actual series is padded with a null only when a forecast column
+    // exists, so the two rows stay the same length as the labels.
+    regActual: hasRegression ? [...counts, null] : [...counts],
+  };
+}
+
 // The incident count at which a sitio's severity reaches High. This was a bare
 // 5 inside Trends, alongside a bare 3 that the configurable Hotspot Alert
 // Threshold has now replaced. It stays a constant rather than becoming a second
@@ -312,6 +362,30 @@ export function countBy(arr, key) {
   return Object.fromEntries(
     Object.entries(groups).map(([k, v]) => [k, v.length]),
   );
+}
+
+// The grouping key behind the "Repeat Locations" / hotspot-by-street tables on
+// Dashboard and Trends.
+//
+// Group by STREET, not by exact address. `street` is stored house-number first
+// ("116 Tupas St."), and in practice every incident has a different number, so
+// keying on the raw value put every incident in its own group and the table
+// could only ever show a column of 1s — never an actual hotspot. Stripping the
+// leading house number groups the whole street together. No street name spans
+// more than one sitio, so the Sitio column stays coherent. `street` is nullable
+// in the schema, hence the `|| ''` guard before replace.
+//
+// This is Dashboard's original expression, moved here unchanged. It lives in
+// helpers.js because Trends built the same key from the RAW street and so
+// counted "116 Tupas St." and "118 Tupas St." as two separate locations, while
+// Dashboard counted them as one — the two pages reported different repeat
+// locations from identical data. One definition means they cannot drift again.
+//
+// The `${sitio}|${street}` shape is retained rather than improved on, because
+// both callers split the key back apart on '|' to fill the Location and Sitio
+// columns.
+export function repeatLocationKey(record) {
+  return `${record.sitio}|${(record.street || '').replace(/^\s*\d+[A-Za-z]?\s+/, '')}`;
 }
 
 // ===== Filters =====

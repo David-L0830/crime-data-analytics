@@ -336,7 +336,27 @@ export function buildForecastInsight(labels, actual, movingAvg) {
 // Linear Regression — Trend and Pattern Detection. Reports the trend's
 // direction/rate from the already-computed `slope`, and the forecasted
 // value for the next period the Trends page already calculates.
-export function buildRegressionInsight(slope, forecastLabel, forecastValue) {
+//
+// `periodCount` is how many periods the fit was computed from. A straight
+// line cannot be fitted to fewer than two points: linearRegression() returns
+// the {slope: 0, intercept: 0} placeholder there, which read through this
+// sentence as "a flat trajectory ... projected at approximately 0 incidents"
+// — a fabricated statistic rather than a weak one, and one that went into a
+// printed barangay report. Below two periods the insight says the data is
+// insufficient and no direction, rate or forecast is reported. At two or more
+// periods nothing about this function's output changes.
+export function buildRegressionInsight(
+  slope,
+  forecastLabel,
+  forecastValue,
+  periodCount,
+) {
+  if (periodCount < 2)
+    return {
+      insight: `Insufficient data for a linear trend: at least two periods are required, and the selected filters produced ${periodCount === 1 ? 'only one' : 'none'}. No trend direction or forecast is reported.`,
+      kpis: [],
+    };
+
   const direction =
     slope > 0 ? 'an upward' : slope < 0 ? 'a downward' : 'a flat';
   const perPeriod = Math.abs(+slope.toFixed(2));

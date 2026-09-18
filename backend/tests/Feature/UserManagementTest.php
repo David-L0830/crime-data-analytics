@@ -221,6 +221,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
             'isActive' => true,
         ]);
 
@@ -250,6 +251,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertCreated();
 
         $log = AuditLog::where('action', 'CREATE')->where('module', 'users')->first();
@@ -268,6 +270,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertStatus(422);
 
         // The whole point of the transaction: no half-provisioned account
@@ -285,6 +288,7 @@ class UserManagementTest extends TestCase
             'username' => 'taken',
             'email' => 'fresh@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertUnprocessable();
 
         $this->postJson('/api/users', [
@@ -292,6 +296,7 @@ class UserManagementTest extends TestCase
             'username' => 'fresh',
             'email' => 'taken@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertUnprocessable();
     }
 
@@ -304,6 +309,7 @@ class UserManagementTest extends TestCase
             'username' => 'fresh',
             'email' => 'fresh@example.com',
             'role' => 'superuser',
+            'mfaMethod' => 'email_otp',
         ])->assertUnprocessable();
 
         $this->assertNull(User::where('username', 'fresh')->first());
@@ -319,6 +325,7 @@ class UserManagementTest extends TestCase
             'username' => 'escalated',
             'email' => 'escalated@example.com',
             'role' => User::ROLE_BADAC_ADMIN,
+            'mfaMethod' => 'email_otp',
         ])->assertForbidden();
 
         $this->assertNull(User::where('username', 'escalated')->first());
@@ -347,6 +354,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertStatus(422);
 
         // Neither system keeps the half-made account.
@@ -384,6 +392,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertStatus(422);
 
         // No half-made local account...
@@ -413,6 +422,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])
             ->assertStatus(422)
             ->assertJsonPath('message', 'That email address is already registered in Supabase Auth.');
@@ -431,6 +441,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertCreated();
 
         // The random password exists only as an argument to the Supabase call.
@@ -447,9 +458,9 @@ class UserManagementTest extends TestCase
         $this->assertStringNotContainsString('password', strtolower($log->description));
     }
 
-    public function test_badac_readonly_cannot_reach_any_account_administration_endpoint(): void
+    public function test_badac_validator_cannot_reach_any_account_administration_endpoint(): void
     {
-        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_READONLY]);
+        $viewer = User::factory()->create(['role' => User::ROLE_BADAC_VALIDATOR]);
         $target = User::factory()->create(['role' => User::ROLE_ENCODER]);
         $this->actingAsSupabase($viewer);
 
@@ -461,6 +472,7 @@ class UserManagementTest extends TestCase
             'username' => 'x',
             'email' => 'x@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertForbidden();
         $this->getJson("/api/users/{$target->id}/activity")->assertForbidden();
         $this->postJson("/api/users/{$target->id}/password-reset-audit")->assertForbidden();
@@ -711,6 +723,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertCreated()->json('data');
 
         // Exactly what the UI does next, with no intervening step: the account
@@ -737,6 +750,7 @@ class UserManagementTest extends TestCase
             'username' => 'msantos',
             'email' => 'msantos@example.com',
             'role' => User::ROLE_ENCODER,
+            'mfaMethod' => 'email_otp',
         ])->assertCreated();
 
         // The email step fails in the browser, so password-reset-audit is
@@ -784,13 +798,13 @@ class UserManagementTest extends TestCase
         // User Management is role:badac_admin on every verb.
         $this->assertSame('full', $modules['user-management']['access'][User::ROLE_BADAC_ADMIN]);
         $this->assertSame('none', $modules['user-management']['access'][User::ROLE_ENCODER]);
-        $this->assertSame('none', $modules['user-management']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('none', $modules['user-management']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // Audit Logs was narrowed to admin-only (Checkpoint 38).
-        $this->assertSame('none', $modules['audit-logs']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('none', $modules['audit-logs']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // BADAC reads the dashboard but writes nothing there.
-        $this->assertSame('view', $modules['dashboard']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('view', $modules['dashboard']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // Encoder writes incidents.
         $this->assertSame('full', $modules['incident-feed']['access'][User::ROLE_ENCODER]);
@@ -802,7 +816,7 @@ class UserManagementTest extends TestCase
         // a module neither can open.
         $this->assertSame('full', $modules['settings']['access'][User::ROLE_BADAC_ADMIN]);
         $this->assertSame('none', $modules['settings']['access'][User::ROLE_ENCODER]);
-        $this->assertSame('none', $modules['settings']['access'][User::ROLE_BADAC_READONLY]);
+        $this->assertSame('none', $modules['settings']['access'][User::ROLE_BADAC_VALIDATOR]);
 
         // /incidents/map belongs to Crime Mapping, not Crime Data Collection,
         // even though its URI sits under the incidents prefix.
@@ -960,7 +974,12 @@ class UserManagementTest extends TestCase
         ]);
     }
 
-    public function test_admin_can_lift_a_two_factor_requirement(): void
+    // Phase 1 (MFA Option B): for an account not configured for email OTP the
+    // Supabase requirement IS its second factor, so lifting it would leave an
+    // Authenticator App account with no MFA. The request is refused before
+    // Supabase is contacted. (Email OTP accounts may still lift it -- see
+    // EmailMfaTest::test_cancelling_the_2fa_requirement_does_not_remove_email_mfa.)
+    public function test_admin_cannot_lift_the_requirement_from_an_authenticator_app_account(): void
     {
         $this->actingAdmin();
         config(['supabase.service_role_key' => 'test-only-service-role-key']);
@@ -974,10 +993,13 @@ class UserManagementTest extends TestCase
         ]);
 
         $this->postJson("/api/users/{$target->id}/two-factor/require", ['required' => false])
-            ->assertOk();
+            ->assertStatus(422)
+            ->assertJsonPath('message', fn (string $message) => str_contains($message, 'Reset Authenticator'));
 
-        Http::assertSent(fn ($request) => $request->method() === 'PUT'
-            && ($request->data()['app_metadata']['mfa_required'] ?? null) === false);
+        Http::assertNotSent(fn ($request) => $request->method() === 'PUT');
+        $this->assertDatabaseMissing('audit_logs', [
+            'description' => "Removed the two-factor authentication requirement for {$target->username}",
+        ]);
     }
 
     /**
@@ -993,7 +1015,7 @@ class UserManagementTest extends TestCase
     {
         $target = $this->targetWithSupabaseId();
 
-        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_READONLY] as $role) {
+        foreach ([User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR] as $role) {
             $actor = User::factory()->create([
                 'role' => $role,
                 'supabase_user_id' => 'sb-actor-'.$role,
@@ -1012,11 +1034,11 @@ class UserManagementTest extends TestCase
         }
     }
 
-    // Clearing an enrolled account's factor must leave it genuinely without an
-    // obligation -- factor removed AND requirement lifted. Leaving the flag set
-    // would march the person straight back into enrolment on their next sign
-    // in, which is the opposite of what this break-glass action is for.
-    public function test_clearing_two_factor_also_lifts_the_requirement(): void
+    // Phase 1 (MFA Option B): clearing an Authenticator App account's factor is
+    // a RESET. The factor is removed and the requirement is switched ON, so the
+    // person enrols a new authenticator at next sign-in rather than walking in
+    // with no MFA. The requirement is written before the factor is deleted.
+    public function test_clearing_an_authenticator_app_accounts_factor_resets_enrolment(): void
     {
         $this->actingAdmin();
         config(['supabase.service_role_key' => 'test-only-service-role-key']);
@@ -1026,7 +1048,7 @@ class UserManagementTest extends TestCase
             '*/auth/v1/admin/users/*/factors/*' => Http::response([], 200),
             '*/auth/v1/admin/users/*' => Http::response([
                 'factors' => [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'verified']],
-                'app_metadata' => ['mfa_required' => true],
+                'app_metadata' => ['provider' => 'email'],
             ], 200),
         ]);
 
@@ -1036,7 +1058,50 @@ class UserManagementTest extends TestCase
             && str_contains($request->url(), '/factors/factor-1'));
 
         Http::assertSent(fn ($request) => $request->method() === 'PUT'
+            && ($request->data()['app_metadata']['mfa_required'] ?? null) === true);
+        Http::assertNotSent(fn ($request) => $request->method() === 'PUT'
             && ($request->data()['app_metadata']['mfa_required'] ?? null) === false);
+
+        // Order: the requirement is on before any factor is removed.
+        $methods = collect(Http::recorded())
+            ->map(fn ($pair) => $pair[0]->method())
+            ->filter(fn ($method) => in_array($method, ['PUT', 'DELETE'], true))
+            ->values()
+            ->all();
+        $this->assertSame(['PUT', 'DELETE'], array_slice($methods, 0, 2));
+
+        $this->assertDatabaseHas('audit_logs', [
+            'module' => 'users',
+            'description' => "Reset the authenticator for {$target->username}; a new authenticator must be set up at next sign-in",
+        ]);
+    }
+
+    // If the requirement cannot be written, no factor is removed: the account
+    // keeps the authenticator it has rather than ending up with none.
+    public function test_a_reset_removes_nothing_when_the_requirement_cannot_be_written(): void
+    {
+        $this->actingAdmin();
+        config(['supabase.service_role_key' => 'test-only-service-role-key']);
+        $target = $this->targetWithSupabaseId();
+
+        Http::fake(function ($request) {
+            if ($request->method() === 'PUT') {
+                return Http::response(['msg' => 'unavailable'], 503);
+            }
+            if ($request->method() === 'DELETE') {
+                return Http::response([], 200);
+            }
+
+            return Http::response([
+                'factors' => [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'verified']],
+                'app_metadata' => [],
+            ], 200);
+        });
+
+        $this->postJson("/api/users/{$target->id}/two-factor/disable")->assertStatus(502);
+
+        Http::assertNotSent(fn ($request) => $request->method() === 'DELETE');
+        $this->assertDatabaseMissing('audit_logs', ['module' => 'users', 'action' => 'UPDATE']);
     }
 
     /**
@@ -1062,31 +1127,43 @@ class UserManagementTest extends TestCase
         // endpoint serialized its UserResource, and this test would fail while
         // describing something that cannot happen in production.
         $cleared = false;
+        $required = false;
         Http::fake([
             '*/auth/v1/admin/users/*/factors/*' => function () use (&$cleared) {
                 $cleared = true;
 
                 return Http::response([], 200);
             },
-            '*/auth/v1/admin/users/*' => function () use (&$cleared) {
+            '*/auth/v1/admin/users/*' => function ($request) use (&$cleared, &$required) {
+                if ($request->method() === 'PUT') {
+                    $required = ($request->data()['app_metadata']['mfa_required'] ?? null) === true;
+                }
+
                 return Http::response([
                     'factors' => $cleared
                         ? []
                         : [['id' => 'factor-1', 'factor_type' => 'totp', 'status' => 'verified']],
-                    'app_metadata' => ['mfa_required' => ! $cleared],
+                    'app_metadata' => ['mfa_required' => $required],
                 ], 200);
             },
         ]);
 
         // Warm it the way an ordinary request would.
         app(SupabaseAdminService::class)->requiresAal2($target->supabase_user_id);
-        $this->assertNotNull(Cache::get($key), 'Precondition: the obligation should be cached.');
+        $this->assertTrue(
+            Cache::get($key)['hasVerifiedFactor'] ?? false,
+            'Precondition: the verified factor should be cached.'
+        );
 
         $this->postJson("/api/users/{$target->id}/two-factor/disable")->assertOk();
 
-        $this->assertNull(
-            Cache::get($key),
-            'Clearing MFA must leave no cached obligation behind.'
+        // The factor that no longer exists must not survive in the cache. What
+        // may be cached afterwards is the reset's requirement, which grants
+        // nothing -- it only sends the person through enrolment.
+        $this->assertFalse(
+            Cache::get($key)['hasVerifiedFactor'] ?? false,
+            'Clearing MFA must not leave a stale verified factor cached.'
         );
+        $this->assertTrue(app(SupabaseAdminService::class)->requiresAal2($target->supabase_user_id));
     }
 }

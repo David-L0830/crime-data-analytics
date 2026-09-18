@@ -114,6 +114,9 @@ export const TYPE_CATEGORY_MAP = {
   Cybercrime: 'Cybercrime',
 };
 
+// The full incident status vocabulary — what the Status filters on the
+// Dashboard, Incident Feed, Analytics, Trends and Mapping pages offer, and
+// what a record may display. Mirrors Incident::STATUSES on the server.
 export const STATUSES = [
   'Open',
   'Under Investigation',
@@ -121,6 +124,35 @@ export const STATUSES = [
   'Closed',
   'Archived',
 ];
+
+// The statuses an encoder may ASSIGN in the incident create/edit form.
+//
+// 'Archived' is absent on purpose: archiving is the Archive action, which is
+// the only path that also records previous_status so Restore can put the
+// incident back. Offering it in the form let a save reach 'Archived' with no
+// previous_status, no ARCHIVE audit event, and no way back except the
+// 'Open' fallback. Mirrors Incident::ASSIGNABLE_STATUSES, which is what
+// Store/UpdateIncidentRequest now validate against — the server is the
+// enforcing side; removing it here is what stops the 422 being the first
+// time anyone hears about it.
+export const ASSIGNABLE_STATUSES = [
+  'Open',
+  'Under Investigation',
+  'Solved',
+  'Closed',
+];
+// Record validation — a separate axis from the case STATUSES above. Keys are
+// the values the API returns in `validationStatus` (Incident::VALIDATION_* on
+// the server); labels are what the interface shows. Only the server ever sets
+// these: POST/PUT /incidents ignore them, and PUT /incidents/{id}/validate and
+// /return are role:badac_admin,badac_validator.
+export const VALIDATION_STATUS_LABELS = {
+  pending: 'Pending Validation',
+  validated: 'Validated',
+  returned: 'Returned for Correction',
+};
+export const VALIDATION_STATUSES = Object.keys(VALIDATION_STATUS_LABELS);
+
 export const CRIMINAL_STATUSES = [
   'Active',
   'Wanted',
@@ -140,7 +172,13 @@ export const OFFICERS = [
   'Insp. Torres',
 ];
 
-export const BARANGAY_178_CENTER = { lat: 14.7323, lng: 121.027 };
+// Re-exported, not defined here. This used to be the literal
+// `{ lat: 14.7323, lng: 121.027 }`, which is about 4.3 km south-west of
+// Barangay 178 — in Quezon City, not Caloocan. It is now derived from the real
+// boundary polygon in src/utils/geo.js, so the centre cannot disagree with the
+// boundary the map draws. Kept exported from here so existing importers
+// (Mapping, mockData) did not have to change their import path.
+export { BARANGAY_178_CENTER, BARANGAY_178_BOUNDS } from './geo';
 
 export const COLORS = {
   black: '#22291F',
@@ -156,7 +194,7 @@ export const COLORS = {
 };
 
 // Three account types: Administrator (full access), Encoder (restricted to
-// the Crime Data Collection Module), and BADAC (read-only). Kept as a map
+// the Crime Data Collection Module), and BADAC Validator. Kept as a map
 // (rather than a single hardcoded object) so ProtectedRoute/hasAccess/can
 // keep working unchanged against whatever role string the backend returns —
 // see backend app/Models/User.php for the matching server-side role constants.
@@ -176,6 +214,7 @@ export const ROLES = {
       'criminal-records',
       'audit-logs',
       'user-management',
+      'reports',
       'settings',
     ],
   },
@@ -191,22 +230,26 @@ export const ROLES = {
     // GET/PUT /users*.
     modules: ['incident-feed', 'user-management'],
   },
-  // Read-only BADAC viewer account (username "Badac", display name "Gilbert
-  // Franco") — full view access from the Crime Reporting Dashboard through
-  // Records, but no Audit Logs (Checkpoint 38 — BADAC users must not have
-  // Audit Logs access; previously badac_readonly had full/unscoped audit-log
-  // visibility, that is intentionally revoked here), no User Management/
-  // Settings (account administration stays badac_admin-only), and per
-  // PERMISSIONS below, no create/edit/delete capability anywhere. The
-  // backend enforces the same restriction independently — see
-  // GET /audit-logs in backend/routes/api.php — this list only controls
-  // what the UI shows.
-  badac_readonly: {
-    label: 'BADAC',
+  // BADAC Validator (username "Badac", display name "Gilbert Franco"), which
+  // replaced the former read-only BADAC role — view access from the Crime
+  // Reporting Dashboard through Records, plus record validation (see
+  // PERMISSIONS below), but no Audit Logs (Checkpoint 38 — BADAC users must
+  // not have Audit Logs access), no User Management/Settings (account
+  // administration stays badac_admin-only), and no create/edit/archive/
+  // restore capability anywhere. The backend enforces the same restriction
+  // independently — see backend/routes/api.php — and withholds contact
+  // numbers and addresses (complainant, victim, criminal) from this role in
+  // the API responses themselves; this list only controls what the UI shows.
+  badac_validator: {
+    label: 'BADAC Validator',
     // Checkpoint 28 — 'residents' removed (Resident Registry module
-    // removed). badac_readonly never had 'security'/2FA access before this
-    // checkpoint and still doesn't (unaffected by the Security→User
-    // Management move). Checkpoint 38 — 'audit-logs' removed.
+    // removed). This role never had 'security'/2FA access and still doesn't
+    // (unaffected by the Security→User Management move). Checkpoint 38 —
+    // 'audit-logs' removed.
+    // 'reports' — VIEW only: schedules and delivery status. The backend
+    // withholds recipient addresses and raw delivery errors from this role,
+    // and every Reports action is gated on 'manage_reports', which this role
+    // does not have.
     modules: [
       'dashboard',
       'incident-feed',
@@ -214,6 +257,7 @@ export const ROLES = {
       'analytics',
       'trends',
       'criminal-records',
+      'reports',
     ],
   },
 };
@@ -230,13 +274,22 @@ export const PERMISSIONS = {
     'archive_record',
     'view_audit_logs',
     'manage_settings',
+    // Record validation (approve / return for correction). UI gating only —
+    // the real control is role:badac_admin,badac_validator on
+    // PUT /incidents/{id}/validate and /return in backend/routes/api.php.
+    'validate_record',
+    // Reports: create, edit, pause/resume, archive, restore and Run Now. UI
+    // gating only — every one of those endpoints is role:badac_admin in
+    // backend/routes/api.php.
+    'manage_reports',
   ],
-  // badac_readonly intentionally has no entries here: view access is granted
-  // entirely through ROLES.badac_readonly.modules above, and can() returns
-  // false for every mutation permission (create_incident, edit_any_record,
-  // edit_own_incident, archive_record, archive_own_incident, manage_settings)
-  // since none of them are listed for this role.
-  badac_readonly: [],
+  // badac_validator's only action is record validation. View access is
+  // granted entirely through ROLES.badac_validator.modules above, and can()
+  // returns false for every other permission (create_incident,
+  // edit_any_record, edit_own_incident, archive_record, archive_own_incident,
+  // view_audit_logs, manage_settings, manage_reports) since none of them are
+  // listed for this role.
+  badac_validator: ['validate_record'],
   // Encoder has no Archive capability in the UI: 'archive_own_incident' is
   // deliberately absent here, so can() returns false and IncidentFeed hides
   // the Archive action for this role.
@@ -273,8 +326,10 @@ export const NAV_ITEMS = [
   // Task 3/2 (Checkpoint 19): sidebar label changed from "Criminal Records"
   // to "Records" — the id/moduleId stays 'criminal-records' on purpose so
   // RBAC (ROLES[].modules, hasAccess, backend role checks) is untouched.
-  // Clicking it now lands on the Records module (pages/Records.jsx), which
-  // offers "Criminal Record" and "Victim Record" as the two sub-choices.
+  // "Records" is a sidebar navigation GROUP, not a page: it expands to
+  // Criminal Records and Victim Records (see Sidebar.jsx). The old landing
+  // page that only offered those two choices is gone; /criminal-records
+  // redirects to Criminal Records so existing bookmarks keep working.
   {
     id: 'criminal-records',
     label: 'Records',
@@ -298,6 +353,17 @@ export const NAV_ITEMS = [
     label: 'Trend and Pattern Detection',
     icon: 'trends',
     section: 'analytics',
+  },
+  // Reports — its own REPORTING section: reporting is a functional capability
+  // of the system, not account administration. The id is the route (/reports;
+  // the old /scheduled-reports redirects here). Administrator manages;
+  // BADAC Validator views. The real control is server-side: reads are
+  // role:badac_admin,badac_validator and every write is role:badac_admin.
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: 'scheduledReports',
+    section: 'reporting',
   },
   {
     id: 'audit-logs',
@@ -339,6 +405,7 @@ export const NAV_SECTION_LABELS = {
   overview: 'Overview',
   'crime-management': 'Crime Management',
   analytics: 'Analytics',
+  reporting: 'Reporting',
   administration: 'Administration',
 };
 
@@ -355,6 +422,7 @@ export const PAGE_TITLES = {
   'criminal-records/victim': 'Victim Records',
   'audit-logs': 'Audit Logs',
   'user-management': 'User Management',
+  reports: 'Reports',
   settings: 'System Settings',
 };
 

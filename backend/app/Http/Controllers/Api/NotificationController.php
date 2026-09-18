@@ -22,16 +22,14 @@ class NotificationController extends Controller
     // GET /api/notifications
     public function index(Request $request)
     {
-        // "Backup Reminder" notifications were removed from the product per
-        // Checkpoint 29's audit; excluding by title here (rather than only
-        // at the seeder) also hides any already-seeded rows on existing
-        // installs without a destructive migration.
-        $items = AppNotification::where('title', '!=', 'Backup Reminder')
-            // Only the announcements this caller's ROLE is meant to receive.
-            // An Encoder has no access to the Records module, so a "new
-            // criminal record" announcement would send them to a route their
-            // role is bounced off — see AppNotification::scopeForRole().
-            ->forRole($request->user()?->role)
+        // scopeVisibleTo is the single definition of what a caller may see:
+        // their role's audience (an Encoder has no Records access, so a "new
+        // criminal record" announcement would send them to a route their role
+        // is bounced off), minus titles withdrawn from the product. It is the
+        // same scope markAllRead() applies and the same rule markRead() now
+        // enforces, so the three cannot drift apart.
+        $items = AppNotification::query()
+            ->visibleTo($request->user()?->role)
             // Eager-load only THIS user's read markers, so isReadBy() answers
             // from memory instead of one query per notification.
             ->with(['reads' => fn ($q) => $q->where('user_id', $request->user()?->id)])
@@ -44,6 +42,30 @@ class NotificationController extends Controller
     // PUT /api/notifications/{id}/read
     public function markRead(Request $request, AppNotification $notification)
     {
+        // AUTHORIZATION. This check is the whole reason this method is not two
+        // lines shorter.
+        //
+        // Route-model binding resolves ANY id the caller cares to type, and
+        // this endpoint answers with a full NotificationResource — title and
+        // message included. Without this gate, an Encoder could walk the id
+        // space and read announcements addressed only to administrators (the
+        // "New Criminal Record" and "New Victim Record" ones, which
+        // CriminalController and VictimController restrict to
+        // badac_admin + badac_validator), even though GET /notifications
+        // correctly refuses to list them. Marking a notification read was a
+        // read primitive with no read check.
+        //
+        // 404, not 403: a 403 would confirm that a notification with that id
+        // exists and is simply off-limits, which is itself a disclosure. To a
+        // caller not in the audience, the notification does not exist — the
+        // same answer GET /notifications gives by omission.
+        //
+        // The rule lives on the model (isVisibleTo) rather than being spelled
+        // out here, so it is the same rule scopeVisibleTo applies to the list.
+        if (! $notification->isVisibleTo($request->user()?->role)) {
+            abort(404);
+        }
+
         $userId = $request->user()?->id;
 
         if ($userId !== null) {
@@ -82,7 +104,7 @@ class NotificationController extends Controller
             ->where('read', false)
             // Scoped the same way index() is, so "mark all read" means the
             // notifications this person can actually see and nothing else.
-            ->forRole($request->user()?->role)
+            ->visibleTo($request->user()?->role)
             ->whereDoesntHave('reads', fn ($q) => $q->where('user_id', $userId));
 
         if ($request->filled('title')) {

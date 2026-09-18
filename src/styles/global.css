@@ -48,6 +48,44 @@
   --danger-rgb: 192, 57, 43;
   --info: #0ea5e9;
 
+  /* ===== Status colours as TEXT (WCAG 2.1 AA) =====
+     The tokens above are the palette's *fill* colours — the ones that paint a
+     KPI card's accent bar, the nav indicator, a solid button. At those sizes
+     and as a fill they are fine, and they are the visual identity, so they are
+     deliberately left exactly as they are.
+
+     As TEXT on a light surface they are not fine. Measured against the real
+     backdrops they land on (white card, page background, the translucent
+     status-badge tints, and those same tints sitting in a hovered table row,
+     which is the worst case because the row tint darkens the backdrop under an
+     already low-contrast colour), the fill colours came out at 2.09:1 for
+     "Under Investigation", 2.46:1 for Incarcerated/Released and 2.35:1 for the
+     orange KPI value — all far below the 4.5:1 AA needs for body text, and the
+     orange KPI below even the 3:1 large-text threshold.
+
+     So text gets its own tokens. Every value below was chosen by calculating
+     the ratio against each backdrop it actually appears on and keeping the
+     worst one at or above 4.5:1, while staying in the same hue family so the
+     green/orange/blue status language is unchanged:
+
+       --accent-text  #20693a  worst 4.70:1  (green tint .18 on hovered row)
+       --success-text #20693a  worst 4.70:1
+       --warning-text #9a4a08  worst 4.87:1  (orange tint on hovered row)
+       --orange-text  #9a4a08  worst 4.87:1
+       --info-text    #07658f  worst 4.98:1  (blue tint on hovered row)
+       --danger-text  #b02e21  worst 4.69:1  (red tint on hovered row)
+
+     Splitting fill from text rather than darkening the shared token is what
+     keeps this safe: --orange also paints the decorative top-edge line and
+     --accent paints buttons, borders, focus rings and gradients, and darkening
+     those would change the interface's colour identity to fix a text problem. */
+  --accent-text: #20693a;
+  --success-text: #20693a;
+  --warning-text: #9a4a08;
+  --orange-text: #9a4a08;
+  --info-text: #07658f;
+  --danger-text: #b02e21;
+
   /* Layout */
   --sidebar-width: 272px;
   --sidebar-width-collapsed: 72px;
@@ -103,7 +141,12 @@
   --login-input-bg: rgba(34, 41, 31, 0.04);
   --login-input-border: rgba(34, 41, 31, 0.14);
   --login-input-text: var(--color-black);
-  --login-placeholder: rgba(34, 41, 31, 0.4);
+  /* 0.40 alpha put the placeholder at 2.33:1 against the login input's own
+     tinted background — unreadable for anyone with reduced contrast
+     sensitivity, and placeholder text here names what each field wants. 0.65
+     measures 4.63:1 and still reads as placeholder rather than entered text,
+     which is the distinction the lower alpha was there to make. */
+  --login-placeholder: rgba(34, 41, 31, 0.65);
   --login-icon-color: rgba(34, 41, 31, 0.55);
   --login-tagline: rgba(34, 41, 31, 0.6);
   --login-seal-ring: rgba(34, 41, 31, 0.08);
@@ -145,6 +188,25 @@
   --warning: #ff9955;
   --danger: #e4573d;
   --danger-rgb: 228, 87, 61;
+
+  /* Dark-theme text tokens. These are set to the SAME values the dark theme
+     already used for status text, so switching the rules below over to the
+     -text tokens changes nothing at all about how dark mode renders — the
+     light theme was the one with the failures. Calculated against the dark
+     card, page and tint backdrops, the orange lands at 5.80:1 and the blue at
+     4.60:1 in the worst case, both clear of AA.
+
+     Two pre-existing dark-theme cases sit marginally below 4.5:1 and are
+     deliberately NOT changed here, because they were not part of the approved
+     fix list: the green on a .18 tint in a hovered row (4.40:1) and the red
+     status text on a hovered row (3.48:1). They are reported rather than
+     quietly altered. */
+  --accent-text: #4caf6b;
+  --success-text: #4caf6b;
+  --warning-text: #ff9955;
+  --orange-text: #ff9955;
+  --info-text: #0ea5e9;
+  --danger-text: #e4573d;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
@@ -307,6 +369,109 @@ h6 {
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
+}
+
+/* The base .spinner is white, which is right on a dark or brand-coloured
+   surface and invisible on a secondary button. This variant borrows
+   currentColor so it is legible inside whichever button it is placed in, and
+   is sized to sit on a line of button text rather than stand alone. */
+.spinner-inline {
+  width: 13px;
+  height: 13px;
+  border-color: currentColor;
+  border-top-color: transparent;
+  opacity: 0.85;
+  vertical-align: -2px;
+}
+
+/* Available to assistive technology, not shown on screen.
+   Used for the text equivalents of things that are conveyed visually — a
+   spinner's meaning, a chart's summary, the skip link before it takes focus.
+   The 1px clipped box rather than display:none or visibility:hidden because
+   those two remove the element from the accessibility tree as well, which is
+   the opposite of what is wanted here. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===== Skip to main content =====
+   The first focusable element in the document. It is positioned off the top of
+   the viewport rather than hidden with display/visibility, because an element
+   removed from the accessibility tree cannot receive focus and a skip link
+   that cannot receive focus is not a skip link. Pressing Tab on a fresh page
+   brings it down into view; anything else leaves it exactly where it was, so a
+   mouse user never encounters it. */
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 12px;
+  z-index: 1000;
+  transform: translateY(-120%);
+  padding: 10px 18px;
+  background: var(--bg-card);
+  color: var(--accent-text);
+  border: 2px solid var(--accent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: var(--shadow-md);
+  transition: transform var(--transition);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* The skip link's target. Focused programmatically via tabIndex={-1}, so it
+   must not draw a focus ring — the point of moving focus here is to relocate
+   the keyboard, not to outline the entire page. */
+.content-area:focus {
+  outline: none;
+}
+
+/* ===== Focus indicator baseline =====
+   Buttons and nav items previously had no focus rule of their own and fell
+   back to whatever ring the browser draws, which differs between engines and
+   is easily lost against a coloured button. This gives every interactive
+   control one consistent, deliberately visible ring.
+
+   :focus-visible rather than :focus, so it appears for keyboard and
+   assistive-technology focus and not on a mouse click — the reason the
+   original CSS omitted these rules is almost certainly that a plain :focus
+   ring on click looked wrong, and this is the selector that solves that
+   without leaving keyboard users with nothing.
+
+   outline-offset pushes the ring clear of the control and onto the page
+   behind it, which is what keeps it legible on a filled button: the ring is
+   then --accent against the page background (4.29:1 in light, 6.67:1 in dark,
+   both above the 3:1 that non-text contrast requires) rather than green on
+   green. Rules that already declare their own focus treatment are untouched —
+   this only fills in the controls that had none. */
+.btn:focus-visible,
+.nav-item:focus-visible,
+.nav-subitem:focus-visible,
+.menu-toggle:focus-visible,
+.theme-toggle:focus-visible,
+.notif-bell-btn:focus-visible,
+.account-menu-btn:focus-visible,
+.account-menu-dropdown button:focus-visible,
+.icon-btn:focus-visible,
+.notif-toast-close:focus-visible,
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  /* Nothing here is a colour change, so a control that already signals focus
+     some other way keeps doing so; this only adds the ring. */
 }
 
 .animate-fade-in {
@@ -661,7 +826,7 @@ h6 {
 }
 
 .forgot-link:hover {
-  color: var(--orange);
+  color: var(--orange-text);
 }
 
 .login-form .btn-login {
@@ -807,7 +972,7 @@ h6 {
 }
 
 .login-forgot-link:hover {
-  color: var(--orange);
+  color: var(--orange-text);
 }
 
 /* Phase 4 — Feature #4: login-time 2FA challenge screen. Reuses the same
@@ -1033,7 +1198,7 @@ h6 {
 
 .nav-item.active {
   background: var(--accent-light);
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -1081,7 +1246,10 @@ h6 {
   padding-right: 8px;
 }
 
-.nav-expand-btn {
+/* The Records group header is a <button> (a disclosure, not a link); the
+   .nav-item rule already strips native button chrome, so it matches the links
+   around it without extra overrides. */
+.nav-group-chevron {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1089,30 +1257,44 @@ h6 {
   width: 22px;
   height: 22px;
   margin-left: auto;
-  border: none;
-  background: transparent;
-  color: inherit;
-  border-radius: 6px;
-  cursor: pointer;
-  transition:
-    transform var(--transition),
-    background var(--transition);
+  color: var(--text-muted);
+  transition: transform var(--transition);
 }
 
-.nav-expand-btn:hover {
-  background: var(--bg-sidebar-hover);
-}
-
-.nav-expand-btn.expanded {
+.nav-group-chevron.expanded {
   transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-group-chevron {
+    transition: none;
+  }
 }
 
 .nav-submenu {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-left: 34px;
+  list-style: none;
+  padding: 0 0 0 34px;
   margin: 2px 0 4px;
+  position: relative;
+}
+
+/* A thin guide line ties the two destinations to their group. */
+.nav-submenu::before {
+  content: "";
+  position: absolute;
+  left: 21px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--border);
+}
+
+/* `hidden` must win over the display:flex above. */
+.nav-submenu[hidden] {
+  display: none;
 }
 
 .nav-subitem {
@@ -1133,14 +1315,14 @@ h6 {
 
 .nav-subitem.active {
   background: var(--accent-light);
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
-/* Collapsed sidebar: the Records submenu and its expand chevron are
-   icon-navigation-breaking in icon-only mode, so they're hidden entirely —
-   the parent icon still routes to /criminal-records as normal. */
-.app.sidebar-collapsed .nav-expand-btn,
+/* Collapsed sidebar: the Records submenu and its chevron cannot fit the
+   icon-only rail, so they're hidden entirely — the group button goes straight
+   to Criminal Records instead (see Sidebar.jsx). */
+.app.sidebar-collapsed .nav-group-chevron,
 .app.sidebar-collapsed .nav-submenu {
   display: none;
 }
@@ -1224,6 +1406,120 @@ h6 {
 }
 
 /* ===== Profile Settings modal (Checkpoint 25) ===== */
+/* ===== Permissions block inside Profile Settings =====
+   Built entirely from theme tokens, so it follows light and dark mode with the
+   modal around it and carries no [data-theme="dark"] override of its own.
+   Separated from the account fields above by a rule, because nothing in here
+   is saved by the modal's Save Changes button — these controls act on the
+   browser immediately and belong to the machine, not to the profile record. */
+.permissions-section {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.permissions-heading {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.permissions-intro {
+  margin: 0 0 14px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.permission-row {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.permission-row + .permission-row {
+  margin-top: 10px;
+}
+
+.permission-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.permission-row-head > svg {
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
+
+.permission-row-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* The status chip is pushed to the trailing edge so the four states line up
+   down the column and can be compared at a glance. */
+.permission-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.permission-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.permission-status-granted {
+  color: var(--success-text);
+}
+
+.permission-status-denied {
+  color: var(--danger-text);
+}
+
+.permission-status-prompt {
+  color: var(--text-muted);
+}
+
+.permission-status-unsupported {
+  color: var(--text-muted);
+}
+
+.permission-row-purpose {
+  margin: 6px 0 10px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.permission-row-help {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.permission-row-error {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--danger-text);
+}
+
 .profile-settings-avatar-row {
   display: flex;
   align-items: center;
@@ -1281,7 +1577,7 @@ h6 {
 .sidebar-footer .btn-logout:hover {
   background: var(--brand-red-light);
   border-color: var(--danger);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .logout-label {
@@ -1692,42 +1988,42 @@ h6 {
   background: var(--accent);
 }
 .kpi-card.accent .kpi-value {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .kpi-card.success::after {
   background: var(--success);
 }
 .kpi-card.success .kpi-value {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .kpi-card.warning::after {
   background: var(--warning);
 }
 .kpi-card.warning .kpi-value {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .kpi-card.danger::after {
   background: var(--danger);
 }
 .kpi-card.danger .kpi-value {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .kpi-card.info::after {
   background: var(--info);
 }
 .kpi-card.info .kpi-value {
-  color: var(--info);
+  color: var(--info-text);
 }
 
 .kpi-card.orange::after {
   background: var(--orange);
 }
 .kpi-card.orange .kpi-value {
-  color: var(--orange);
+  color: var(--orange-text);
 }
 
 /* ===== Charts ===== */
@@ -1768,7 +2064,7 @@ h6 {
   right: 22px;
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   opacity: 0;
@@ -1854,6 +2150,55 @@ th {
   font-family: var(--font-heading);
 }
 
+/* Sortable column header (Table.jsx, opt-in via its `onSort` prop).
+   The button has to be invisible as a control and inherit the <th>'s own
+   typography, so the header row still reads as a header row rather than as a
+   strip of buttons — the only affordances are the cursor, the hover colour and
+   the direction glyph. Columns on tables that were never given `onSort` render
+   plain text exactly as before and none of these rules apply to them. */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.th-sort:hover {
+  color: var(--text-primary);
+}
+
+/* Keyboard focus must stay visible — this is the one control in the header
+   row, and removing its outline would make the table unnavigable by keyboard
+   without removing the ability to operate it. */
+.th-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.th-sort-active {
+  color: var(--accent-text);
+}
+
+/* The neutral up/down glyph on an unsorted column is a hint, not information;
+   it is dimmed so the one column actually being sorted is the one that reads
+   as marked. */
+.th-sort-indicator {
+  font-size: 0.75em;
+  opacity: 0.45;
+}
+
+.th-sort-active .th-sort-indicator {
+  opacity: 1;
+}
+
 tbody tr {
   transition: background var(--transition);
 }
@@ -1886,7 +2231,7 @@ tbody tr:last-child td {
 
 .status-Open {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 .status-Solved,
 .status-Closed {
@@ -1895,7 +2240,7 @@ tbody tr:last-child td {
 }
 .status-Under-Investigation {
   background: var(--orange-light);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 .status-Archived {
   background: rgba(148, 163, 184, 0.15);
@@ -1903,19 +2248,19 @@ tbody tr:last-child td {
 }
 .status-Active {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 .status-Wanted {
   background: rgba(var(--danger-rgb), 0.12);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .status-Incarcerated {
   background: rgba(14, 165, 233, 0.12);
-  color: var(--info);
+  color: var(--info-text);
 }
 .status-Released {
   background: rgba(14, 165, 233, 0.12);
-  color: var(--info);
+  color: var(--info-text);
 }
 .status-Deceased,
 .status-Transferred,
@@ -2055,7 +2400,7 @@ select {
 }
 
 .form-errors {
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: 0.84rem;
   margin: 10px 0;
   padding: 12px;
@@ -2292,6 +2637,193 @@ select {
 /* ===== Marker popup =====
    Leaflet renders popups into its own container outside the app's DOM tree, so
    these are plain (unnested) selectors rather than descendants of .map-*. */
+/* ===== Barangay caption on the map =====
+   The viewport is restricted to Barangay 178, so a viewer cannot pan out far
+   enough to recognise the surrounding city — the map has to say what it is. */
+.map-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.map-caption-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.map-caption-title svg {
+  color: var(--accent-text);
+}
+
+/* Attribution, not a heading — deliberately quiet, but present: the ODbL
+   requires OpenStreetMap to be credited wherever its data is shown. */
+.map-caption-source {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* ===== My Location control in the map sidebar =====
+   Every colour is a theme token, so this follows light/dark with the rest of
+   the sidebar and needs no dark-mode override of its own. */
+.map-my-location {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.map-location-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.map-location-clear:hover {
+  color: var(--text-primary);
+}
+
+.map-location-notice {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Three tones, because the three situations are genuinely different and
+   colouring them the same would tell the user nothing. `warning` is the
+   outside-the-barangay case, which is not a failure — the map is working
+   exactly as designed — so it is amber rather than red. */
+.map-location-notice.muted {
+  color: var(--text-secondary);
+}
+
+.map-location-notice.warning {
+  color: var(--warning-text);
+}
+
+.map-location-notice.error {
+  color: var(--danger-text);
+}
+
+/* ===== Data-quality panel in the map sidebar ===== */
+.map-data-quality {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.map-data-quality p {
+  margin: 0 0 8px;
+}
+
+.map-data-quality strong {
+  color: var(--text-primary);
+}
+
+.map-outofarea-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+/* ===== Hover card on a marker =====
+   Leaflet's own tooltip skin is a small white box with a hard border, which
+   reads as a browser artefact rather than as part of this application. These
+   rules restyle it to the same card language as the rest of the system and,
+   critically, use theme tokens so it follows dark mode — the default skin
+   stays white-on-white-text in a dark theme and is unreadable. */
+.leaflet-tooltip.map-hover-tip {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 12px;
+  font-family: inherit;
+  white-space: normal;
+  max-width: 260px;
+}
+
+/* The little arrow is drawn as a CSS triangle whose colour is set by the
+   default skin, so it has to be re-pointed at the theme background or it
+   remains white against a dark card. */
+.leaflet-tooltip.map-hover-tip.leaflet-tooltip-top::before {
+  border-top-color: var(--border);
+}
+
+.map-tip {
+  min-width: 190px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.map-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.map-tip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.map-tip-type {
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+/* An incident whose recorded location is not in this barangay. Called out in
+   the card as well as in the marker's styling, so it can never be mistaken for
+   an ordinary Barangay 178 incident by someone reading only the card. */
+.map-tip-warning {
+  display: block;
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--warning-bg, rgba(255, 138, 61, 0.14));
+  color: var(--warning-text, #ff8a3d);
+  font-weight: 700;
+  font-size: 0.7rem;
+}
+
+.map-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.map-tip-row span {
+  color: var(--text-muted);
+}
+
+.map-tip-row strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: right;
+}
+
 .map-popup {
   min-width: 210px;
   font-size: 0.8rem;
@@ -2546,7 +3078,7 @@ select {
 }
 
 .crime-type-row:not(.disabled) .crime-type-toggle {
-  color: var(--success);
+  color: var(--success-text);
   border-color: var(--success);
 }
 
@@ -2587,7 +3119,7 @@ select {
 .category-tag button {
   background: none;
   border: none;
-  color: var(--danger);
+  color: var(--danger-text);
   cursor: pointer;
   font-size: 0.9rem;
   padding: 0 2px;
@@ -2684,7 +3216,7 @@ select {
 }
 
 .modal-close:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   border-color: rgba(239, 68, 68, 0.3);
   background: rgba(239, 68, 68, 0.08);
 }
@@ -2760,7 +3292,7 @@ select {
 }
 
 .evidence-row-remove:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   border-color: var(--danger);
 }
 
@@ -2819,12 +3351,12 @@ select {
 
 .toast.error {
   border-left: 4px solid var(--danger);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .toast.info {
   border-left: 4px solid var(--info);
-  color: var(--info);
+  color: var(--info-text);
 }
 
 /* ===== Notification pop-up (upper right) =====
@@ -2838,15 +3370,30 @@ select {
    The container itself is pointer-events: none so an empty stack can never
    intercept a click meant for the page; each card re-enables pointer events
    for its own dismiss button. */
+/* BOTTOM-RIGHT, not top-right.
+   The stack used to sit at top: 74px, immediately under the topbar, where it
+   overlapped the bell and the account controls it was announcing about — so a
+   burst of arrivals covered the very buttons somebody would reach for to act on
+   them. The bottom-right corner is the conventional home for transient system
+   toasts and is the only corner of this layout with no persistent control in it.
+
+   column-reverse is what makes the newest card appear at the BOTTOM of the
+   stack, nearest the corner, with older ones pushed upward. Growing downward
+   from a bottom anchor would push the newest card off-screen.
+
+   pointer-events: none on the container with `auto` restored on each card means
+   the empty space in this column never intercepts a click meant for the page
+   underneath — the stack cannot block normal application controls even while
+   three cards are showing. */
 .notif-toast-stack {
   position: fixed;
-  top: 74px;
+  bottom: 24px;
   right: 24px;
   z-index: 2100;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 10px;
-  max-width: min(360px, calc(100vw - 48px));
+  max-width: min(380px, calc(100vw - 48px));
   pointer-events: none;
 }
 
@@ -2881,11 +3428,11 @@ select {
 }
 
 .notif-toast.success .notif-toast-icon {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .notif-toast.warning .notif-toast-icon {
-  color: var(--warning, #ff8a3d);
+  color: var(--warning-text, #ff8a3d);
 }
 
 .notif-toast-body {
@@ -2950,20 +3497,45 @@ select {
   outline-offset: 2px;
 }
 
+/* Rises from the bottom edge and settles, matching where the stack now lives —
+   a card that slid DOWN into a bottom-anchored stack would read as leaving
+   rather than arriving. The slight horizontal offset makes it read as coming
+   from the corner. Short enough (0.28s) to feel immediate.
+
+   Honoured for people who have asked for less motion: the card still appears,
+   it simply appears rather than travels. */
 @keyframes badac-notif-toast-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translate3d(12px, 16px, 0) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .notif-toast {
+    animation: badac-notif-toast-fade 0.2s ease;
+  }
+}
+
+@keyframes badac-notif-toast-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* On a phone the stack spans the width rather than floating in a corner, and
+   sits clear of the bottom edge so it does not collide with the browser's own
+   chrome or a home-indicator gesture area. */
 @media (max-width: 640px) {
   .notif-toast-stack {
-    top: 66px;
+    bottom: 16px;
     right: 12px;
     left: 12px;
     max-width: none;
@@ -3273,7 +3845,7 @@ select {
   }
   30% {
     transform: scale(1.18);
-    color: var(--accent);
+    color: var(--accent-text);
   }
   60% {
     transform: scale(0.97);
@@ -3343,6 +3915,48 @@ select {
 .notif-dropdown-list {
   max-height: 400px;
   overflow-y: auto;
+}
+
+/* Desktop-alert permission footer inside the bell panel. Sits below the
+   scrolling list, so it stays visible however long the inbox is — it is a
+   setting, not an entry, and scrolling it away with the notifications would
+   hide the one control that fixes "I never get alerted".
+
+   Every colour is a theme token, so this follows light/dark with the rest of
+   the panel and needs no dark-mode override of its own. */
+.notif-permission {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle, var(--bg-card));
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.notif-permission > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent-text);
+}
+
+.notif-permission-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.notif-permission-granted > svg {
+  color: var(--success-text);
+}
+
+.notif-permission-muted > svg {
+  color: var(--text-muted);
 }
 
 .notif-dropdown-item {
@@ -3587,11 +4201,46 @@ select {
 @media (max-width: 768px) {
   .sidebar {
     transform: translateX(-100%);
+    /* The transform alone only moves where the drawer is PAINTED. Its links
+       stayed focusable and stayed in the accessibility tree, so tabbing on a
+       phone walked an invisible navigation. visibility: hidden is what
+       actually removes them from both, and unlike display: none it can be
+       transitioned — the 0.25s delay holds the drawer visible for exactly as
+       long as the slide-out animation runs, so nothing disappears mid-motion.
+
+       Sidebar.jsx sets the `inert` attribute on the same state, which is the
+       modern expression of the same intent and additionally blocks pointer
+       events. This rule is the fallback for engines without inert support; the
+       two are deliberately kept in agreement rather than one replacing the
+       other. */
+    visibility: hidden;
+    transition:
+      transform var(--transition),
+      visibility 0s linear 0.25s;
   }
 
   .sidebar.open {
     transform: translateX(0);
     box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+    visibility: visible;
+    /* No delay on the way in — the drawer must be reachable the instant it
+       starts sliding in, not a quarter second later. */
+    transition:
+      transform var(--transition),
+      visibility 0s linear 0s;
+  }
+
+  /* Mounted by MainLayout only while the drawer is open and only at this
+     width, so it can never sit over the desktop layout or intercept a click
+     when the drawer is closed. Below the sidebar's z-index (100) and above the
+     content, so it dims and catches taps on the page without covering the
+     panel itself. */
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(18, 22, 15, 0.45);
+    animation: fadeIn 0.2s ease;
   }
 
   .sidebar-collapse-btn {
@@ -4351,7 +5000,7 @@ select {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 
@@ -4374,7 +5023,7 @@ select {
   border-radius: 50%;
   background: var(--bl-security-bg);
   border: 1px solid var(--bl-security-border);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .badac-security-notice strong {
@@ -4484,7 +5133,7 @@ select {
   justify-content: center;
   border-radius: 50%;
   background: var(--bg-card);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .helpdesk-support-row strong {
@@ -4500,7 +5149,7 @@ select {
 }
 
 .helpdesk-support-row a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .field-error {
@@ -4585,12 +5234,34 @@ select {
    description of what Supabase reports. */
 .status-Enrolled {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .status-Not-enrolled {
   background: rgba(148, 163, 184, 0.15);
   color: var(--text-muted);
+}
+
+/* Email OTP MFA. Styled like .status-Enrolled because it is an ACTIVE second
+   factor — the account is challenged for an emailed code at every sign-in —
+   and must never read as the muted "no factor" state. See
+   src/utils/mfaStatus.js. */
+.status-Email-OTP {
+  background: var(--accent-light);
+  color: var(--success-text);
+}
+
+/* An enrolled authenticator: an active second factor, same state as above. */
+.status-Authenticator-App {
+  background: var(--accent-light);
+  color: var(--success-text);
+}
+
+/* Authenticator required but not yet set up. Warning-toned: the account is
+   protected (it cannot be used until enrolment) but still has a step owed. */
+.status-Pending-Enrollment {
+  background: var(--orange-light);
+  color: var(--warning-text);
 }
 
 /* Row kebab menu. Shares .account-menu-btn / .account-menu-dropdown with the
@@ -4627,7 +5298,7 @@ select {
 /* The destructive item stays visually destructive without being a large red
    button sitting beside every row. */
 .row-menu-dropdown button.row-menu-danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .row-menu-dropdown button.row-menu-danger:hover:not(:disabled) {
@@ -4828,6 +5499,46 @@ select {
   cursor: not-allowed;
 }
 
+/* A radio group whose options each carry a one-line explanation (Create User >
+   MFA Method). Stacked, because the descriptions do not fit side by side on a
+   phone-width dialog. */
+.radio-row-stacked {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-option-described {
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.radio-option-described:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.radio-option-described input {
+  margin-top: 3px;
+}
+
+.radio-option-title {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.radio-option-description {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
 /* ----- Security summary ----- */
 .security-summary-card {
   margin-top: 24px;
@@ -4860,17 +5571,17 @@ select {
 
 .security-alert-ok {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .security-alert-warning {
   background: var(--orange-light);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .security-alert-danger {
   background: rgba(192, 57, 43, 0.1);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .security-alert-note {
@@ -4900,12 +5611,12 @@ select {
 
 .perm-full {
   background: var(--accent-light);
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .perm-view {
   background: var(--orange-light);
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .perm-none {
@@ -4945,4 +5656,724 @@ select {
     width: 180px;
     min-width: 180px;
   }
+}
+
+/* =====================================================================
+   Record validation (Crime Data Collection)
+   A separate pill family from .status-badge: a record's CASE status and its
+   VALIDATION state are independent, so they never share a colour class.
+   Every state carries its text label; colour is never the only signal.
+   ===================================================================== */
+.validation-badge,
+.schedule-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+.validation-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.validation-pending {
+  background: var(--orange-light);
+  color: var(--warning-text);
+}
+
+.validation-validated,
+.schedule-state-active {
+  background: var(--accent-light);
+  color: var(--success-text);
+}
+
+.validation-returned,
+.schedule-state-failed {
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-text);
+}
+
+.validation-unknown,
+.schedule-state-paused {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+}
+
+.validation-panel {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  padding: 14px 16px;
+  margin: 0 0 18px;
+}
+
+.validation-panel-pending {
+  border-left-color: var(--warning);
+}
+
+.validation-panel-validated {
+  border-left-color: var(--success);
+}
+
+.validation-panel-returned {
+  border-left-color: var(--danger);
+}
+
+.validation-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.validation-panel-title {
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.validation-meta {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.validation-reason {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.validation-reason-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.validation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.validation-return-form {
+  margin-top: 12px;
+}
+
+.validation-return-form label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.validation-return-form textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.validation-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  font-size: 0.84rem;
+  color: var(--text-primary);
+}
+
+.validation-summary svg {
+  color: var(--accent-text);
+  flex-shrink: 0;
+}
+
+.validation-summary-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* =====================================================================
+   Validation queue (ValidationQueueModal)
+
+   Only the tab strip is new — the dialog shell, the table and the badges
+   are the existing Modal, Table and ValidationBadge. Every colour is an
+   existing token, so dark mode follows without a second rule set.
+   ===================================================================== */
+.validation-queue-intro {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.validation-queue-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.validation-queue-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  /* The selected tab is marked by weight and colour as well as the
+     underline, so it is not carried by colour alone. */
+}
+
+.validation-queue-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.validation-queue-tab.active {
+  color: var(--accent-text);
+  border-bottom-color: var(--accent);
+}
+
+.validation-queue-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.validation-queue-tab.active .validation-queue-tab-count {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* =====================================================================
+   Email verification code: six boxes
+   Scoped under .login-form so it outranks the generic login input rule.
+   ===================================================================== */
+.otp-input {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 360px;
+}
+
+.login-form .otp-input .otp-box {
+  width: 100%;
+  height: 54px;
+  padding: 0;
+  text-align: center;
+  font-family: var(--font-heading);
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--login-input-text);
+  background: var(--login-input-bg);
+  border: 1px solid var(--login-input-border);
+  border-radius: var(--radius-sm);
+  caret-color: var(--accent);
+}
+
+.login-form .otp-input .otp-box.otp-box-filled {
+  border-color: rgba(var(--accent-rgb), 0.45);
+}
+
+.login-form .otp-input .otp-box:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.login-form .otp-input.otp-input-invalid .otp-box {
+  border-color: var(--login-error-border);
+}
+
+.login-form .otp-input .otp-box:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.otp-hint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--login-text-label);
+}
+
+@media (max-width: 380px) {
+  .otp-input {
+    gap: 6px;
+  }
+
+  .login-form .otp-input .otp-box {
+    height: 48px;
+    font-size: 1.2rem;
+  }
+}
+
+/* =====================================================================
+   Scheduled Reports module
+   ===================================================================== */
+.module-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.module-intro-text {
+  margin: 0;
+  max-width: 68ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.module-intro .btn {
+  flex-shrink: 0;
+}
+
+.summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.summary-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--bg-card);
+  font-size: 0.86rem;
+  color: var(--text-primary);
+}
+
+.scheduled-reports .card + .card {
+  margin-top: 20px;
+}
+
+.module-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 8px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.module-state-error {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 16px;
+  border: 1px solid rgba(var(--danger-rgb), 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--danger-rgb), 0.06);
+  color: var(--text-primary);
+}
+
+.module-state-error svg {
+  color: var(--danger-text);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.module-state-error > div {
+  flex: 1;
+  min-width: 200px;
+}
+
+.module-state-error p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}
+
+.module-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--text-muted);
+}
+
+.module-empty svg {
+  opacity: 0.6;
+}
+
+.module-empty h3 {
+  margin: 12px 0 6px;
+  font-size: 1.02rem;
+  color: var(--text-primary);
+}
+
+.module-empty p {
+  max-width: 46ch;
+  margin: 0 auto 18px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cell-stack > span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.cell-stack > span.delivery-sent,
+.delivery-sent {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.cell-stack > span.delivery-failed,
+.delivery-failed {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.schedule-form .schedule-fieldset {
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 14px 0 2px;
+  margin: 0;
+  min-width: 0;
+}
+
+.schedule-form .schedule-fieldset:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.schedule-form legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-family: var(--font-heading);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.schedule-form .form-grid {
+  margin-bottom: 14px;
+}
+
+.schedule-form .form-grid .form-group {
+  margin-bottom: 0;
+}
+
+.schedule-form textarea {
+  resize: vertical;
+}
+
+.confirm-text {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+  .module-intro {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .schedule-form .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .validation-actions .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* =====================================================================
+   Temporary passwords (User Management)
+   A state badge only; no password is ever available to the list.
+   ===================================================================== */
+.status-Temporary-Password-Pending {
+  background: var(--orange-light);
+  color: var(--warning-text);
+}
+
+.status-Temporary-Password-Expired {
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-text);
+}
+
+.user-status-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.temp-password-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.temp-password-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.one-time-credential {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+}
+
+.one-time-credential-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.one-time-credential-value {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* =====================================================================
+   Incident location picker (src/components/incidents/LocationPicker.jsx)
+   A map the encoder points at, in place of two coordinate boxes.
+   Its own classes rather than the .map-* ones: those belong to the Crime
+   Mapping page's sidebar layout, and the two must stay independent.
+   ===================================================================== */
+.location-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Its own stacking context. Leaflet gives its panes and controls high
+     z-indexes of their own (400-1000); contained here, they cannot rise
+     above the dialog this picker sits inside. */
+  position: relative;
+  z-index: 0;
+}
+
+.location-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.location-picker-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.location-picker-basemaps {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.location-picker-basemaps button {
+  padding: 4px 10px;
+  border: 0;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.location-picker-basemaps button + button {
+  border-left: 1px solid var(--border);
+}
+
+.location-picker-basemaps button:hover {
+  background: var(--bg-hover);
+}
+
+.location-picker-basemaps button.is-active {
+  background: var(--accent);
+  color: var(--color-white);
+}
+
+.location-picker-map {
+  height: 320px;
+  min-height: 240px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* The whole point of the control is that a click means something. */
+  cursor: crosshair;
+}
+
+/* The pin. A divIcon drawn entirely in CSS, so it needs no marker image and
+   no CDN request — see the note in LocationPicker.jsx for why the default
+   Leaflet icon is deliberately not used here. */
+.location-picker-pin {
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2.5px solid var(--color-white);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}
+
+.location-picker-pin:active {
+  cursor: grabbing;
+}
+
+/* Two tones, because the two situations are genuinely different. A point
+   outside the barangay is not a failure — the picker is working exactly as
+   designed and is refusing to record a location this barangay has no
+   jurisdiction over — so it is amber rather than red. */
+.location-picker-notice {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.location-picker-notice.warning {
+  color: var(--warning-text);
+}
+
+.location-picker-notice.error {
+  color: var(--danger-text);
+}
+
+/* =====================================================================
+   Incident form — location section (IncidentModal.jsx)
+   Wraps the LocationPicker above with the form's own label, read-only
+   coordinate read-out and Clear control. The picker keeps its own
+   .location-picker-* rules; these only position it inside .form-grid.
+   ===================================================================== */
+.incident-location {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A span, not a <label>: there is no single form control for it to point at,
+   and it names the whole group instead through aria-labelledby. Styled to
+   match the real labels beside it so the section does not read as different. */
+.incident-location-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.incident-location .form-hint {
+  margin: -2px 0 2px;
+}
+
+.incident-location-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.incident-location-readout {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+
+.incident-location-readout > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.incident-location-key {
+  color: var(--text-secondary);
+}
+
+.incident-location-key::after {
+  content: ':';
+}
+
+/* Monospace so latitude and longitude line up digit for digit, and so seven
+   decimal places are readable rather than a run of similar glyphs. */
+.incident-location-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-primary);
 }

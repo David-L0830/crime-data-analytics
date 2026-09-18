@@ -66,15 +66,63 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ showToast, showNotificationToast }}>
       {children}
-      <div className={`toast ${toast?.type || ''} ${toast ? '' : 'hidden'}`}>
-        {toast?.message}
+      {/* The plain toast is the acknowledgement surface for almost everything
+          the user does — "Settings saved", "Could not export report." — and it
+          carried no role and no live region at all, so a screen reader user
+          performed an action and was told nothing about whether it worked.
+
+          Two regions rather than one, and this is the reason: a live region's
+          politeness is read from the container at the moment content is
+          inserted into it, so a single container whose aria-live flipped
+          between polite and assertive would be unreliable — the change and the
+          insertion land in the same commit and the announcement can be made
+          against the previous value. Two containers that never change their
+          politeness cannot have that problem. The message is rendered into
+          whichever one matches its type, and only ever into one of them, so
+          nothing is announced twice.
+
+          Errors are assertive because they report that something the user
+          asked for did not happen, and that should interrupt; successes and
+          information are polite and wait their turn.
+
+          Both containers are always mounted, so the live region is established
+          before anything is put inside it — a region that appears at the same
+          moment as its content is frequently missed entirely. The visible
+          styling is unchanged: .toast still carries the same classes and the
+          same .hidden toggle, so nothing about how this looks or behaves for a
+          sighted user is different. */}
+      <div
+        className={`toast ${toast && toast.type !== 'error' ? toast.type || '' : ''} ${
+          toast && toast.type !== 'error' ? '' : 'hidden'
+        }`}
+        role="status"
+        aria-live="polite"
+      >
+        {toast && toast.type !== 'error' ? toast.message : ''}
+      </div>
+      <div
+        className={`toast ${toast?.type === 'error' ? 'error' : ''} ${
+          toast?.type === 'error' ? '' : 'hidden'
+        }`}
+        role="alert"
+        aria-live="assertive"
+      >
+        {toast?.type === 'error' ? toast.message : ''}
       </div>
 
-      {/* Upper right, above the content but clear of the topbar's own
-          controls. aria-live="polite" announces each arrival once to a screen
-          reader without interrupting whatever is being read; the container is
-          always in the DOM so the live region is established before anything
-          is inserted into it, which is what makes the announcement work. */}
+      {/* BOTTOM-RIGHT. It used to sit under the topbar, where it overlapped the
+          bell and the account controls somebody would reach for to act on the
+          very notification being announced; the bottom-right corner is the only
+          corner of this layout with no persistent control in it. The stack
+          renders column-reverse so the newest card is nearest the corner (see
+          .notif-toast-stack in global.css), and the container is
+          pointer-events: none so its empty space never intercepts a click meant
+          for the page underneath.
+
+          aria-live="polite" announces each arrival once to a screen reader
+          without interrupting whatever is being read; the container is always
+          in the DOM so the live region is established before anything is
+          inserted into it, which is what makes the announcement work. */}
       <div
         className="notif-toast-stack"
         role="status"

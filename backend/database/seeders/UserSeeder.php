@@ -40,17 +40,18 @@ class UserSeeder extends Seeder
             ]
         );
 
-        // Read-only BADAC viewer account — views Dashboard through Audit
-        // Logs (see ROLE_BADAC_READONLY on the User model / ROLES.badac_readonly
-        // in src/utils/constants.js) but can never create/edit/delete
-        // anything; enforced server-side via routes/api.php's `role:`
+        // BADAC Validator account — views the analytics modules, Incident
+        // Records, Records and Reports, and may validate or return incidents
+        // (see ROLE_BADAC_VALIDATOR on the User model / ROLES.badac_validator
+        // in src/utils/constants.js), but can never create, edit, archive or
+        // restore anything; enforced server-side via routes/api.php's `role:`
         // middleware, not just hidden in the UI.
         User::updateOrCreate(
             ['username' => 'Badac'],
             [
                 'name' => 'Gilbert Franco',
                 'email' => 'gfranco11@gmail.com',
-                'role' => User::ROLE_BADAC_READONLY,
+                'role' => User::ROLE_BADAC_VALIDATOR,
             ]
         );
     }

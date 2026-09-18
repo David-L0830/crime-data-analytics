@@ -13,7 +13,7 @@ noted, cross-checked against the Eloquent models in `backend/app/Models/`.
 Nothing in this document is inferred: where the source does not establish a
 business meaning for a column, none is asserted.
 
-**Scope covers 13 application/domain tables and 6 framework-managed tables**
+**Scope covers 15 application/domain tables and 6 framework-managed tables**
 that exist in the current schema. Tables that were created by an earlier
 migration and subsequently dropped are listed in §5 so their absence is
 explicit rather than ambiguous.
@@ -90,7 +90,7 @@ The core domain record: one row per reported crime incident.
 | `incident_code` | varchar(255) | No | — | — | Yes | — | — | Human-facing incident identifier (e.g. `INC-00001`). |
 | `case_number` | varchar(255) | No | — | — | Yes | — | — | Human-facing case identifier (e.g. `CN-2025-0001`). |
 | `crime_type` | varchar(255) | No | — | — | — | — | — | Crime type name. Indexed. Validated against `crime_types.name` in application code. |
-| `category` | varchar(255) | Yes | — | — | — | — | — | Crime category. |
+| `category` | varchar(255) | Yes | — | — | — | — | — | Crime category. Indexed (`incidents_category_index`, added by `2026_09_13_000001`). |
 | `incident_date` | date | No | — | — | — | — | — | Date of the incident. Indexed. |
 | `incident_time` | time | Yes | — | — | — | — | — | Time of the incident. |
 | `street` | varchar(255) | Yes | — | — | — | — | — | Street / location text. |
@@ -116,13 +116,15 @@ The core domain record: one row per reported crime incident.
 | `complainant_relationship` | varchar(100) | Yes | — | — | — | — | — | Complainant's relationship to the victim. |
 | `complainant_contact` | varchar(50) | Yes | — | — | — | — | — | Complainant contact number. |
 | `complainant_address` | varchar(255) | Yes | — | — | — | — | — | Complainant address. |
-| `reported_by` | bigint | Yes | — | — | — | `users.id` | `SET NULL` | Account that recorded the incident. |
+| `reported_by` | bigint | Yes | — | — | — | `users.id` | `SET NULL` | Account that recorded the incident. Not indexed — the application only ever reads it on an already-loaded single row (an ownership check), never as a query WHERE-clause filter. |
 | `synced_at` | timestamp | Yes | — | — | — | — | — | Timestamp column present in the schema. |
 | `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
-**Indexes:** `sitio`, `crime_type`, `status`, `incident_date` (plus the unique
-constraints on `incident_code` and `case_number`).
+**Indexes:** `sitio`, `crime_type`, `status`, `incident_date`, `category`
+(`incidents_category_index`, added by `2026_09_13_000001`) (plus the unique
+constraints on `incident_code` and `case_number`). `reported_by` is a foreign
+key but is deliberately not indexed — see its row above.
 
 ---
 
@@ -222,11 +224,19 @@ same victim may appear on more than one case.
 |---|---|---|---|---|---|---|---|---|
 | `id` | bigint (auto-increment) | No | — | Yes | — | — | — | Primary key. |
 | `incident_id` | bigint | No | — | — | Composite | `incidents.id` | `CASCADE` | The case. |
-| `victim_id` | bigint | No | — | — | Composite | `victims.id` | `CASCADE` | The victim. |
+| `victim_id` | bigint | No | — | — | Composite, Indexed | `victims.id` | `CASCADE` | The victim. Also has its own single-column index (`incident_victim_victim_id_index`, added by `2026_09_13_000002`) — see note below. |
 | `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
 **Constraints:** `UNIQUE (incident_id, victim_id)`.
+
+**Indexes:** the unique composite above serves lookups that filter on
+`incident_id` (its leading column) but cannot efficiently serve a
+`victim_id`-only filter. `Victim::relatedIncidents()` does exactly that — it
+eager-loads with `WHERE victim_id IN (...)` on every victim list/detail load
+— so a separate, single-column, non-unique index on `victim_id`
+(`incident_victim_victim_id_index`, added by `2026_09_13_000002`) exists
+alongside the composite unique. Neither index replaces the other.
 
 ---
 
@@ -241,11 +251,20 @@ and cases (`incidents`). Introduced by `2025_01_01_000016` to replace the single
 |---|---|---|---|---|---|---|---|---|
 | `id` | bigint (auto-increment) | No | — | Yes | — | — | — | Primary key. |
 | `criminal_id` | bigint | No | — | — | Composite | `criminals.id` | `CASCADE` | The criminal. |
-| `incident_id` | bigint | No | — | — | Composite | `incidents.id` | `CASCADE` | The case. |
+| `incident_id` | bigint | No | — | — | Composite, Indexed | `incidents.id` | `CASCADE` | The case. Also has its own single-column index (`criminal_incident_incident_id_index`, added by `2026_09_13_000003`) — see note below. |
 | `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 | `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
 
 **Constraints:** `UNIQUE (criminal_id, incident_id)`.
+
+**Indexes:** the unique composite above serves lookups that filter on
+`criminal_id` (its leading column) but cannot efficiently serve an
+`incident_id`-only filter. `Incident::relatedCriminals()` does exactly that
+— it is eager-loaded transitively via `VictimController`'s
+`relatedIncidents.relatedCriminals`, running `WHERE incident_id IN (...)` —
+so a separate, single-column, non-unique index on `incident_id`
+(`criminal_incident_incident_id_index`, added by `2026_09_13_000003`) exists
+alongside the composite unique. Neither index replaces the other.
 
 ---
 
@@ -374,6 +393,74 @@ Single-row configuration for the barangay. `Setting::current()` uses
 
 ---
 
+### report_schedules
+
+Administrator-configured automated report runs (Reporting System checklist,
+"Scheduled Reports" evidence). Mutable configuration: an administrator creates,
+edits and deletes these rows. Deliberately coarse scheduling — the `hour` /
+`day_of_week` / `day_of_month` columns are evaluated by an hourly command
+(`reports:send-scheduled`) rather than each schedule registering its own cron
+entry; see `App\Models\ReportSchedule::isDue()`. Introduced by
+`2026_09_11_000001_create_report_schedules_and_report_email_logs_tables`.
+
+| Column | Type | Nullable | Default | PK | Unique | Foreign Key | Delete Behavior | Description |
+|---|---|---|---|---|---|---|---|---|
+| `id` | bigint (auto-increment) | No | — | Yes | — | — | — | Primary key. |
+| `name` | varchar(150) | No | — | — | — | — | — | Administrator-facing schedule name. |
+| `report_key` | varchar(40) | No | — | — | — | — | — | Which report to produce. Application-enforced against `ReportGenerator::REPORTS`; not a database constraint. |
+| `period` | varchar(20) | No | `'last_30_days'` | — | — | — | — | Rolling window resolved at run time, not a fixed date range. Application-enforced values: `last_7_days`, `last_30_days`, `previous_month`, `month_to_date`, `all_time` (`ReportSchedule::PERIODS`). Not a database enum. |
+| `filters` | json | Yes | — | — | — | — | — | Non-date report filters (crime type, category, sitio, status). Cast to `array` by the model. Absent keys mean "no filtering on that field". |
+| `recipients` | json | No | — | — | — | — | — | Recipient e-mail addresses. Cast to `array` by the model. Validated as e-mail addresses on write. |
+| `frequency` | varchar(20) | No | `'weekly'` | — | — | — | — | Application-enforced values: `daily`, `weekly`, `monthly` (`ReportSchedule::FREQUENCIES`). Not a database enum. |
+| `hour` | smallint (unsignedTinyInteger) | No | `6` | — | — | — | — | Local hour of day (0-23) the run is due. Cast to `integer` by the model. |
+| `day_of_week` | smallint (unsignedTinyInteger) | Yes | — | — | — | — | — | 0 (Sunday) - 6. Used only when `frequency` is `weekly`. Cast to `integer` by the model. |
+| `day_of_month` | smallint (unsignedTinyInteger) | Yes | — | — | — | — | — | 1-28. Used only when `frequency` is `monthly`. Capped at 28 so a monthly schedule cannot silently skip February. Cast to `integer` by the model. |
+| `is_active` | boolean | No | `true` | — | — | — | — | Whether the schedule is currently due to run. Cast to `boolean` by the model. |
+| `last_run_at` | timestamp | Yes | — | — | — | — | — | When this schedule last ran. Guards against a double send if the hourly command overlaps or retries; see `ReportSchedule::isDue()`. Cast to `datetime` by the model. |
+| `created_by` | bigint | Yes | — | — | — | `users.id` | `SET NULL` | Administrator who created the schedule. |
+| `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
+| `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
+
+**Indexes:** `(is_active, frequency)` composite index.
+Row-level security enabled by `2026_09_11_000001`.
+
+---
+
+### report_email_logs
+
+Append-only record of what actually happened on each scheduled or manual
+report run (Reporting System checklist, "Email Logs" evidence). Deliberately
+separate from `report_schedules`: this table records outcomes, not
+configuration, and it must survive deletion of the schedule that produced it —
+which is why `report_schedule_id` is `nullOnDelete` and why `schedule_name`
+and `report_key` are copied onto every row rather than read back through the
+relation. This table does not store report content; only that a report of
+`row_count` rows was generated, to whom, when, and whether it succeeded.
+Introduced by
+`2026_09_11_000001_create_report_schedules_and_report_email_logs_tables`.
+
+| Column | Type | Nullable | Default | PK | Unique | Foreign Key | Delete Behavior | Description |
+|---|---|---|---|---|---|---|---|---|
+| `id` | bigint (auto-increment) | No | — | Yes | — | — | — | Primary key. |
+| `report_schedule_id` | bigint | Yes | — | — | — | `report_schedules.id` | `SET NULL` | Originating schedule. Nullable/`SET NULL` so this log row survives the schedule's deletion — see the denormalized columns below. |
+| `schedule_name` | varchar(150) | No | — | — | — | — | — | Denormalized copy of the schedule's name at the time of the run. Deliberately not read through the `report_schedule_id` relation. |
+| `report_key` | varchar(40) | No | — | — | — | — | — | Denormalized copy of the report key at the time of the run. |
+| `recipients` | json | No | — | — | — | — | — | Recipient e-mail addresses for this run. Cast to `array` by the model. |
+| `status` | varchar(20) | No | — | — | — | — | — | Application-enforced values: `sent`, `failed` (`ReportEmailLog::STATUS_SENT`, `STATUS_FAILED`). Not a database enum. Both outcomes are written; a failed run is recorded rather than left silent. |
+| `trigger` | varchar(20) | No | `'scheduled'` | — | — | — | — | Application-enforced values: `scheduled`, `manual` (`ReportEmailLog::TRIGGER_SCHEDULED`, `TRIGGER_MANUAL`). Not a database enum. Distinguishes an administrator-triggered run from one the scheduler fired. |
+| `row_count` | integer (unsigned) | Yes | — | — | — | — | — | Number of rows in the generated report. Cast to `integer` by the model. |
+| `filters_summary` | varchar(500) | Yes | — | — | — | — | — | Human-readable restatement of the filters and period used, so the row explains its own `row_count`. Text, not the underlying data. |
+| `error` | text | Yes | — | — | — | — | — | Exception message on a failed run. Truncated to `ReportEmailLog::ERROR_MAX` (2000 characters) by the writer before being saved. |
+| `triggered_by` | bigint | Yes | — | — | — | `users.id` | `SET NULL` | Administrator who triggered a manual run. Null for scheduler-triggered runs. |
+| `generated_at` | timestamp | No | — | — | — | — | — | When the run completed. Cast to `datetime` by the model. |
+| `created_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
+| `updated_at` | timestamp | Yes | — | — | — | — | — | From `$table->timestamps()`. |
+
+**Indexes:** `(report_key, status)` composite index; index on `generated_at`.
+Row-level security enabled by `2026_09_11_000001`.
+
+---
+
 ## 3. Relationships
 
 Derived from the foreign keys and junction tables defined in the migrations.
@@ -388,6 +475,9 @@ Derived from the foreign keys and junction tables defined in the migrations.
 | `audit_logs` → `users` | Many-to-one | `audit_logs.user_id` → `users.id` | `SET NULL` |
 | `notification_reads` → `app_notifications` | Many-to-one | `notification_reads.app_notification_id` | `CASCADE` |
 | `notification_reads` → `users` | Many-to-one | `notification_reads.user_id` | `CASCADE` |
+| `report_schedules` → `users` | Many-to-one | `report_schedules.created_by` | `SET NULL` |
+| `report_email_logs` → `report_schedules` | Many-to-one | `report_email_logs.report_schedule_id` | `SET NULL` |
+| `report_email_logs` → `users` | Many-to-one | `report_email_logs.triggered_by` | `SET NULL` |
 
 **Notes.**
 
@@ -402,6 +492,9 @@ Derived from the foreign keys and junction tables defined in the migrations.
 - Two relationships to `incidents` exist for criminals: the legacy single
   `related_incident_id` column and the `criminal_incident` junction. Both are
   present in the schema.
+- `report_email_logs` also stores `schedule_name` and `report_key` as plain
+  denormalized columns (not a relationship) so a log row remains meaningful
+  after its originating `report_schedules` row is deleted.
 
 ---
 
@@ -496,17 +589,22 @@ Migration `2026_08_29_000001` issues
 - `incident_evidence`
 - `notification_reads`
 
-The migration guards on PostgreSQL support and on table existence, so it is a
-no-op on the SQLite test database. This document records only what this
-migration does. It does not describe RLS configuration applied to other tables
-outside the migration source, and it makes no claim about the resulting access
-behaviour.
+Migration `2026_09_11_000001` issues the same statement for two more tables,
+guarded the same way (PostgreSQL driver only, so it is a no-op on the SQLite
+test database):
+
+- `report_schedules`
+- `report_email_logs`
+
+This document records only what these migrations do. It does not describe RLS
+configuration applied to other tables outside the migration source, and it
+makes no claim about the resulting access behaviour.
 
 ---
 
 ## 7. Source of Truth
 
-The schema described here is derived from the 28 migration files in
+The schema described here is derived from the 29 migration files in
 `backend/database/migrations/`, cross-checked against the Eloquent models in
 `backend/app/Models/` for casts, custom table names and application-level value
 sets.
@@ -519,4 +617,8 @@ names, status vocabularies, audit action names) were read from model constants
 and controller source and are identified as application-enforced rather than as
 database constraints.
 
-Generated against `origin/main` at commit `b891172`.
+Generated against branch `feat/notifications-profile-mapping` at commit
+`3d11d5e`. The `report_schedules` and `report_email_logs` sections above were
+added in this revision to cover migration
+`2026_09_11_000001_create_report_schedules_and_report_email_logs_tables`,
+which postdated the previous revision's `b891172` snapshot.

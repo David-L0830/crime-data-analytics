@@ -2,12 +2,18 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesIncidentLocation;
 use App\Models\Incident;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class StoreIncidentRequest extends FormRequest
 {
+    // Coordinates must be a real place inside Barangay 178, or absent
+    // entirely. See the trait for the policy and why it is enforced here
+    // rather than by a per-field rule.
+    use ValidatesIncidentLocation;
+
     public function authorize(): bool
     {
         return true;
@@ -27,12 +33,20 @@ class StoreIncidentRequest extends FormRequest
             // this same rule for edits that don't touch crimeType at all.
             'crimeType' => ['required', 'string', 'max:100', Rule::exists('crime_types', 'name')],
             'category' => ['nullable', 'string', 'max:100'],
-            'date' => ['required', 'date'],
+            // An incident cannot have happened later than today. `date` alone
+            // accepted 2099-01-01, which is not a recordable event but a typo
+            // (a mis-keyed year) that then skews every dashboard, trend line
+            // and date-ranged export it lands in. Today is still valid: a
+            // report is very often encoded on the day it is made.
+            //
+            // `before_or_equal:today` resolves "today" in the application
+            // timezone (Asia/Manila, config/app.php), which is the timezone the
+            // encoder in the barangay hall is actually working in.
+            'date' => ['required', 'date', 'before_or_equal:today'],
             'time' => ['nullable', 'date_format:H:i'],
             'street' => ['nullable', 'string', 'max:255'],
             'sitio' => ['required', 'string', 'max:100'],
-            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+            ...$this->coordinateRules(),
             'victimName' => ['nullable', 'string', 'max:150'],
             'victimAge' => ['nullable', 'integer', 'min:0', 'max:120'],
             'victimGender' => ['nullable', 'string', 'max:20'],
@@ -59,7 +73,10 @@ class StoreIncidentRequest extends FormRequest
             'investigatingOfficer' => ['nullable', 'string', 'max:100'],
             'badgeNumber' => ['nullable', 'string', 'max:50'],
             'unit' => ['nullable', 'string', 'max:100'],
-            'status' => ['string', Rule::in(Incident::STATUSES)],
+            // ASSIGNABLE_STATUSES, not STATUSES: 'Archived' is reachable only
+            // through PUT /incidents/{incident}/archive, which is the only
+            // writer that also captures previous_status. See Incident.
+            'status' => ['string', Rule::in(Incident::ASSIGNABLE_STATUSES)],
             // 'sometimes', not 'nullable', for the same reason status carries
             // no 'nullable': incidents.priority is NOT NULL DEFAULT 'Normal',
             // so an explicit null passed validation, reached mapToColumns()
@@ -78,6 +95,8 @@ class StoreIncidentRequest extends FormRequest
     {
         return [
             'caseNumber.unique' => 'Case number already exists.',
+            'status.in' => 'Status cannot be set to Archived here — use the Archive action instead.',
+            'date.before_or_equal' => 'Incident date cannot be in the future.',
             'complainantName.required_if' => 'Complainant full name is required when the complainant is not the victim.',
         ];
     }

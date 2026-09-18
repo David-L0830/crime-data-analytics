@@ -6,10 +6,13 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CrimeTypeController;
 use App\Http\Controllers\Api\CriminalController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\EmailMfaController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\MetabaseEmbedController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\PasswordController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\ReportScheduleController;
 use App\Http\Controllers\Api\RolePermissionController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\SyncLogController;
@@ -64,22 +67,51 @@ use Illuminate\Support\Facades\Route;
 //
 // 'role:' (EnsureRole) is unchanged — it is Authorization, a separate
 // concern from Authentication, and continues to enforce the existing
-// BADAC Administrator / Encoder / Badac (read-only) boundaries. MFA is
+// BADAC Administrator / Encoder / BADAC Validator boundaries. MFA is
 // layered on top of it and replaces none of it.
 // GET /user — NO 'supabase.mfa'. See the exemption note above: this is the
 // endpoint the login flow reads to discover that a second factor is still
 // owed, so it must answer at aal1.
 Route::middleware('auth:supabase')->get('/user', [AuthController::class, 'user']);
 
-Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
+// POST /mfa/email/send, POST /mfa/email/verify — NO 'supabase.mfa', for the
+// same reason as GET /user: they are how an aal1 session that owes EMAIL MFA
+// (users.mfa_method = 'email_otp') completes it, so gating them behind that
+// requirement would make it unsatisfiable. They act only on the token's own
+// user and signed session_id, refuse every account email MFA does not apply
+// to, and are rate limited (see AppServiceProvider). A successful verify never
+// changes the JWT: it records `email_mfa_verified` for that one Supabase
+// session, which EnsureSupabaseAal2 then honours for that account only.
+Route::middleware(['auth:supabase', 'throttle:email-mfa-send'])
+    ->post('/mfa/email/send', [EmailMfaController::class, 'send']);
+Route::middleware(['auth:supabase', 'throttle:email-mfa-verify'])
+    ->post('/mfa/email/verify', [EmailMfaController::class, 'verify']);
+
+// POST /me/password — the account holder replaces their own password. Behind
+// 'supabase.mfa' like every other protected route, so MFA is still completed
+// first, but deliberately NOT behind 'password.changed': it is the one way out
+// of a must_change_password state, so blocking it would make that state
+// permanent. PasswordController applies that middleware's expiry and
+// stale-session rules inline, and adds its own recent-sign-in requirement.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'throttle:password-change'])
+    ->post('/me/password', [PasswordController::class, 'update']);
+
+// 'password.changed' (EnsurePasswordChanged) is listed after 'supabase.mfa' on
+// every protected route below, so an account that still owes a password change
+// — or a session opened before one — cannot reach normal application
+// functionality by calling these endpoints directly. The only authenticated
+// routes without it are GET /user, POST /logout, the two email-MFA routes and
+// POST /me/password; tests/Feature/PasswordChangeEnforcementTest.php fails if
+// any other route is registered without it.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->group(function () {
     Route::put('/me', [ProfileController::class, 'update']);
     Route::post('/me/avatar', [ProfileController::class, 'avatar']);
 });
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])
     ->get('/dashboard', [DashboardController::class, 'index']);
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])->group(function () {
     Route::get('/analytics', [AnalyticsController::class, 'index']);
     Route::get('/analytics/crime-types', [AnalyticsController::class, 'crimeTypes']);
     Route::get('/analytics/monthly', [AnalyticsController::class, 'monthly']);
@@ -90,58 +122,61 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
     Route::get('/embed/metabase/{dashboardKey}', [MetabaseEmbedController::class, 'show']);
 });
 
-// GET /settings — read-only, admin-only business configuration. Badac
-// (read-only) is intentionally excluded — see GET /sync-logs below for the
-// same "Badac has no Settings access" note.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])
+// GET /settings — read-only, admin-only business configuration. BADAC
+// Validator is intentionally excluded — see GET /sync-logs below for the
+// same "BADAC has no Settings access" note.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])
     ->get('/settings', [SettingController::class, 'show']);
 
 // GET /notifications — shared by every role (Encoder still needs to see
 // their own incident notifications in the topbar).
-Route::middleware(['auth:supabase', 'supabase.mfa'])->get('/notifications', [NotificationController::class, 'index']);
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->get('/notifications', [NotificationController::class, 'index']);
 
 // GET /crime-types — readable by EVERY authenticated role, unlike /settings.
 // This is not administrative configuration in the way thresholds are: it is
 // the vocabulary the incident form, the FilterBar and the Crime Mapping legend
-// are built out of, and BADAC (read-only) uses all three. The colour travels
+// are built out of, and the BADAC Validator uses all three. The colour travels
 // with the name because the map legend is meaningless without it.
-Route::middleware(['auth:supabase', 'supabase.mfa'])->get('/crime-types', [CrimeTypeController::class, 'index']);
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->get('/crime-types', [CrimeTypeController::class, 'index']);
 
 // POST/PUT /crime-types — Administrator only, and enforced HERE rather than by
 // hiding System Settings in the UI. A non-admin who calls this endpoint
 // directly gets a 403 from the role: middleware before the controller runs.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/crime-types', [CrimeTypeController::class, 'store']);
     Route::put('/crime-types/{crimeType}', [CrimeTypeController::class, 'update']);
 });
 
 // Incidents (Crime Data Collection Module) — read side. Not role-restricted
-// (Administrator, Encoder, and Badac all read these); per-record ownership
+// (Administrator, Encoder, and BADAC Validator all read these; the Validator
+// receives no complainant contact/address — see IncidentResource); per-record ownership
 // for Encoder is enforced inside IncidentController on the write side.
 // GET /incidents/map is registered before GET /incidents/{incident} so
 // Laravel doesn't greedily match "map" as a route-model-binding id.
-Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->group(function () {
     Route::get('/incidents/map', [IncidentController::class, 'map']);
     Route::get('/incidents', [IncidentController::class, 'index']);
     Route::get('/incidents/{incident}', [IncidentController::class, 'show']);
 });
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_READONLY])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])->group(function () {
     Route::get('/criminals', [CriminalController::class, 'index']);
     Route::get('/criminals/{criminal}', [CriminalController::class, 'show']);
 
     // Victim Information — only ever reached through a case; same
-    // PII-bearing-business-data treatment as criminals above.
+    // PII-bearing-business-data treatment as criminals above. Read-only for
+    // the BADAC Validator, which receives no contact number or address — see
+    // CriminalResource / VictimResource.
     Route::get('/victims', [VictimController::class, 'index']);
     Route::get('/victims/{victim}', [VictimController::class, 'show']);
 });
 
-// Checkpoint 38 — audit logs are now admin-only. Badac (read-only) previously
-// had audit-log access (`role:badac_admin,badac_readonly`); that is
+// Checkpoint 38 — audit logs are now admin-only. The BADAC role previously
+// had audit-log access (as the former `role:badac_admin,badac_readonly`); that is
 // intentionally revoked per the "BADAC users must not have Audit Logs
 // access" requirement. Audit-log records/logging themselves are untouched —
 // this only narrows who may call GET /audit-logs.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])
     ->get('/audit-logs', [AuditLogController::class, 'index']);
 
 // POST /report-export-audit — records that a report was exported, the way
@@ -150,16 +185,51 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 //
 // Authenticated but NOT role-restricted, unlike GET /audit-logs above: every
 // role exports something it is entitled to see — Encoder from Crime Data
-// Collection, Badac (read-only) from Records and the analytics pages — so
+// Collection, BADAC Validator from Records and the analytics pages — so
 // restricting the write to administrators would silently drop exactly the
 // events an administrator reviews the trail for. Writing an entry about
 // yourself is not the same permission as reading everyone's.
-Route::middleware(['auth:supabase', 'supabase.mfa'])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])
     ->post('/report-export-audit', [AuditLogController::class, 'reportExported']);
 
-// GET /sync-logs, GET /users, GET /users/{user} — admin-only. Badac
-// (read-only) has no User Management, Settings, or Audit Logs access.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+// ===== Reports (automated report schedules) =====
+//
+// READ: Administrator and BADAC Validator. The Validator may see schedules (active,
+// or archived with ?archived=1) and their delivery status, but the controller
+// withholds recipient addresses and raw delivery errors from every
+// non-administrator — see ReportScheduleController. Encoder gets a 403.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])->group(function () {
+    Route::get('/report-schedules', [ReportScheduleController::class, 'index']);
+
+    // The delivery log: what ran, when, and whether it arrived.
+    Route::get('/report-email-logs', [ReportScheduleController::class, 'logs']);
+});
+
+// WRITE: ADMINISTRATOR ONLY. A schedule is a standing instruction to e-mail
+// crime records to an address, repeatedly, with nobody present — a stronger
+// capability than the on-demand export above, because the recipient need not
+// be a user of this system. Validator and Encoder get a 403 from the role:
+// middleware before the controller runs.
+//
+// There is deliberately NO delete route. A schedule is archived and restored
+// (SoftDeletes on report_schedules.archived_at); the row and its delivery
+// history are never removed. update and run bind non-archived schedules only,
+// so an archived schedule answers 404 there until it is restored. restore is
+// the one route bound withTrashed(), because its target IS archived.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+    Route::post('/report-schedules', [ReportScheduleController::class, 'store']);
+    Route::put('/report-schedules/{reportSchedule}', [ReportScheduleController::class, 'update']);
+    Route::put('/report-schedules/{reportSchedule}/archive', [ReportScheduleController::class, 'archive']);
+    Route::put('/report-schedules/{reportSchedule}/restore', [ReportScheduleController::class, 'restore'])
+        ->withTrashed();
+
+    // Runs the schedule now, through the identical path the scheduler uses.
+    Route::post('/report-schedules/{reportSchedule}/run', [ReportScheduleController::class, 'run']);
+});
+
+// GET /sync-logs, GET /users, GET /users/{user} — admin-only. BADAC
+// Validator has no User Management, Settings, or Audit Logs access.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::get('/sync-logs', [SyncLogController::class, 'index']);
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/{user}', [UserController::class, 'show']);
@@ -172,7 +242,7 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 // two-factor/disable still calls Supabase's Admin API to remove any
 // factor(s) a target account enrolled before this app removed MFA — see
 // UserController::disableTwoFactor() and App\Services\SupabaseAdminService.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update']);
     Route::put('/users/{user}/status', [UserController::class, 'updateStatus']);
     Route::post('/users/{user}/two-factor/disable', [UserController::class, 'disableTwoFactor']);
@@ -185,6 +255,14 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
     // sees another account's TOTP secret or QR code. See
     // UserController::requireTwoFactor().
     Route::post('/users/{user}/two-factor/require', [UserController::class, 'requireTwoFactor']);
+
+    // POST /users/{user}/temporary-password — issue a NEW temporary password
+    // to an existing account and require it to be changed at next sign-in.
+    // Same admin-only group as every other action on someone else's account.
+    // The target comes from {user} alone; the password is supplied by the
+    // administrator's browser and is never stored or returned. See
+    // UserController::issueTemporaryPassword().
+    Route::post('/users/{user}/temporary-password', [UserController::class, 'issueTemporaryPassword']);
 
     // POST /users — Account Administration. Administrator-provisioned
     // account creation, in the same admin-only group as every other
@@ -218,7 +296,7 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 
 // PUT /settings — admin-only business configuration mutation, same
 // treatment as GET /settings.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])
     ->put('/settings', [SettingController::class, 'update']);
 
 // Incidents — write side. Not role-restricted at the route level for
@@ -226,7 +304,7 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 // enforces per-record ownership (reported_by) for Encoder internally on
 // update(). Archive is kept out of this group only so it can carry its own
 // explanatory comment — it allows the same two roles, see the route below.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])->group(function () {
     Route::post('/incidents', [IncidentController::class, 'store']);
     Route::put('/incidents/{incident}', [IncidentController::class, 'update']);
 });
@@ -235,7 +313,7 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 // reach this route. Per-record ownership (Encoder may only archive an
 // incident they personally encoded) is enforced inside
 // IncidentController::archive() — the same pattern used by update().
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/archive', [IncidentController::class, 'archive']);
 
 // PUT /incidents/{incident}/restore — the inverse of archive() above,
@@ -246,10 +324,22 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 // PUT /criminals/{criminal}/restore / PUT /victims/{victim}/restore pattern
 // below. Per-record ownership (Encoder may only restore an incident they
 // personally encoded) is enforced inside IncidentController::restore().
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_ENCODER])
     ->put('/incidents/{incident}/restore', [IncidentController::class, 'restore']);
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+// PUT /incidents/{incident}/validate, PUT /incidents/{incident}/return —
+// record validation. ADMINISTRATOR and BADAC VALIDATOR, deliberately different
+// from the create/update/archive routes above: an Encoder submits records and
+// must not be able to approve them, including their own, and the Validator
+// reviews records without being able to create, edit or archive them. Encoder
+// gets a 403 here before the controller runs, regardless of what the frontend
+// shows. See IncidentController::approve()/returnForCorrection().
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])->group(function () {
+    Route::put('/incidents/{incident}/validate', [IncidentController::class, 'approve']);
+    Route::put('/incidents/{incident}/return', [IncidentController::class, 'returnForCorrection']);
+});
+
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
     Route::post('/criminals', [CriminalController::class, 'store']);
     Route::put('/criminals/{criminal}', [CriminalController::class, 'update']);
     Route::put('/criminals/{criminal}/archive', [CriminalController::class, 'archive']);
@@ -257,7 +347,7 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
     // inverses of the two archive routes above, deliberately registered in
     // this same role:badac_admin group rather than a group of their own, so
     // "whoever may archive may restore" holds by construction and cannot
-    // drift. Encoder and badac_readonly are excluded here exactly as they are
+    // drift. Encoder and badac_validator are excluded here exactly as they are
     // for archive. The frontend reuses the existing 'archive_record'
     // permission for the same reason — no restore-specific permission exists.
     Route::put('/criminals/{criminal}/restore', [CriminalController::class, 'restore']);
@@ -270,7 +360,7 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'role:'.User::ROLE_BADAC_ADM
 
 // PUT /notifications/read-all, PUT /notifications/{notification}/read —
 // shared by both roles; AppNotification has no per-user ownership column.
-Route::middleware(['auth:supabase', 'supabase.mfa'])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->group(function () {
     Route::put('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     Route::put('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
 });

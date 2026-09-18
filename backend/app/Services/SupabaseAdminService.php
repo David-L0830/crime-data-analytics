@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Exceptions\SupabasePasswordUpdateException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -38,6 +40,14 @@ use RuntimeException;
 // documented convention for every Admin API request).
 class SupabaseAdminService
 {
+    /**
+     * The one message used whenever Supabase refuses a password on policy
+     * grounds. Supabase's own `msg` is deliberately not passed through: it is
+     * written for end users of Supabase, not administrators of this system,
+     * and a fixed sentence is guaranteed to contain nothing from the request.
+     */
+    public const WEAK_PASSWORD_MESSAGE = 'Supabase rejected the password. Choose a longer, less predictable password.';
+
     protected function baseUrl(): string
     {
         $url = rtrim((string) config('supabase.url'), '/');
@@ -103,25 +113,55 @@ class SupabaseAdminService
      * what lets SupabaseTokenValidator link it to the local row on first
      * sign-in (it links only on a verified email).
      *
-     * A random password is generated purely because a Supabase account with
-     * no credential at all is an awkward, half-provisioned state; it is
-     * never returned, never logged, never written to this database, and
-     * never shown to the administrator. The new user sets their own password
-     * through the recovery link, so nobody — including the admin who created
-     * the account — ever knows this value.
+     * With no `$password`, a random one is generated purely because a Supabase
+     * account with no credential at all is an awkward, half-provisioned state;
+     * nobody — including the admin who created the account — ever knows it, and
+     * the new user sets their own through the recovery link.
      *
-     * @throws RuntimeException when Supabase is not configured, or the
-     *                          address already exists in Supabase Auth, or
-     *                          the Admin API refuses the request. The caller
-     *                          is expected to roll back its own local row.
+     * With a `$password`, it is the administrator-supplied TEMPORARY password
+     * (see UserController::store) and is handed to Supabase unchanged.
+     *
+     * In both cases the value exists here only as an argument to the Admin API
+     * call. It is never returned, logged, written to this database, or placed
+     * in an exception message. #[\SensitiveParameter] keeps it out of stack
+     * traces as well, which PHP would otherwise print argument values into.
+     *
+     * @throws RuntimeException when Supabase is not configured or unreachable,
+     *                          the address already exists in Supabase Auth,
+     *                          Supabase rejects the password, or the Admin API
+     *                          refuses the request. The caller is expected to
+     *                          roll back its own local row.
      */
-    public function createUser(string $email): string
+    public function createUser(string $email, #[\SensitiveParameter] ?string $password = null, array $appMetadata = []): string
     {
-        $response = $this->client('creating an account')->post('/users', [
+        $payload = [
             'email' => $email,
-            'password' => Str::random(48),
+            'password' => $password ?? Str::random(48),
             'email_confirm' => true,
-        ]);
+        ];
+
+        // Only sent when there is something to set (UserController::store
+        // passes ['mfa_required' => true] for an Authenticator App account),
+        // so the request for every other account is exactly as before.
+        // app_metadata can only be written with the service-role key, which is
+        // why an account cannot later clear the flag on itself.
+        if ($appMetadata !== []) {
+            $payload['app_metadata'] = $appMetadata;
+        }
+
+        $response = $this->send('creating an account', 'post', '/users', $payload);
+
+        // Checked BEFORE the duplicate test below, which also treats a bare
+        // 422 as a duplicate: Supabase answers a policy-rejected password with
+        // 422 as well, and telling an administrator "already registered" for a
+        // weak password would send them chasing the wrong problem.
+        if ($this->isWeakPasswordResponse($response)) {
+            Log::warning('Supabase admin: rejected the password for a new user.', [
+                'status' => $response->status(),
+            ]);
+
+            throw new RuntimeException(self::WEAK_PASSWORD_MESSAGE);
+        }
 
         // Duplicate detection deliberately does NOT rest on the HTTP status
         // alone. Supabase publishes `email_exists` and `user_already_exists`
@@ -162,6 +202,218 @@ class SupabaseAdminService
         }
 
         return $id;
+    }
+
+    /**
+     * Replaces an existing Supabase Auth user's password.
+     *
+     * Used by the administrator reissue (UserController) and the account
+     * holder's own change (PasswordController). Same handling rules as
+     * createUser(): the value is passed straight to the Admin API and is never
+     * returned, logged, stored, or placed in an exception message.
+     *
+     * Every failure says what is KNOWN about its effect, because callers must
+     * never treat "could not confirm" as "did not happen":
+     *
+     *   WEAK_PASSWORD   - refused on policy grounds; nothing applied.
+     *   NOT_APPLIED     - no request was sent (missing configuration), or a
+     *                     definite 4xx refusal; nothing applied.
+     *   OUTCOME_UNKNOWN - timeout, network failure, 5xx, or a 4xx that a proxy
+     *                     or rate limiter may send without saying whether the
+     *                     request was processed (408, 425, 429, 499). Supabase
+     *                     may already hold the new password.
+     *
+     * @throws SupabasePasswordUpdateException
+     */
+    public function setPassword(string $supabaseUserId, #[\SensitiveParameter] string $password): void
+    {
+        $operation = 'setting a password';
+
+        // A configuration fault is raised here, before any request exists, so
+        // it is a certain "not applied".
+        try {
+            $this->client($operation);
+        } catch (RuntimeException $e) {
+            throw new SupabasePasswordUpdateException($e->getMessage(), SupabasePasswordUpdateException::NOT_APPLIED);
+        }
+
+        try {
+            $response = $this->send($operation, 'put', "/users/{$supabaseUserId}", ['password' => $password]);
+        } catch (RuntimeException $e) {
+            // send() only throws for a transport failure, which may have
+            // happened after Supabase received and applied the request.
+            throw new SupabasePasswordUpdateException($e->getMessage(), SupabasePasswordUpdateException::OUTCOME_UNKNOWN);
+        }
+
+        if ($this->isWeakPasswordResponse($response)) {
+            Log::warning('Supabase admin: rejected a password update.', [
+                'supabase_user_id' => $supabaseUserId,
+                'status' => $response->status(),
+            ]);
+
+            throw new SupabasePasswordUpdateException(self::WEAK_PASSWORD_MESSAGE, SupabasePasswordUpdateException::WEAK_PASSWORD);
+        }
+
+        if (! $response->successful()) {
+            $outcome = self::isDefiniteRefusalStatus($response->status())
+                ? SupabasePasswordUpdateException::NOT_APPLIED
+                : SupabasePasswordUpdateException::OUTCOME_UNKNOWN;
+
+            Log::warning('Supabase admin: failed to set a password.', [
+                'supabase_user_id' => $supabaseUserId,
+                'status' => $response->status(),
+                'outcome' => $outcome,
+            ]);
+
+            throw new SupabasePasswordUpdateException('Supabase could not update the password right now. Please try again.', $outcome);
+        }
+    }
+
+    /**
+     * A 4xx is a definite refusal (the request was rejected, not applied),
+     * except the statuses a gateway or rate limiter can return without the
+     * request's fate being known. Anything else that is not a success —
+     * 5xx, an unfollowed redirect — is treated as an unknown outcome.
+     */
+    private static function isDefiniteRefusalStatus(int $status): bool
+    {
+        return $status >= 400 && $status < 500
+            && ! in_array($status, [408, 425, 429, 499], true);
+    }
+
+    /**
+     * Is `$password` this account's CURRENT Supabase Auth password?
+     *
+     * Used by POST /me/password (PasswordController) so the "new password must
+     * differ from the current one" rule rests on a verified current password
+     * rather than on whatever the client claims it is, and so a stolen access
+     * token alone is not enough to replace the password.
+     *
+     * Supabase has no "check password" endpoint, so this performs Supabase's own
+     * password grant (POST /auth/v1/token?grant_type=password). A successful
+     * grant opens a throwaway session; its access token never leaves this
+     * method and that session is revoked straight away (best effort).
+     *
+     * @return bool true when Supabase accepts the credentials, false when it
+     *              reports them invalid
+     *
+     * @throws RuntimeException when Supabase is not configured, unreachable, or
+     *                          answers with anything other than success or
+     *                          "invalid credentials" (e.g. rate limited)
+     */
+    public function verifyPassword(string $email, #[\SensitiveParameter] string $password): bool
+    {
+        $operation = 'verifying the current password';
+        $key = $this->serviceRoleKey($operation);
+        $authUrl = rtrim((string) config('supabase.url'), '/').'/auth/v1';
+
+        try {
+            $response = Http::timeout(10)
+                ->withHeaders(['apikey' => $key])
+                ->post($authUrl.'/token?grant_type=password', [
+                    'email' => $email,
+                    'password' => $password,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning("Supabase admin: could not reach Supabase while {$operation}.", [
+                'exception' => $e::class,
+            ]);
+
+            throw new RuntimeException("Supabase could not be reached while {$operation}. Please try again.");
+        }
+
+        if ($response->successful()) {
+            $this->revokeSession($key, $authUrl, $response->json('access_token'));
+
+            return true;
+        }
+
+        // GoTrue reports wrong credentials as HTTP 400 with error_code
+        // `invalid_credentials` (older releases: error `invalid_grant`).
+        $code = $response->json('error_code') ?? $response->json('error');
+        if ($response->status() === 400 && in_array($code, ['invalid_credentials', 'invalid_grant'], true)) {
+            return false;
+        }
+
+        Log::warning('Supabase admin: could not verify a password.', [
+            'status' => $response->status(),
+            'error_code' => is_string($code) ? $code : null,
+        ]);
+
+        throw new RuntimeException('Supabase could not verify the current password right now. Please try again.');
+    }
+
+    /**
+     * Ends the throwaway session verifyPassword() opened. Best effort: a
+     * failure is logged (without the token) and otherwise ignored, because the
+     * verification itself already succeeded and its token was never exposed.
+     */
+    private function revokeSession(string $key, string $authUrl, #[\SensitiveParameter] mixed $accessToken): void
+    {
+        if (! is_string($accessToken) || $accessToken === '') {
+            return;
+        }
+
+        try {
+            $response = Http::timeout(10)
+                ->withHeaders(['apikey' => $key])
+                ->withToken($accessToken)
+                ->post($authUrl.'/logout?scope=local');
+
+            if (! $response->successful()) {
+                Log::warning('Supabase admin: could not revoke a password-verification session.', [
+                    'status' => $response->status(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Supabase admin: could not reach Supabase to revoke a password-verification session.', [
+                'exception' => $e::class,
+            ]);
+        }
+    }
+
+    /**
+     * Supabase reports a password that fails the project's password policy
+     * with the `weak_password` error code (it also carries a `weak_password`
+     * object listing the reasons). Either signal is accepted.
+     */
+    private function isWeakPasswordResponse(Response $response): bool
+    {
+        if ($response->successful()) {
+            return false;
+        }
+
+        $code = $response->json('error_code') ?? $response->json('code');
+
+        return $code === 'weak_password' || is_array($response->json('weak_password'));
+    }
+
+    /**
+     * Sends a credential-bearing Admin API request.
+     *
+     * A transport failure (DNS, TLS, timeout) is converted into a plain
+     * RuntimeException carrying a fixed message and NO previous exception.
+     * Left to propagate, the client exception would be reported with a stack
+     * trace, and PHP prints argument values into traces: the request body —
+     * password included — would be one frame away from the application log.
+     *
+     * @param  array<string, mixed>  $payload
+     *
+     * @throws RuntimeException
+     */
+    private function send(string $operation, string $method, string $path, #[\SensitiveParameter] array $payload): Response
+    {
+        $client = $this->client($operation);
+
+        try {
+            return $client->{$method}($path, $payload);
+        } catch (\Throwable $e) {
+            Log::warning("Supabase admin: could not reach Supabase while {$operation}.", [
+                'exception' => $e::class,
+            ]);
+
+            throw new RuntimeException("Supabase could not be reached while {$operation}. Please try again.");
+        }
     }
 
     /**

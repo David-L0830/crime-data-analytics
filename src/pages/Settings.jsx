@@ -262,6 +262,9 @@ export default function Settings() {
             <Icons.Save size={15} strokeWidth={2} /> Save Settings
           </Button>
         </Card>
+
+        {/* Scheduled Reports moved to its own module (pages/ScheduledReports.jsx,
+            /scheduled-reports). The feature and its endpoints are unchanged. */}
       </div>
     </section>
   );

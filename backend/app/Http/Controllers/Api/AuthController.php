@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\AuditLog;
+use App\Services\EmailMfaService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -39,6 +40,12 @@ class AuthController extends Controller
                 'description' => 'User signed out',
                 'ip_address' => $request->ip(),
             ]);
+
+            // Email MFA state is this backend's own, so ending it is this
+            // endpoint's job: without this, a verification would outlive the
+            // sign-out that was meant to end it. Every row for the account
+            // goes, matching supabase-js's default global sign-out scope.
+            app(EmailMfaService::class)->forgetUser($user);
         }
 
         return response()->json(['message' => 'Logged out.']);

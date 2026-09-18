@@ -16,7 +16,18 @@ class DashboardController extends Controller
     {
         $settings = Setting::current();
 
-        $active = Incident::where('status', '!=', 'Archived');
+        // OFFICIAL data only — validated and not archived (Phase 2B), via
+        // Incident::scopeOfficial(). This excluded archived records alone
+        // before, so every headline figure below — including hotspotCount,
+        // which is the same definition the Hotspot Alert announces on — counted
+        // encodings nobody had reviewed. CP-5A fixed the Dashboard page, which
+        // computes client-side from useData(); this endpoint kept the old rule.
+        //
+        // One query for every incident-derived figure, so the KPIs, the two
+        // groupings, the hotspot count and the recent list cannot disagree
+        // about what they are counting. Criminal::count(), the sync log and the
+        // settings below are outside the rule and correctly so.
+        $active = Incident::query()->official();
 
         $totalIncidents = (clone $active)->count();
         $openIncidents = (clone $active)->where('status', 'Open')->count();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import { useTheme } from '../../hooks/useTheme';
 import { Icons } from '../icons';
@@ -18,6 +18,7 @@ export default function ChartCard({
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
   const { theme } = useTheme();
+  const summaryId = useId();
 
   // Checkpoint 26 — no-result state: when the selected date range has no
   // matching records, `labels` ends up empty (e.g. no months/categories to
@@ -160,6 +161,41 @@ export default function ChartCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, JSON.stringify(labels), JSON.stringify(datasets), theme, isEmpty]);
 
+  // THE TEXT EQUIVALENT OF THE CHART.
+  //
+  // Chart.js draws into a <canvas>, which is a bitmap: it has no readable
+  // structure, so everything these cards convey — every trend, every peak,
+  // every category — was unavailable to a screen reader. There is already a
+  // print-only data table (ChartPrintSummary), but it is display:none on
+  // screen, and display:none removes an element from the accessibility tree
+  // as well, so it never helped here.
+  //
+  // Derived from the same `labels` and `datasets` the canvas is drawn from, in
+  // the same render, so the description cannot drift from the picture. Nothing
+  // is inferred or characterised: the highest and lowest points are read off
+  // the series, and the rest is the values themselves in a table. No claim is
+  // made about what any of it means.
+  const seriesStats = useMemo(() => {
+    if (isEmpty) return [];
+    return (datasets || []).map((d) => {
+      const raw = Array.isArray(d?.data) ? d.data : [];
+      // Chart.js accepts numbers, numeric strings and {x,y} points. Only plain
+      // finite numbers can be described this way; anything else is carried
+      // through to the table as-is and left out of the peak/low sentence.
+      const values = raw.map((v) => (typeof v === 'number' ? v : Number(v)));
+      const numeric = values.filter((v) => Number.isFinite(v));
+      if (!numeric.length) return { label: d?.label, values: raw, peak: null };
+      const max = Math.max(...numeric);
+      const min = Math.min(...numeric);
+      return {
+        label: d?.label,
+        values: raw,
+        peak: { value: max, at: labels[values.indexOf(max)] },
+        low: { value: min, at: labels[values.indexOf(min)] },
+      };
+    });
+  }, [isEmpty, labels, datasets]);
+
   const interactive = typeof onOpenSummary === 'function';
 
   const handleKeyDown = (e) => {
@@ -171,6 +207,7 @@ export default function ChartCard({
   };
 
   return (
+    <>
     <div
       className={`card chart-card${interactive ? ' chart-card-interactive' : ''}`}
       role={interactive ? 'button' : undefined}
@@ -208,9 +245,71 @@ export default function ChartCard({
         // chart-print-canvas gives print.css a direct hook for the 55mm
         // print height; the inline px height still governs on screen.
         <div className="chart-print-canvas" style={{ height }}>
-          <canvas ref={canvasRef} />
+          {/* role="img" gives the canvas a single, nameable identity instead
+              of the unlabelled graphic it was, and aria-describedby points at
+              the data behind it. */}
+          <canvas
+            ref={canvasRef}
+            role="img"
+            aria-label={`${title || 'Chart'} — ${type} chart`}
+            aria-describedby={summaryId}
+          />
         </div>
       )}
     </div>
+    {/* Deliberately a SIBLING of the card, not a child of it.
+        When onOpenSummary is supplied the card itself becomes role="button",
+        and screen readers commonly treat a button as a leaf — its subtree is
+        flattened into its name — which would put this summary out of reach on
+        exactly the charts that have the most data. Outside the button it
+        stays independently navigable, and aria-describedby works across the
+        document, so the association is unaffected. .sr-only is out of flow, so
+        placing it here changes no layout. */}
+    {!isEmpty && (
+      <div id={summaryId} className="sr-only">
+        <p>
+          {title ? `${title}. ` : ''}
+          {type} chart, {labels.length}{' '}
+          {labels.length === 1 ? 'category' : 'categories'}
+          {seriesStats.length > 1 ? `, ${seriesStats.length} data series` : ''}.
+        </p>
+        {seriesStats.map((s, i) =>
+          s.peak ? (
+            <p key={s.label || i}>
+              {s.label ? `${s.label}: ` : ''}highest {s.peak.value} at{' '}
+              {s.peak.at}; lowest {s.low.value} at {s.low.at}.
+            </p>
+          ) : null,
+        )}
+        {/* The values themselves, as a real table, so the data can be read
+            row by row with table navigation rather than as one long
+            sentence. This is the chart's data, not a second copy of it —
+            it is built from the same arrays the canvas is drawn from. */}
+        <table>
+          <caption>{title ? `${title} — data` : 'Chart data'}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              {seriesStats.map((s, i) => (
+                <th scope="col" key={s.label || i}>
+                  {s.label || 'Value'}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {labels.map((label, row) => (
+              <tr key={label ?? row}>
+                <th scope="row">{label}</th>
+                {seriesStats.map((s, i) => (
+                  <td key={s.label || i}>{s.values[row] ?? '—'}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+    </>
   );
 }

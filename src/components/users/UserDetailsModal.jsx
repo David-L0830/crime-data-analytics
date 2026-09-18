@@ -2,6 +2,7 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import { formatDateTime } from '../../utils/helpers';
+import { hasSecondFactor, mfaStatusDescription } from '../../utils/mfaStatus';
 
 // View Details for one account.
 //
@@ -68,11 +69,15 @@ export default function UserDetailsModal({ user, currentUser, open, onClose }) {
         <dl className="user-details-list">
           <dt>Two-factor</dt>
           <dd>
-            <Badge status={user.twoFactorEnabled ? 'Active' : 'Inactive'} />
+            {/* Reads mfaMethod as well as twoFactorEnabled: an email_otp
+                account has no Supabase factor but is still required to enter
+                an emailed code, so "Inactive / no factor enrolled" would be
+                the opposite of what the backend enforces. */}
+            <Badge
+              status={hasSecondFactor(user) ? 'Active' : 'Inactive'}
+            />
             <span className="user-details-inline-note">
-              {user.twoFactorEnabled
-                ? 'An authenticator factor is enrolled with Supabase.'
-                : 'No authenticator factor is enrolled.'}
+              {mfaStatusDescription(user)}
             </span>
           </dd>
           <dt>Authentication level</dt>

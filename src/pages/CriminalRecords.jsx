@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
+import { usePendingAction } from '../hooks/usePendingAction';
 import { useDebounce } from '../hooks/useDebounce';
 import FilterBar from '../components/ui/FilterBar';
+import useTableSort from '../hooks/useTableSort';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
@@ -69,6 +71,13 @@ export default function CriminalRecords() {
   // records the list is showing: related cases become a readable comma list,
   // and previousStatus stays out because it is restore plumbing rather than
   // reportable data. No record value is altered.
+
+  // Column sorting for this report. `sorted` — not `filtered` — is what the
+  // table renders and what both exporters project, so the order on screen and
+  // the order in the generated file are the same order by construction. See
+  // useTableSort / sortRecords.
+  const { sort, sorted, toggleSort, sortSummary } = useTableSort(filtered);
+
   const exportSpec = () => ({
     sheetName: 'Criminal Records',
     title: 'Criminal Records Report',
@@ -77,6 +86,7 @@ export default function CriminalRecords() {
       `Status: ${filters['crim-status'] || 'All'}`,
       `Gender: ${filters['crim-gender'] || 'All'}`,
       `Search: ${debouncedSearch || 'None'}`,
+      sortSummary,
     ],
     columns: [
       { header: 'Criminal ID', key: 'criminalId', width: 14 },
@@ -107,12 +117,15 @@ export default function CriminalRecords() {
       },
       { header: 'Notes', key: 'notes', width: 40, wrap: true },
     ],
-    rows: filtered,
+    rows: sorted,
     onEmpty: () => showToast('No data to export', 'error'),
     onError: () => showToast('Could not export report.', 'error'),
   });
 
-  const handleExportExcel = async () => {
+  // Wrapped in usePendingAction so the button can show that it is working and
+  // refuses a second click while it is: exportWorkbook() pulls exceljs in on
+  // first use, which is the one operation here slow enough to look broken.
+  const [exporting, handleExportExcel] = usePendingAction(async () => {
     const ok = await exportWorkbook({
       filename: `criminal_records_${today()}.xlsx`,
       ...exportSpec(),
@@ -124,7 +137,7 @@ export default function CriminalRecords() {
       // must not wait on, or be failed by, follow-up bookkeeping.
       auditLogService.logExport('criminal-records');
     }
-  };
+  });
 
   // Same projection, same filtered rows, comma-separated. Synchronous because
   // exportCsv needs no dynamic import — see the note there.
@@ -207,8 +220,22 @@ export default function CriminalRecords() {
           />
         </div>
         <div className="toolbar-actions">
-          <Button variant="secondary" onClick={handleExportExcel}>
-            <Icons.Download size={15} strokeWidth={2} /> Export Excel
+          <Button
+            variant="secondary"
+            onClick={handleExportExcel}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? (
+              <>
+                <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Icons.Download size={15} strokeWidth={2} /> Export Excel
+              </>
+            )}
           </Button>
           <Button variant="secondary" onClick={handleExportCsv}>
             <Icons.Download size={15} strokeWidth={2} /> Export CSV
@@ -249,6 +276,11 @@ export default function CriminalRecords() {
               key: 'charges',
               label: 'Charges',
               render: (v) => (v || []).join(', ') || '—',
+              // Charges is an array; ordering on the raw value would compare
+              // every row's "[object Array]" against every other's. It sorts
+              // on the same joined text the cell displays, which is what the
+              // reader sees and therefore what they expect to be ordering by.
+              sortValue: (row) => (row.charges || []).join(', '),
             },
             {
               key: 'relatedCaseNumber',
@@ -282,7 +314,9 @@ export default function CriminalRecords() {
               ),
             },
           ]}
-          rows={filtered}
+          rows={sorted}
+          sort={sort}
+          onSort={toggleSort}
           actions={(row) => (
             <>
               <Button

@@ -1233,6 +1233,30 @@
     page-break-after: avoid;
   }
 
+  /* ---- Sortable column headers on paper -------------------------------
+     A sortable header is a <button> on screen (Table.jsx), and a button is
+     the wrong thing to print: the direction glyph is an on-screen control
+     affordance, not information, and an official record should not carry a
+     "click to sort" arrow next to a column heading.
+
+     The glyph is dropped and the button is flattened back to the plain text
+     the heading always was, so a printed report is identical whether or not
+     the reader happened to sort the table first. WHICH column it is sorted by
+     is not lost — that travels in the document's own meta line, as text, next
+     to the filter summary. */
+  .th-sort-indicator {
+    display: none;
+  }
+
+  .th-sort {
+    display: inline;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+  }
+
   /* ---- Report table lines ---------------------------------------------
      ROOT CAUSE of the missing and incomplete lines in the printed output:
      the base screen rule is

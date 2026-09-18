@@ -5,6 +5,7 @@ import { authService } from '../../services/authService';
 import { ApiError } from '../../services/api';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
+import PermissionsSection from '../settings/PermissionsSection';
 import { Icons } from '../icons';
 
 // Checkpoint 25 — opened from the "⋮" button on the sidebar's account card.
@@ -202,6 +203,17 @@ export default function ProfileSettingsModal({ open, onClose }) {
         Username, email and role aren't editable from here. Contact your
         Administrator to change them.
       </p>
+
+      {/* Browser permissions. Placed last because the fields above are the
+          account — things an Administrator provisioned — whereas these are
+          this browser's own answers about this machine, and nothing here is
+          saved by "Save Changes" (the buttons act immediately and the state
+          belongs to the browser, not the profile record).
+
+          `open` is forwarded so the section re-reads the live permission state
+          each time the modal is opened rather than trusting a value captured
+          when it first mounted. */}
+      <PermissionsSection open={open} />
     </Modal>
   );
 }

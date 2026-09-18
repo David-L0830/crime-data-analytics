@@ -32,6 +32,27 @@ class Incident extends Model
     ];
 
     /**
+     * Statuses a client may ASSIGN through POST /incidents and
+     * PUT /incidents/{incident}.
+     *
+     * 'Archived' is excluded on purpose. Archiving is a two-column write —
+     * previous_status must capture the status being left at the same moment
+     * status becomes 'Archived' — and only IncidentController::archive()
+     * performs it. A create or update carrying status: 'Archived' would reach
+     * 'Archived' without ever setting previous_status, leaving a row that
+     * restore() can only send back to DEFAULT_STATUS, and it would bypass the
+     * already-archived guard and the ARCHIVE audit event as well.
+     * Store/UpdateIncidentRequest validate against this set; STATUSES stays
+     * the full vocabulary for filtering and display.
+     */
+    public const ASSIGNABLE_STATUSES = [
+        'Open',
+        'Under Investigation',
+        'Solved',
+        'Closed',
+    ];
+
+    /**
      * Statuses a record may be restored TO.
      *
      * 'Archived' is excluded on purpose: it is the state being left, so
@@ -52,6 +73,31 @@ class Incident extends Model
      * longer a recognised value — matches the incidents.status column default.
      */
     public const DEFAULT_STATUS = 'Open';
+
+    /**
+     * Record validation states — a separate axis from the case `status`.
+     *
+     * pending   — submitted, awaiting review by a BADAC Administrator.
+     * validated — reviewed and accepted as an official record.
+     * returned  — sent back to the encoder with a correction reason.
+     *
+     * Written ONLY by the server: IncidentController::store() (pending),
+     * approve() (validated), returnForCorrection() (returned) and an Encoder's
+     * update() (back to pending). None of these columns is in mapToColumns(),
+     * so no client payload can set them. Mirrors VALIDATION_STATUSES in
+     * src/utils/constants.js.
+     */
+    public const VALIDATION_PENDING = 'pending';
+
+    public const VALIDATION_VALIDATED = 'validated';
+
+    public const VALIDATION_RETURNED = 'returned';
+
+    public const VALIDATION_STATUSES = [
+        self::VALIDATION_PENDING,
+        self::VALIDATION_VALIDATED,
+        self::VALIDATION_RETURNED,
+    ];
 
     protected $fillable = [
         'incident_code',
@@ -89,6 +135,20 @@ class Incident extends Model
         'evidence',
         'reported_by',
         'synced_at',
+        // Server-controlled only, like previous_status: absent from
+        // IncidentController::mapToColumns() and from the form requests.
+        'validation_status',
+        'validated_by',
+        'validated_at',
+        'returned_by',
+        'returned_at',
+        'correction_reason',
+        // Also server-controlled. Fillable so IncidentController::update() can
+        // append it to the column array, exactly as it appends the validation
+        // columns above — and safe for the same reason: mapToColumns() is an
+        // explicit allow-list that maps no client key to it, and the form
+        // requests never validate one, so nothing a caller sends can reach it.
+        'last_edited_by',
     ];
 
     protected function casts(): array
@@ -101,12 +161,68 @@ class Incident extends Model
             'victim_age' => 'integer',
             'suspect_age' => 'integer',
             'synced_at' => 'datetime',
+            'validated_at' => 'datetime',
+            'returned_at' => 'datetime',
         ];
+    }
+
+    /**
+     * THE definition of official data, in one place.
+     *
+     * An incident is OFFICIAL when it is validated and not archived (Phase 2B).
+     * Only official records may reach Crime Mapping, the Dashboard, Statistical
+     * Analysis, Trend and Pattern Detection, Report Generation and the hotspot
+     * alert — everything, in other words, that presents a figure people act on.
+     *
+     * WHY THIS IS A SCOPE RATHER THAN A CONDITION EACH CALLER WRITES
+     * --------------------------------------------------------------
+     * CP-5A applied the rule by hand at five call sites and three more were
+     * missed: DashboardController, AnalyticsController and the hotspot alert
+     * kept counting unreviewed encodings, so the bell could announce a hotspot
+     * for a sitio the Trends page showed as empty. That is the same failure
+     * AppNotification::scopeVisibleTo() was extracted to end, for the same
+     * reason — a rule copied into every caller is a rule the next caller
+     * forgets. There is now one sentence to read and one place to change it.
+     *
+     * The two conditions are independent and both are load-bearing: archiving
+     * retires a case whether or not it was ever reviewed, and validation
+     * decides whether anybody has vouched for it. A validated ARCHIVED record
+     * is excluded by the first, an active PENDING one by the second.
+     *
+     * Fails closed by construction: a record whose validation_status is
+     * anything other than 'validated' — including a row that predates the
+     * column — is simply not official.
+     */
+    public function scopeOfficial($query)
+    {
+        return $query
+            ->where('status', '!=', 'Archived')
+            ->where('validation_status', self::VALIDATION_VALIDATED);
     }
 
     public function reporter()
     {
         return $this->belongsTo(User::class, 'reported_by');
+    }
+
+    /**
+     * The last authenticated user to substantively edit this incident's
+     * content. Null on a record nobody has edited since the column existed —
+     * which is every record created before it, and every newly created one.
+     */
+    public function lastEditor()
+    {
+        return $this->belongsTo(User::class, 'last_edited_by');
+    }
+
+    public function validator()
+    {
+        return $this->belongsTo(User::class, 'validated_by');
+    }
+
+    public function returner()
+    {
+        return $this->belongsTo(User::class, 'returned_by');
     }
 
     public function criminals()

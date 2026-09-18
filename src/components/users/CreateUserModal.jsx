@@ -1,33 +1,49 @@
 import { useState } from 'react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
+import TemporaryPasswordInput from './TemporaryPasswordInput';
 import { ROLE_OPTIONS, validateAccountFields } from './userValidation';
+import { validateTemporaryPassword } from '../../utils/temporaryPassword';
+import { MFA_METHOD_OPTIONS } from '../../utils/mfaStatus';
 
 // Create New User.
 //
-// Two things are deliberately absent from this form:
+//  1. The password. Supabase Auth owns every credential in this system; the
+//     backend provisions the Supabase identity with the service-role key
+//     (server-side only). There are two ways to give the new account its
+//     first password:
+//       - leave Temporary Password blank: the person receives a setup email
+//         and sets their own (unchanged behaviour); or
+//       - enter or generate a Temporary Password: it is sent once to the
+//         backend, which passes it to Supabase Auth and never stores or
+//         returns it. The administrator is shown it one time to hand over, and
+//         the person must change it at first sign-in.
+//     The value lives only in this form's local state and is cleared on
+//     success and whenever the dialog closes.
 //
-//  1. There is no password field, and there never can be one. Supabase Auth
-//     owns every credential in this system; the backend provisions the
-//     Supabase identity with the service-role key (server-side only) and the
-//     new user then sets their own password from a recovery email. An
-//     administrator never chooses, sees, or transmits someone else's
-//     password.
-//
-//  2. "Require 2FA" is present but disabled, and says why. Enrolling a factor
-//     is self-service in Supabase and this application does not challenge for
-//     a factor at sign-in, so there is nothing a checkbox here could switch
-//     on. Rendering it as a working control would be a promise the system
-//     cannot keep — showing it plainly unavailable is the honest version of
-//     the same information.
-export default function CreateUserModal({ open, onClose, onCreate, saving }) {
+//  2. MFA Method (required). Every account an administrator creates has a
+//     second factor, so the choice is Email OTP or Authenticator App and
+//     there is no "none". Nothing is pre-selected: the administrator makes the
+//     choice deliberately. The backend validates it (StoreUserRequest) and
+//     stores it — this form is not the control. Choosing Authenticator App
+//     does NOT enrol anything: the person scans their own QR code at first
+//     sign-in, so no administrator ever sees their secret.
+export default function CreateUserModal({
+  open,
+  onClose,
+  onCreate,
+  saving,
+  onNotice,
+}) {
   const [form, setForm] = useState({
     fullName: '',
     username: '',
     email: '',
     role: 'encoder',
     isActive: true,
+    mfaMethod: '',
   });
+  const [temporaryPassword, setTemporaryPassword] = useState('');
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
 
@@ -38,7 +54,9 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
       email: '',
       role: 'encoder',
       isActive: true,
+      mfaMethod: '',
     });
+    setTemporaryPassword('');
     setErrors({});
     setFormError('');
   };
@@ -57,17 +75,34 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
 
   const handleSubmit = async () => {
     const found = validateAccountFields(form, { requireEmail: true });
+    if (!MFA_METHOD_OPTIONS.some((option) => option.value === form.mfaMethod)) {
+      found.mfaMethod = 'Choose an MFA method.';
+    }
+    // Optional: only checked when something was entered.
+    if (temporaryPassword !== '') {
+      const problem = validateTemporaryPassword(temporaryPassword, {
+        username: form.username,
+        email: form.email,
+      });
+      if (problem) found.temporaryPassword = problem;
+    }
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
     setFormError('');
-    const failure = await onCreate({
+    const payload = {
       fullName: form.fullName.trim(),
       username: form.username.trim(),
       email: form.email.trim(),
       role: form.role,
       isActive: form.isActive,
-    });
+      mfaMethod: form.mfaMethod,
+    };
+    // Sent exactly as typed (never trimmed) and only when present, so a blank
+    // field keeps the original setup-email path.
+    if (temporaryPassword !== '') payload.temporaryPassword = temporaryPassword;
+
+    const failure = await onCreate(payload);
 
     if (failure) setFormError(failure);
     else reset();
@@ -96,9 +131,14 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           type="text"
           value={form.fullName}
           aria-invalid={Boolean(errors.fullName)}
+          aria-describedby={errors.fullName ? 'create-full-name-error' : undefined}
           onChange={(e) => set('fullName', e.target.value)}
         />
-        {errors.fullName && <p className="field-error">{errors.fullName}</p>}
+        {errors.fullName && (
+          <p className="field-error" id="create-full-name-error">
+            {errors.fullName}
+          </p>
+        )}
       </div>
 
       <div className="form-group">
@@ -108,9 +148,14 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           type="text"
           value={form.username}
           aria-invalid={Boolean(errors.username)}
+          aria-describedby={errors.username ? 'create-username-error' : undefined}
           onChange={(e) => set('username', e.target.value)}
         />
-        {errors.username && <p className="field-error">{errors.username}</p>}
+        {errors.username && (
+          <p className="field-error" id="create-username-error">
+            {errors.username}
+          </p>
+        )}
       </div>
 
       <div className="form-group">
@@ -120,14 +165,34 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
           type="email"
           value={form.email}
           aria-invalid={Boolean(errors.email)}
+          aria-describedby={errors.email ? 'create-email-error' : undefined}
           onChange={(e) => set('email', e.target.value)}
         />
-        {errors.email && <p className="field-error">{errors.email}</p>}
+        {errors.email && (
+          <p className="field-error" id="create-email-error">
+            {errors.email}
+          </p>
+        )}
         <p className="form-hint">
-          The account is created in Supabase with this address, and the person
-          receives an email to set their own password.
+          {temporaryPassword
+            ? 'The account is created in Supabase with this address and the temporary password below. No setup email is sent.'
+            : 'The account is created in Supabase with this address, and the person receives an email to set their own password.'}
         </p>
       </div>
+
+      <TemporaryPasswordInput
+        id="create-temporary-password"
+        label="Temporary Password (optional)"
+        value={temporaryPassword}
+        onChange={(value) => {
+          setTemporaryPassword(value);
+          setErrors((prev) => ({ ...prev, temporaryPassword: undefined }));
+        }}
+        error={errors.temporaryPassword}
+        hint="Leave blank to send a password setup email instead. A temporary password expires after 72 hours and must be changed at first sign-in."
+        disabled={saving}
+        onNotice={onNotice}
+      />
 
       <div className="form-group">
         <label htmlFor="create-role">Role</label>
@@ -173,15 +238,44 @@ export default function CreateUserModal({ open, onClose, onCreate, saving }) {
       </div>
 
       <div className="form-group">
-        <label className="checkbox-option checkbox-option-disabled">
-          <input type="checkbox" disabled checked={false} readOnly />
-          Require 2FA
-        </label>
-        <p className="form-hint">
-          Not available. Two-factor authentication IS enforced at sign-in once
-          enrolled, but enrolling means scanning a QR code with a device only
-          the account holder has, so it can only be done by them from their own
-          security panel — never provisioned from here.
+        <label id="create-mfa-method-label">MFA Method *</label>
+        <div
+          className="radio-row radio-row-stacked"
+          role="radiogroup"
+          aria-labelledby="create-mfa-method-label"
+          aria-required="true"
+          aria-invalid={Boolean(errors.mfaMethod)}
+          aria-describedby={
+            errors.mfaMethod ? 'create-mfa-method-error' : 'create-mfa-method-hint'
+          }
+        >
+          {MFA_METHOD_OPTIONS.map((option) => (
+            <label className="radio-option radio-option-described" key={option.value}>
+              <input
+                type="radio"
+                name="create-mfa-method"
+                value={option.value}
+                checked={form.mfaMethod === option.value}
+                onChange={() => set('mfaMethod', option.value)}
+                disabled={saving}
+              />
+              <span>
+                <span className="radio-option-title">{option.label}</span>
+                <span className="radio-option-description">
+                  {option.description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {errors.mfaMethod && (
+          <p className="field-error" id="create-mfa-method-error">
+            {errors.mfaMethod}
+          </p>
+        )}
+        <p className="form-hint" id="create-mfa-method-hint">
+          Required for every account. An authenticator app is set up by the
+          person on their own device — you never see its secret or QR code.
         </p>
       </div>
 

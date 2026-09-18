@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '../layouts/MainLayout';
 import ProtectedRoute from './ProtectedRoute';
 import Landing from '../pages/Landing';
@@ -15,7 +15,6 @@ const IncidentFeed = lazy(() => import('../pages/IncidentFeed'));
 const Mapping = lazy(() => import('../pages/Mapping'));
 const Analytics = lazy(() => import('../pages/Analytics'));
 const Trends = lazy(() => import('../pages/Trends'));
-const Records = lazy(() => import('../pages/Records'));
 const CriminalRecords = lazy(() => import('../pages/CriminalRecords'));
 const VictimRecords = lazy(() => import('../pages/VictimRecords'));
 const CriminalProfile = lazy(() => import('../pages/CriminalProfile'));
@@ -23,11 +22,17 @@ const VictimProfile = lazy(() => import('../pages/VictimProfile'));
 const AuditLogs = lazy(() => import('../pages/AuditLogs'));
 const UserManagement = lazy(() => import('../pages/UserManagement'));
 const Settings = lazy(() => import('../pages/Settings'));
+const ScheduledReports = lazy(() => import('../pages/ScheduledReports'));
 
 function PageFallback() {
   return (
-    <div className="empty-state" style={{ padding: 60 }}>
-      <div className="spinner" />
+    <div className="empty-state" style={{ padding: 60 }} role="status">
+      {/* The spinner carries no text, so on its own it is silence to a screen
+          reader — the page simply appears to stop. aria-hidden on the graphic
+          and a visually hidden label beside it gives the same information in
+          the one form assistive technology can use. */}
+      <div className="spinner" aria-hidden="true" />
+      <span className="sr-only">Loading page…</span>
     </div>
   );
 }
@@ -71,14 +76,20 @@ export default function AppRoutes() {
         <Route path="/mapping" element={guarded('mapping', Mapping)} />
         <Route path="/analytics" element={guarded('analytics', Analytics)} />
         <Route path="/trends" element={guarded('trends', Trends)} />
-        {/* Records module (Checkpoint 19, Tasks 2/3): landing page offers
-            Criminal Record / Victim Record. Both list routes below reuse the
-            existing CriminalRecords/VictimRecords implementations; the
-            detail routes are unchanged so any existing bookmarks/links to a
-            specific criminal or victim profile keep working. */}
+        {/* Records is a sidebar navigation group, not a page (see
+            Sidebar.jsx). The intermediate chooser page that used to live at
+            /criminal-records is gone; the bare path now redirects to Criminal
+            Records so existing bookmarks and links still arrive somewhere
+            useful. It stays behind the same 'criminal-records' guard, so a
+            role without Records access is still turned away. The list and
+            profile routes below are unchanged. */}
         <Route
           path="/criminal-records"
-          element={guarded('criminal-records', Records)}
+          element={
+            <ProtectedRoute moduleId="criminal-records">
+              <Navigate to="/criminal-records/criminal" replace />
+            </ProtectedRoute>
+          }
         />
         <Route
           path="/criminal-records/criminal"
@@ -100,6 +111,14 @@ export default function AppRoutes() {
         <Route
           path="/user-management"
           element={guarded('user-management', UserManagement)}
+        />
+        <Route path="/reports" element={guarded('reports', ScheduledReports)} />
+        {/* Legacy URL of the Reports module. Kept as a redirect so existing
+            bookmarks still arrive; it grants nothing — /reports applies its
+            own guard, so a role without Reports access is still turned away. */}
+        <Route
+          path="/scheduled-reports"
+          element={<Navigate to="/reports" replace />}
         />
         <Route path="/settings" element={guarded('settings', Settings)} />
         {/* Checkpoint 28 — /security route removed; its Two-Factor

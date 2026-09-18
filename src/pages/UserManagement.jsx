@@ -3,6 +3,13 @@ import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { userService } from '../services/userService';
 import { ApiError } from '../services/api';
+import {
+  emailMfaRemainsNotice,
+  hasSecondFactor,
+  mfaStatusLabel,
+  usesAuthenticatorAppMfa,
+  usesEmailOtpMfa,
+} from '../utils/mfaStatus';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
@@ -15,6 +22,9 @@ import UserRowMenu from '../components/users/UserRowMenu';
 import UserDetailsModal from '../components/users/UserDetailsModal';
 import UserActivityModal from '../components/users/UserActivityModal';
 import CreateUserModal from '../components/users/CreateUserModal';
+import ReissueTemporaryPasswordModal from '../components/users/ReissueTemporaryPasswordModal';
+import OneTimeCredentialModal from '../components/users/OneTimeCredentialModal';
+import { temporaryCredentialLabel } from '../utils/temporaryPassword';
 import EditUserModal from '../components/users/EditUserModal';
 import ConfirmActionModal from '../components/users/ConfirmActionModal';
 import SecuritySummary from '../components/users/SecuritySummary';
@@ -66,6 +76,14 @@ export default function UserManagement() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState('');
 
+  // Temporary passwords. `reissueUser` is the account being reissued;
+  // `oneTimeCredential` is the ONE-TIME display after a successful create or
+  // reissue ({ password, expiresAt, accountName, reissued }). Both live only in
+  // this page's memory and are set back to null when their dialog closes —
+  // which is the only place the password is ever held after submission.
+  const [reissueUser, setReissueUser] = useState(null);
+  const [oneTimeCredential, setOneTimeCredential] = useState(null);
+
   const load = () => {
     if (!isAdmin) return;
     setLoading(true);
@@ -101,8 +119,11 @@ export default function UserManagement() {
       if (roleFilter && user.role !== roleFilter) return false;
       if (statusFilter === 'active' && !user.isActive) return false;
       if (statusFilter === 'inactive' && user.isActive) return false;
-      if (twoFactorFilter === 'enabled' && !user.twoFactorEnabled) return false;
-      if (twoFactorFilter === 'disabled' && user.twoFactorEnabled) return false;
+      // hasSecondFactor, not twoFactorEnabled: an email_otp account has no
+      // Supabase factor but is challenged for an emailed code at every
+      // sign-in, so filtering it into "disabled" would be wrong.
+      if (twoFactorFilter === 'enabled' && !hasSecondFactor(user)) return false;
+      if (twoFactorFilter === 'disabled' && hasSecondFactor(user)) return false;
       return true;
     });
   }, [users, search, roleFilter, statusFilter, twoFactorFilter]);
@@ -159,6 +180,20 @@ export default function UserManagement() {
         [...prev, created].sort((a, b) => a.fullName.localeCompare(b.fullName)),
       );
       setCreating(false);
+
+      // Temporary-password path: NO setup email. The administrator is shown
+      // the password once — the value this browser just submitted, never
+      // fetched back from the server — together with the server's own expiry.
+      if (payload.temporaryPassword) {
+        setOneTimeCredential({
+          password: payload.temporaryPassword,
+          expiresAt: created.temporaryCredentialExpiresAt,
+          accountName: created.fullName,
+          reissued: false,
+        });
+        showToast(`Account created for ${created.fullName}.`, 'success');
+        return undefined;
+      }
 
       // The account exists in both systems at this point but has no password
       // anyone knows, so it cannot be signed into until the recipient sets
@@ -235,7 +270,13 @@ export default function UserManagement() {
       if (type === 'two-factor') {
         replaceUser(await userService.disableTwoFactor(user.id));
         showToast(
-          'Two-factor authentication cleared for this account.',
+          // For an Authenticator App account the backend resets rather than
+          // removes: the requirement stays on and a new authenticator must be
+          // set up, so saying MFA was cleared would be false.
+          usesAuthenticatorAppMfa(user)
+            ? 'Authenticator reset. They must set up a new authenticator app at their next sign-in.'
+            : 'Two-factor authentication cleared for this account.' +
+                emailMfaRemainsNotice(user),
           'success',
         );
       }
@@ -251,7 +292,14 @@ export default function UserManagement() {
       if (type === 'two-factor-cancel') {
         replaceUser(await userService.setTwoFactorRequired(user.id, false));
         showToast(
-          'Two-factor authentication is no longer required for this account.',
+          // For an email_otp account this action lifts only the AUTHENTICATOR
+          // requirement; the emailed code stays mandatory (it follows
+          // users.mfa_method, which nothing here changes). Claiming MFA was
+          // switched off would be false.
+          usesEmailOtpMfa(user)
+            ? 'The authenticator requirement was removed.' +
+                emailMfaRemainsNotice(user)
+            : 'Two-factor authentication is no longer required for this account.',
           'success',
         );
       }
@@ -322,33 +370,63 @@ export default function UserManagement() {
             icon: <Icons.Mail size={14} strokeWidth={2} />,
             onSelect: () => openConfirm('password-reset', user),
           },
-          // Three states, one slot. An account is either enrolled (the
-          // factor can be cleared), required-but-not-yet-enrolled (the
-          // requirement can be lifted), or neither (a requirement can be
-          // imposed). Requiring is NOT enrolling: it sets a flag on the
-          // Supabase identity and nothing else — the account holder still
-          // scans their own QR code, and no administrator ever sees the
-          // secret. See UserController::requireTwoFactor.
-          user.twoFactorEnabled
-            ? {
-                key: 'two-factor',
-                label: 'Clear 2FA',
-                icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-                onSelect: () => openConfirm('two-factor', user),
-              }
-            : user.mfaRequiredByAdmin
-              ? {
-                  key: 'two-factor-cancel',
-                  label: 'Cancel 2FA Requirement',
+          // Independently enforced by the backend: role:badac_admin on the
+          // route, and UserController::issueTemporaryPassword refuses your own
+          // account and inactive accounts with a 422.
+          {
+            key: 'temporary-password',
+            label: 'Reissue Temporary Password',
+            icon: <Icons.Lock size={14} strokeWidth={2} />,
+            disabled: isSelf || !user.isActive,
+            title: isSelf
+              ? 'You cannot issue a temporary password to your own account'
+              : !user.isActive
+                ? 'Activate this account first'
+                : undefined,
+            onSelect: () => setReissueUser(user),
+          },
+          // One slot, by account state. Requiring is NOT enrolling: it sets a
+          // flag on the Supabase identity and nothing else — the account
+          // holder still scans their own QR code, and no administrator ever
+          // sees the secret. See UserController::requireTwoFactor.
+          //
+          // Authenticator App accounts (every account not on email OTP) can
+          // never be left without MFA, and the backend enforces that:
+          //   enrolled            -> Reset Authenticator (re-enrolment required)
+          //   pending enrolment   -> nothing to do; no cancel is offered
+          //   neither (older acct) -> Require 2FA
+          // Email OTP accounts keep their existing actions, because the emailed
+          // code stays mandatory whatever happens to the authenticator.
+          ...(user.twoFactorEnabled
+            ? [
+                {
+                  key: 'two-factor',
+                  label: usesAuthenticatorAppMfa(user)
+                    ? 'Reset Authenticator'
+                    : 'Clear 2FA',
                   icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-                  onSelect: () => openConfirm('two-factor-cancel', user),
-                }
-              : {
-                  key: 'two-factor-require',
-                  label: 'Require 2FA',
-                  icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
-                  onSelect: () => openConfirm('two-factor-require', user),
+                  onSelect: () => openConfirm('two-factor', user),
                 },
+              ]
+            : user.mfaRequiredByAdmin
+              ? usesEmailOtpMfa(user)
+                ? [
+                    {
+                      key: 'two-factor-cancel',
+                      label: 'Cancel 2FA Requirement',
+                      icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                      onSelect: () => openConfirm('two-factor-cancel', user),
+                    },
+                  ]
+                : []
+              : [
+                  {
+                    key: 'two-factor-require',
+                    label: 'Require 2FA',
+                    icon: <Icons.ShieldCheck size={14} strokeWidth={2} />,
+                    onSelect: () => openConfirm('two-factor-require', user),
+                  },
+                ]),
           {
             key: 'status',
             separatorBefore: true,
@@ -389,8 +467,10 @@ export default function UserManagement() {
       </div>
 
       {loading ? (
-        <div className="empty-state" style={{ padding: 60 }}>
-          <div className="spinner" />
+        // The visible text is already the right message; role="status" is what
+        // makes it reach a screen reader when it appears.
+        <div className="empty-state" style={{ padding: 60 }} role="status">
+          <div className="spinner" aria-hidden="true" />
           <p style={{ color: 'var(--text-muted)' }}>Loading users…</p>
         </div>
       ) : loadError ? (
@@ -478,14 +558,27 @@ export default function UserManagement() {
                 {
                   key: 'isActive',
                   label: 'Status',
-                  render: (v) => <Badge status={v ? 'Active' : 'Inactive'} />,
+                  // The temporary-credential badge is a STATE only
+                  // (pending/expired, from the administrator-only
+                  // temporaryCredentialStatus field). No password is ever
+                  // available to this list.
+                  render: (v, row) => (
+                    <div className="user-status-cell">
+                      <Badge status={v ? 'Active' : 'Inactive'} />
+                      {temporaryCredentialLabel(row) && (
+                        <Badge status={temporaryCredentialLabel(row)} />
+                      )}
+                    </div>
+                  ),
                 },
                 {
                   key: 'twoFactorEnabled',
                   label: '2FA',
-                  render: (v) => (
-                    <Badge status={v ? 'Enrolled' : 'Not enrolled'} />
-                  ),
+                  // Reads the whole row, not just twoFactorEnabled: an
+                  // email_otp account has no Supabase factor yet is required
+                  // to enter an emailed code, and must not be badged
+                  // "Not enrolled". See src/utils/mfaStatus.js.
+                  render: (_v, row) => <Badge status={mfaStatusLabel(row)} />,
                 },
                 {
                   key: 'lastLoginAt',
@@ -542,6 +635,30 @@ export default function UserManagement() {
         saving={saving}
         onClose={() => setCreating(false)}
         onCreate={handleCreate}
+        onNotice={showToast}
+      />
+
+      <ReissueTemporaryPasswordModal
+        user={reissueUser}
+        onClose={() => setReissueUser(null)}
+        onNotice={showToast}
+        onIssued={(updated, password) => {
+          replaceUser(updated);
+          setReissueUser(null);
+          setOneTimeCredential({
+            password,
+            expiresAt: updated.temporaryCredentialExpiresAt,
+            accountName: updated.fullName,
+            reissued: true,
+          });
+          showToast(`Temporary password reissued for ${updated.fullName}.`, 'success');
+        }}
+      />
+
+      <OneTimeCredentialModal
+        credential={oneTimeCredential}
+        onClose={() => setOneTimeCredential(null)}
+        onNotice={showToast}
       />
 
       <ConfirmActionModal
@@ -644,18 +761,41 @@ export default function UserManagement() {
           <strong>{confirm?.user?.fullName}</strong>
           <span>Username: {confirm?.user?.username}</span>
         </div>
-        <p className="confirm-note">
-          This account has not finished setting up an authenticator yet.
-          Cancelling lets them sign in with their password alone again. They can
-          still choose to enrol one themselves at any time.
-        </p>
+        {/* The generic wording promises sign-in with a password alone, which
+            is true only when the authenticator requirement is the account's
+            only second factor. An email_otp account keeps its emailed-code
+            requirement regardless — that follows users.mfa_method, which this
+            action does not touch. */}
+        {usesEmailOtpMfa(confirm?.user) ? (
+          <p className="confirm-note">
+            This account signs in with an emailed one-time code, and that stays
+            required — cancelling here only lifts the separate authenticator-app
+            requirement. It does not let them sign in with their password alone.
+          </p>
+        ) : (
+          <p className="confirm-note">
+            The authenticator requirement cannot be cancelled for an
+            Authenticator App account, because it would leave the account with
+            no two-factor authentication. The request will be refused.
+          </p>
+        )}
       </ConfirmActionModal>
 
       <ConfirmActionModal
         open={confirm?.type === 'two-factor'}
-        title="Clear Two-Factor Authentication"
-        confirmLabel="Clear Factor"
-        busyLabel="Clearing…"
+        title={
+          usesAuthenticatorAppMfa(confirm?.user)
+            ? 'Reset Authenticator'
+            : 'Clear Two-Factor Authentication'
+        }
+        confirmLabel={
+          usesAuthenticatorAppMfa(confirm?.user)
+            ? 'Reset Authenticator'
+            : 'Clear Factor'
+        }
+        busyLabel={
+          usesAuthenticatorAppMfa(confirm?.user) ? 'Resetting…' : 'Clearing…'
+        }
         variant="danger"
         busy={confirmBusy}
         error={confirmError}
@@ -669,11 +809,22 @@ export default function UserManagement() {
           <strong>{confirm?.user?.fullName}</strong>
           <span>Username: {confirm?.user?.username}</span>
         </div>
-        <p className="confirm-note">
-          This is the recovery path for someone who has lost their authenticator
-          device. They will be able to sign in without a code and can enrol a
-          new factor themselves. No secret or recovery code is ever displayed.
-        </p>
+        {usesAuthenticatorAppMfa(confirm?.user) ? (
+          <p className="confirm-note">
+            This is the recovery path for someone who has lost their
+            authenticator device. Two-factor authentication stays required:
+            at their next sign-in they must set up a new authenticator app
+            before they can use the system. No secret or recovery code is ever
+            displayed.
+          </p>
+        ) : (
+          <p className="confirm-note">
+            This is the recovery path for someone who has lost their
+            authenticator device. Removing the authenticator does not remove
+            email verification — a one-time code is still emailed at every
+            sign-in. No secret or recovery code is ever displayed.
+          </p>
+        )}
       </ConfirmActionModal>
     </section>
   );

@@ -96,10 +96,10 @@ class MetabaseEmbedTest extends TestCase
         $this->getJson('/api/embed/metabase/crime')->assertForbidden();
     }
 
-    public function test_badac_readonly_can_obtain_an_embed_url(): void
+    public function test_badac_validator_can_obtain_an_embed_url(): void
     {
         $this->configureMetabase();
-        $this->signedInAs(User::ROLE_BADAC_READONLY);
+        $this->signedInAs(User::ROLE_BADAC_VALIDATOR);
 
         $this->getJson('/api/embed/metabase/crime')
             ->assertOk()

@@ -68,15 +68,65 @@ async function currentAccessToken() {
 //   'unauthenticated' — reached the server; no/invalid/expired session.
 //   'forbidden'        — reached the server; authenticated but not authorized.
 //   'not_found' | 'validation' | 'server' | 'unknown'
+//
+// `flags` carries the backend's boolean state flags from a refusal — e.g.
+// { passwordChangeRequired, temporaryPasswordExpired, reauthenticationRequired,
+// passwordUpdateFailed } (see EnsurePasswordChanged / PasswordController). Only
+// strictly boolean `true` values are copied, never any other part of the body.
 export class ApiError extends Error {
-  constructor(message, status, errors, type = 'unknown', mfaRequired = false) {
+  constructor(
+    message,
+    status,
+    errors,
+    type = 'unknown',
+    mfaRequired = false,
+    flags = {},
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.errors = errors || null;
     this.type = type;
     this.mfaRequired = Boolean(mfaRequired);
+    this.flags = flags;
   }
+}
+
+const STATE_FLAGS = [
+  'passwordChangeRequired',
+  'temporaryPasswordExpired',
+  'reauthenticationRequired',
+  'passwordUpdateFailed',
+  'passwordChangedPendingSync',
+  'temporaryPasswordPendingSync',
+];
+
+function stateFlags(payload) {
+  const flags = {};
+  STATE_FLAGS.forEach((name) => {
+    if (payload?.[name] === true) flags[name] = true;
+  });
+  return flags;
+}
+
+// Fired on `window` when ANY request comes back 403 because the signed-in
+// account now owes a password change or its session predates one (see
+// EnsurePasswordChanged) — e.g. an administrator reissued a temporary password
+// mid-visit. AuthContext listens and re-runs its existing admission check, so
+// the screen follows the server instead of every page treating the 403 as an
+// ordinary "forbidden". The event carries no data at all.
+//
+// Not fired for POST /me/password: the change-password step handles its own
+// responses.
+export const CREDENTIAL_STATE_EVENT = 'cdars:credential-state-changed';
+
+function announceCredentialState(path, flags) {
+  if (path === '/me/password') return;
+  if (!flags.passwordChangeRequired && !flags.reauthenticationRequired) return;
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+    return;
+  }
+  window.dispatchEvent(new Event(CREDENTIAL_STATE_EVENT));
 }
 
 async function request(path, { method = 'GET', body, token, ...rest } = {}) {
@@ -153,12 +203,16 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
       (type === 'server' &&
         'Something went wrong on the server. Please try again.') ||
       'Something went wrong.';
+    const flags = stateFlags(payload);
+    if (response.status === 403) announceCredentialState(path, flags);
+
     throw new ApiError(
       message,
       response.status,
       payload?.errors,
       type,
       isMfaRequired,
+      flags,
     );
   }
 

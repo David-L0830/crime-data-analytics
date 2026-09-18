@@ -403,7 +403,7 @@ The core resource. `IncidentResource` returns **camelCase** keys, while database
 
 ### GET `/api/incidents/map`
 
-**Purpose** — a lightweight payload for the map view. Returns only incidents that **have coordinates** and are **not archived**.
+**Purpose** — a lightweight payload for the map view. Returns only incidents that **have coordinates** and are **official** — `status != 'Archived'` **and** `validation_status = 'validated'`. A pending or returned incident is never plotted. `validation_status` itself is not in the payload: the filtering happens in the query rather than by handing the client a workflow column to filter on.
 
 **Authentication** — Authenticated.
 
@@ -509,7 +509,7 @@ A duplicate case number returns `422` with the message *"Case number already exi
 
 ## Analytics
 
-All four endpoints exclude `status = 'Archived'` at the database level.
+All four endpoints answer with **official data only** — `status != 'Archived'` **and** `validation_status = 'validated'` — applied at the database level in `AnalyticsController::baseQuery()`. A pending or returned incident is counted by none of them, so a sitio or crime type holding nothing but unreviewed encodings is absent from these responses rather than present with an overstated count.
 
 ### GET `/api/analytics`
 
@@ -572,7 +572,7 @@ All four endpoints exclude `status = 'Archived'` at the database level.
 
 ### GET `/api/dashboard`
 
-**Purpose** — a single aggregate payload for the dashboard summary. Excludes archived incidents.
+**Purpose** — a single aggregate payload for the dashboard summary. Every incident-derived figure below counts **official data only** — `status != 'Archived'` **and** `validation_status = 'validated'`. `totalCriminalRecords`, `lastSync` and `settings` are not incident figures and are unaffected by that rule.
 
 **Authentication** — **admin** or **readonly**.
 
@@ -603,7 +603,7 @@ All four endpoints exclude `status = 'Archived'` at the database level.
 }
 ```
 
-`hotspotCount` counts sitios whose incident total meets or exceeds `settings.hotspot_threshold`.
+`hotspotCount` counts sitios whose **official** incident total meets or exceeds `settings.hotspot_threshold`. This is the same definition the *"Hotspot Alert"* notification announces on (see **Notifications**), so the two cannot disagree about which sitios qualify.
 
 **Status codes** — `200`, `401`, `403`
 
@@ -771,6 +771,7 @@ A `503` means `METABASE_SITE_URL`, the embedding secret, or the dashboard ID is 
 Two scoping rules apply, both relative to the authenticated caller:
 
 - **Audience.** A notification may name the roles it is for (`app_notifications.audience_roles`). A notification with no audience reaches every role; one addressed to specific roles is omitted for everybody else. Incident announcements have no audience; the *"New Criminal Record"* / *"New Victim Record"* announcements are addressed to **admin** and **badac** only, since Encoder has no Records access.
+- **Hotspot Alerts are emitted from official data.** *"Hotspot Alert"* is written when a sitio's **official** incident count (`status != 'Archived'` and `validation_status = 'validated'`) first reaches `settings.hotspot_threshold`. Only the crossing announces, and only the two transitions that can raise that count trigger the check: validating a record (`PUT /incidents/{id}/validate`) and restoring an archived record that was already validated (`PUT /incidents/{id}/restore`). **Creating an incident never emits one** — a new record is always `pending`, so it cannot move the official count. Archiving, returning or materially editing a validated record lowers the count and lets a later transition cross again.
 - **Read state is per-user.** `read` answers *"has this user read it"*, resolved from the `notification_reads` table, not from a shared column. One account marking a notification read has no effect on another account's unread count. The legacy `app_notifications.read` column is still honoured as a global "read by everyone" flag so notifications dismissed before per-user tracking existed do not reappear.
 
 **Authentication** — Authenticated.

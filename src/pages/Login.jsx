@@ -4,7 +4,14 @@ import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useToast } from '../hooks/useToast';
 import { defaultRouteForRole } from '../utils/constants';
+import {
+  RESEND_COOLDOWN_MS,
+  classifyEmailMfaSend,
+  emailMfaAutoSend,
+  resendSecondsRemaining,
+} from '../utils/emailMfaAutoSend';
 import { Icons } from '../components/icons';
+import OtpInput from '../components/auth/OtpInput';
 import logo from '../assets/images/barangay178-logo.png';
 import hallPhoto from '../assets/images/barangay178-hall.png';
 import PrivacyPolicyModal from '../components/legal/PrivacyPolicyModal';
@@ -24,6 +31,11 @@ import HelpDeskModal from '../components/support/HelpDeskModal';
 // satisfied it yet. Password entry alone never signs such an account in: the
 // challenge is not a screen this page decides to show, it is the shape of a
 // session that is not finished. See AuthContext.jsx.
+// Mirrors User::TEMPORARY_PASSWORD_MIN_LENGTH on the server (and
+// MIN_PASSWORD_LENGTH in ResetPassword.jsx). A convenience check only: the
+// backend enforces it, along with the 72-byte and other rules.
+const MIN_NEW_PASSWORD_LENGTH = 8;
+
 export default function Login() {
   const {
     loginWithEmail,
@@ -31,6 +43,11 @@ export default function Login() {
     currentUser,
     pendingMfa,
     pendingMfaEnrollment,
+    pendingEmailMfa,
+    pendingPasswordChange,
+    changePassword,
+    sendEmailMfaCode,
+    verifyEmailMfaCode,
     startMfaEnrollment,
     verifyMfaChallenge,
     cancelMfaChallenge,
@@ -60,6 +77,36 @@ export default function Login() {
   const [enrollLoading, setEnrollLoading] = useState(false);
   const [enrollCode, setEnrollCode] = useState('');
   const [enrollError, setEnrollError] = useState('');
+
+  // Step two(c) — email MFA, for an account configured to receive a one-time
+  // code by email instead of using an authenticator app. The code itself is
+  // never held here beyond the input's own value.
+  const [emailCode, setEmailCode] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emailInfo, setEmailInfo] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  // Resend cooldown mirrors the server's one-code-a-minute limit so the
+  // button is not offered when the server would refuse it anyway. The server
+  // remains the authority — a 429 is still handled.
+  const [resendAt, setResendAt] = useState(0);
+
+  // Step three — forced password change after a temporary password.
+  const [currentTempPassword, setCurrentTempPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChangeErrors, setPasswordChangeErrors] = useState({});
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!resendAt || resendAt <= Date.now()) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [resendAt]);
+
+  const resendSeconds = resendSecondsRemaining(resendAt, now);
 
   useEffect(() => {
     if (currentUser) {
@@ -107,6 +154,13 @@ export default function Login() {
       return;
     }
 
+    // Signed in with a temporary password: not in yet. The password typed
+    // here is cleared at once rather than kept for the change form.
+    if (result.passwordChangeRequired) {
+      setPassword('');
+      return;
+    }
+
     showToast(`Welcome back, ${result.user.fullName}!`, 'success');
   };
 
@@ -120,6 +174,16 @@ export default function Login() {
     setVerifying(true);
     const result = await verifyMfaChallenge(code);
     setVerifying(false);
+    // TOTP accepted, but this account also owes an emailed code: AuthContext
+    // has moved to the email step, and nobody is signed in yet.
+    if (
+      result.success &&
+      (result.mfaRequired || result.passwordChangeRequired)
+    ) {
+      setTotpError('');
+      setTotpCode('');
+      return;
+    }
     if (result.success) {
       setTotpError('');
       setTotpCode('');
@@ -176,6 +240,17 @@ export default function Login() {
     // really aal2 before anybody is signed in.
     const result = await verifyMfaChallenge(code, enrollData.id);
     setVerifying(false);
+    // Same handoff as the challenge step: an emailed code is still owed, or a
+    // temporary password must be changed first.
+    if (
+      result.success &&
+      (result.mfaRequired || result.passwordChangeRequired)
+    ) {
+      setEnrollError('');
+      setEnrollCode('');
+      setEnrollData(null);
+      return;
+    }
     if (result.success) {
       setEnrollError('');
       setEnrollCode('');
@@ -187,14 +262,163 @@ export default function Login() {
     }
   };
 
+  const sendEmailCode = async ({ automatic }) => {
+    setEmailSending(true);
+    setEmailError('');
+    const result = await sendEmailMfaCode();
+    setEmailSending(false);
+    const outcome = classifyEmailMfaSend(result, { automatic });
+    if (outcome === 'sent') {
+      setEmailCodeSent(true);
+      setEmailCode('');
+      setEmailInfo(
+        `A 6-digit code was sent to your email address. It expires in ${Math.round(
+          result.expiresInSeconds / 60,
+        )} minutes.`,
+      );
+      setResendAt(Date.now() + RESEND_COOLDOWN_MS);
+      setNow(Date.now());
+    } else if (outcome === 'already_sent') {
+      // The automatic send met the server's send throttle: a code went out
+      // moments ago (typically just before a page reload) and is still valid.
+      setEmailCodeSent(true);
+      setEmailInfo(
+        'A verification code was sent to your email address moments ago. Enter it below, or request a new code when the timer ends.',
+      );
+      setResendAt(Date.now() + RESEND_COOLDOWN_MS);
+      setNow(Date.now());
+    } else {
+      if (result.rateLimited) {
+        setResendAt(Date.now() + RESEND_COOLDOWN_MS);
+        setNow(Date.now());
+      }
+      setEmailError(result.error);
+    }
+  };
+
+  // Manual send / resend. Deliberately NOT routed through emailMfaAutoSend,
+  // so the button always works; the server's throttle is the only limit.
+  const handleSendEmailCode = () => sendEmailCode({ automatic: false });
+
+  // Sends the first code as soon as the email step is reached, once per
+  // episode. emailMfaAutoSend absorbs re-renders, StrictMode's double effect
+  // run, and remounts of this page; AuthContext resets it when the step ends.
+  // No cancellation on cleanup: under StrictMode the first run is the one
+  // that sends, and its result must still reach the screen.
+  useEffect(() => {
+    if (!pendingEmailMfa) return;
+    emailMfaAutoSend.trigger(() => sendEmailCode({ automatic: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEmailMfa]);
+
+  const handleVerifyEmailCode = async (e) => {
+    e.preventDefault();
+    const code = emailCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setEmailError('Enter the 6-digit code from your email.');
+      return;
+    }
+    setVerifying(true);
+    const result = await verifyEmailMfaCode(code);
+    setVerifying(false);
+    if (result.success) {
+      setEmailError('');
+      setEmailInfo('');
+      setEmailCode('');
+      setEmailCodeSent(false);
+      // Email code accepted, but a temporary password must still be changed.
+      if (result.passwordChangeRequired) return;
+      showToast(`Welcome back, ${result.user.fullName}!`, 'success');
+    } else {
+      setEmailCode('');
+      setEmailError(result.error);
+    }
+  };
+
   const handleCancelMfa = async () => {
+    setEmailCode('');
+    setEmailError('');
+    setEmailInfo('');
+    setEmailCodeSent(false);
+    setResendAt(0);
     setTotpCode('');
     setTotpError('');
     setEnrollCode('');
     setEnrollError('');
     setEnrollData(null);
     setPassword('');
+    clearPasswordChangeForm();
     await cancelMfaChallenge();
+  };
+
+  // Forced password change. The three values live only in this component's
+  // own state for as long as the form is on screen, and are cleared on submit,
+  // on cancel, and whenever the step ends. They are never logged.
+  const clearPasswordChangeForm = () => {
+    setCurrentTempPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setPasswordChangeErrors({});
+  };
+
+  useEffect(() => {
+    if (!pendingPasswordChange) {
+      setCurrentTempPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setPasswordChangeErrors({});
+      setPasswordChangeError('');
+    }
+  }, [pendingPasswordChange]);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPasswordChangeError('');
+
+    // Client-side checks are a courtesy only; the server re-validates all of
+    // them and is the authority.
+    const clientErrors = {};
+    if (!currentTempPassword) {
+      clientErrors.current_password = ['Enter your temporary password.'];
+    }
+    if (newPassword.length < MIN_NEW_PASSWORD_LENGTH) {
+      clientErrors.password = [
+        `The new password must be at least ${MIN_NEW_PASSWORD_LENGTH} characters.`,
+      ];
+    } else if (newPassword !== confirmNewPassword) {
+      clientErrors.password = [
+        'The new password and its confirmation do not match.',
+      ];
+    }
+    if (Object.keys(clientErrors).length) {
+      setPasswordChangeErrors(clientErrors);
+      return;
+    }
+
+    setChangingPassword(true);
+    const result = await changePassword({
+      currentPassword: currentTempPassword,
+      password: newPassword,
+      passwordConfirmation: confirmNewPassword,
+    });
+    setChangingPassword(false);
+
+    // Never keep the values around after an attempt, successful or not.
+    setCurrentTempPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+
+    if (result.success) {
+      setPasswordChangeErrors({});
+      showToast(
+        'Your password has been changed. Sign in with your new password.',
+        'success',
+      );
+      return;
+    }
+
+    setPasswordChangeErrors(result.fieldErrors || {});
+    if (!result.signedOut) setPasswordChangeError(result.error || '');
   };
 
   return (
@@ -536,6 +760,264 @@ export default function Login() {
                   </button>
                 </div>
               </form>
+            ) : pendingEmailMfa ? (
+              /* STEP TWO(c) — EMAIL MFA. Same placement rule as the other
+                 second-factor steps: rendered instead of the password form.
+                 Every rejected code shows the same message, because the
+                 server deliberately does not distinguish wrong, expired,
+                 reused or locked-out codes either. */
+              <form
+                className="login-form"
+                autoComplete="off"
+                onSubmit={handleVerifyEmailCode}
+              >
+                <div className="two-factor-heading">
+                  <Icons.ShieldCheck size={18} strokeWidth={2} />
+                  <h2>Email Verification</h2>
+                </div>
+                <p className="two-factor-instructions">
+                  Your password was accepted. To finish signing in, enter the
+                  one-time code sent to the email address on this account.
+                </p>
+
+                <button
+                  type="button"
+                  className="btn-login"
+                  onClick={handleSendEmailCode}
+                  disabled={emailSending || verifying || resendSeconds > 0}
+                  aria-busy={emailSending}
+                >
+                  <span>
+                    {emailSending
+                      ? 'Sending...'
+                      : resendSeconds > 0
+                        ? `Resend code in ${resendSeconds}s`
+                        : emailCodeSent
+                          ? 'Resend code'
+                          : 'Send code'}
+                  </span>
+                </button>
+
+                {emailInfo && (
+                  <p
+                    className="two-factor-instructions"
+                    role="status"
+                    style={{ marginTop: 12 }}
+                  >
+                    {emailInfo}
+                  </p>
+                )}
+
+                <div className="form-group" style={{ marginTop: 12 }}>
+                  <label id="email-mfa-code-label" htmlFor="email-mfa-code">
+                    Verification code
+                  </label>
+                  {/* Six boxes, one per digit. Presentation only: the value
+                      is the same digit string the single input produced, and
+                      handleVerifyEmailCode validates and submits it exactly
+                      as before. */}
+                  <OtpInput
+                    id="email-mfa-code"
+                    value={emailCode}
+                    onChange={setEmailCode}
+                    labelledBy="email-mfa-code-label"
+                    describedBy={
+                      emailError ? 'email-mfa-error' : 'email-mfa-code-hint'
+                    }
+                    invalid={Boolean(emailError)}
+                    disabled={verifying}
+                  />
+                  <p className="otp-hint" id="email-mfa-code-hint">
+                    Enter or paste the 6-digit code from your email.
+                  </p>
+                </div>
+                <button
+                  type="submit"
+                  className="btn-login"
+                  disabled={verifying}
+                  aria-busy={verifying}
+                  style={{ marginTop: 8 }}
+                >
+                  <span>{verifying ? 'Verifying...' : 'Verify'}</span>
+                </button>
+                {emailError && (
+                  <div
+                    className="login-error"
+                    role="alert"
+                    id="email-mfa-error"
+                  >
+                    {emailError}
+                  </div>
+                )}
+                <div className="two-factor-actions">
+                  <button
+                    type="button"
+                    className="two-factor-link login-forgot-link"
+                    onClick={handleCancelMfa}
+                    disabled={verifying}
+                  >
+                    Cancel and sign in as someone else
+                  </button>
+                </div>
+              </form>
+            ) : pendingPasswordChange ? (
+              /* STEP THREE — FORCED PASSWORD CHANGE. Reached only after any
+                 second factor is complete, for an account signed in with a
+                 temporary password. Same placement rule as the MFA steps: it
+                 replaces the sign-in form, and nothing in the application is
+                 reachable meanwhile — the backend refuses every normal route
+                 until the change is made (EnsurePasswordChanged). */
+              pendingPasswordChange.expired ? (
+                <div className="login-form">
+                  <div className="two-factor-heading">
+                    <Icons.ShieldAlert size={18} strokeWidth={2} />
+                    <h2>Temporary Password Expired</h2>
+                  </div>
+                  <p className="two-factor-instructions" role="alert">
+                    Your temporary password has expired. Please contact your
+                    Administrator for a new temporary password.
+                  </p>
+                  <div className="two-factor-actions">
+                    <button
+                      type="button"
+                      className="two-factor-link login-forgot-link"
+                      onClick={handleCancelMfa}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form
+                  className="login-form"
+                  autoComplete="off"
+                  onSubmit={handleChangePassword}
+                  noValidate
+                >
+                  <div className="two-factor-heading">
+                    <Icons.Lock size={18} strokeWidth={2} />
+                    <h2>Change Your Password</h2>
+                  </div>
+                  <p className="two-factor-instructions">
+                    Your temporary password must be changed before you can
+                    continue.
+                  </p>
+
+                  <div className="form-group">
+                    <label htmlFor="temp-current-password">
+                      Temporary password
+                    </label>
+                    <div className="input-wrapper">
+                      <span className="input-icon">
+                        <Icons.Lock size={16} strokeWidth={2} />
+                      </span>
+                      <input
+                        type="password"
+                        id="temp-current-password"
+                        autoComplete="current-password"
+                        value={currentTempPassword}
+                        onChange={(e) => setCurrentTempPassword(e.target.value)}
+                        aria-invalid={
+                          passwordChangeErrors.current_password ? true : undefined
+                        }
+                        aria-describedby={
+                          passwordChangeErrors.current_password
+                            ? 'temp-current-password-error'
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {passwordChangeErrors.current_password && (
+                      <div
+                        className="field-error"
+                        id="temp-current-password-error"
+                        role="alert"
+                      >
+                        {passwordChangeErrors.current_password[0]}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="new-password">New password</label>
+                    <div className="input-wrapper">
+                      <span className="input-icon">
+                        <Icons.Lock size={16} strokeWidth={2} />
+                      </span>
+                      <input
+                        type="password"
+                        id="new-password"
+                        autoComplete="new-password"
+                        placeholder={`At least ${MIN_NEW_PASSWORD_LENGTH} characters`}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        aria-invalid={
+                          passwordChangeErrors.password ? true : undefined
+                        }
+                        aria-describedby={
+                          passwordChangeErrors.password
+                            ? 'new-password-error'
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {passwordChangeErrors.password && (
+                      <div
+                        className="field-error"
+                        id="new-password-error"
+                        role="alert"
+                      >
+                        {passwordChangeErrors.password[0]}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="confirm-new-password">
+                      Confirm new password
+                    </label>
+                    <div className="input-wrapper">
+                      <span className="input-icon">
+                        <Icons.Lock size={16} strokeWidth={2} />
+                      </span>
+                      <input
+                        type="password"
+                        id="confirm-new-password"
+                        autoComplete="new-password"
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="btn-login"
+                    disabled={changingPassword}
+                    aria-busy={changingPassword}
+                    style={{ marginTop: 8 }}
+                  >
+                    <span>
+                      {changingPassword ? 'Changing password...' : 'Change Password'}
+                    </span>
+                  </button>
+                  {passwordChangeError && (
+                    <div className="login-error" role="alert">
+                      {passwordChangeError}
+                    </div>
+                  )}
+                  <div className="two-factor-actions">
+                    <button
+                      type="button"
+                      className="two-factor-link login-forgot-link"
+                      onClick={handleCancelMfa}
+                      disabled={changingPassword}
+                    >
+                      Cancel and sign out
+                    </button>
+                  </div>
+                </form>
+              )
             ) : (
               <form
                 className="login-form"

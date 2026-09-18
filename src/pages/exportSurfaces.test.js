@@ -26,7 +26,7 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (file) => readFileSync(join(here, file), 'utf8');
 
-// The six tabular report surfaces. The three single-record Field / Value
+// The seven tabular report surfaces. The three single-record Field / Value
 // exports — Criminal Profile, Victim Profile and the incident view modal — are
 // deliberately not here: those produce a two-column record sheet of one
 // subject, which is a document rather than a dataset, and a spreadsheet reader
@@ -47,6 +47,11 @@ const SURFACES = [
     file: 'IncidentFeed.jsx',
     stem: 'incidents_${today()}',
     report: 'incidents',
+  },
+  {
+    file: 'Mapping.jsx',
+    stem: 'brgy178_crime_mapping_${today()}',
+    report: 'mapping',
   },
   {
     file: 'AuditLogs.jsx',
@@ -119,11 +124,17 @@ describe.each(SURFACES)('$file exports .xlsx and .csv from one projection', ({
   it('audits the CSV export under the same report key as the workbook', () => {
     // AuditLogController::REPORTS is the server-side whitelist; a key outside
     // it is rejected with a 422 and the export goes unrecorded.
-    const logged = source.match(/auditLogService\.logExport\('([^']+)'\)/g) || [];
-    expect(logged).toEqual([
-      `auditLogService.logExport('${report}')`,
-      `auditLogService.logExport('${report}')`,
-    ]);
+    //
+    // Matched on the KEY rather than the whole call, because logExport now
+    // takes an optional second argument — the scope of the run, for
+    // report_runs. The property being guarded is unchanged and is the one that
+    // matters: two calls on the page, both naming the same report. Whether a
+    // page also passes metadata is its own business, and the pages that do are
+    // asserted in exportMetadata.test.js.
+    const logged = [
+      ...source.matchAll(/auditLogService\.logExport\(\s*'([^']+)'/g),
+    ].map((m) => m[1]);
+    expect(logged).toEqual([report, report]);
   });
 
   it('records the CSV export only after a successful download', () => {

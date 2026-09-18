@@ -15,13 +15,20 @@ use Tests\TestCase;
 //   1. the vocabulary was enforced only by the React dropdown;
 //   2. PUT .../{id} with status='Archived' archived a record without going
 //      through the dedicated archive endpoint, so it logged as UPDATE and
-//      produced no ARCHIVE audit event;
+//      produced no ARCHIVE audit event, and left previous_status unset so a
+//      later restore could only fall back to DEFAULT_STATUS. For INCIDENTS
+//      that hole is now closed: Store/UpdateIncidentRequest validate against
+//      Incident::ASSIGNABLE_STATUSES, which omits 'Archived'. Criminals and
+//      victims are unchanged and still accept it on create/update;
 //   3. an unrecognised incident status is counted by the Dashboard's `total`
 //      but by neither SOLVED_STATUSES nor PENDING_STATUSES, silently breaking
 //      the solved + pending = total identity behind Resolution Rate.
 //
 // Incident::STATUSES / Criminal::STATUSES are the single server-side source of
-// truth, mirroring STATUSES / CRIMINAL_STATUSES in src/utils/constants.js.
+// truth for the DISPLAY vocabulary (what the Status filters offer and what a
+// record may show), mirroring STATUSES / CRIMINAL_STATUSES in
+// src/utils/constants.js. Incident::ASSIGNABLE_STATUSES is the narrower set a
+// client may WRITE, mirroring ASSIGNABLE_STATUSES in the same file.
 // These tests drive the model constants directly rather than repeating the
 // values, so adding a status in one place cannot silently escape coverage.
 class StatusValidationTest extends TestCase
@@ -56,25 +63,25 @@ class StatusValidationTest extends TestCase
 
     // ---- 1. every currently valid status is accepted ----
 
-    public function test_every_incident_status_is_accepted_on_create(): void
+    public function test_every_assignable_incident_status_is_accepted_on_create(): void
     {
         $this->actingAsSupabase($this->admin());
 
-        foreach (Incident::STATUSES as $status) {
+        foreach (Incident::ASSIGNABLE_STATUSES as $status) {
             $this->postJson('/api/incidents', $this->incidentPayload(['status' => $status]))
                 ->assertCreated()
                 ->assertJsonPath('data.status', $status);
         }
 
-        $this->assertCount(count(Incident::STATUSES), Incident::all());
+        $this->assertCount(count(Incident::ASSIGNABLE_STATUSES), Incident::all());
     }
 
-    public function test_every_incident_status_is_accepted_on_update(): void
+    public function test_every_assignable_incident_status_is_accepted_on_update(): void
     {
         $this->actingAsSupabase($this->admin());
         $incident = Incident::factory()->create();
 
-        foreach (Incident::STATUSES as $status) {
+        foreach (Incident::ASSIGNABLE_STATUSES as $status) {
             $this->putJson("/api/incidents/{$incident->id}", ['status' => $status])
                 ->assertOk()
                 ->assertJsonPath('data.status', $status);
@@ -152,19 +159,47 @@ class StatusValidationTest extends TestCase
             ->assertJsonValidationErrors(['status']);
     }
 
-    // ---- 3. 'Archived' remains accepted ----
+    // ---- 3. 'Archived' stays in the vocabulary, but only the archive
+    //         endpoint may write it on an incident ----
 
-    public function test_archived_remains_an_accepted_status(): void
+    public function test_archived_remains_in_the_status_vocabulary(): void
     {
-        $this->actingAsSupabase($this->admin());
-
+        // Still displayable and still filterable — the Status filters on the
+        // Dashboard, Incident Feed, Analytics, Trends and Mapping pages read
+        // this set, and archived records have to remain findable through it.
         $this->assertContains('Archived', Incident::STATUSES);
         $this->assertContains('Archived', Criminal::STATUSES);
 
-        $this->postJson('/api/incidents', $this->incidentPayload(['status' => 'Archived']))
-            ->assertCreated()
-            ->assertJsonPath('data.status', 'Archived');
+        // What changed is only who may assign it on an incident.
+        $this->assertNotContains('Archived', Incident::ASSIGNABLE_STATUSES);
+    }
 
+    public function test_archived_is_not_assignable_to_an_incident_through_create_or_update(): void
+    {
+        $this->actingAsSupabase($this->admin());
+
+        $this->postJson('/api/incidents', $this->incidentPayload(['status' => 'Archived']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status']);
+
+        $incident = Incident::factory()->create(['status' => 'Open']);
+        $this->putJson("/api/incidents/{$incident->id}", ['status' => 'Archived'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status']);
+
+        // The status column is only ever reachable through the archive
+        // endpoint, which is what also records previous_status and the
+        // ARCHIVE audit event (see the two archive tests at the end).
+        $this->assertDatabaseMissing('incidents', ['status' => 'Archived']);
+    }
+
+    public function test_criminal_archived_status_is_unchanged_by_the_incident_fix(): void
+    {
+        $this->actingAsSupabase($this->admin());
+
+        // Deliberately out of scope: only the incident vocabulary was
+        // narrowed. Criminals (and victims) still accept 'Archived' on
+        // create/update exactly as before.
         $criminal = Criminal::factory()->create();
         $this->putJson("/api/criminals/{$criminal->id}", ['status' => 'Archived'])
             ->assertOk()
