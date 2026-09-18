@@ -56,6 +56,7 @@ export default function IncidentFeed() {
     approveRecord,
     returnRecordForCorrection,
     addRecord,
+    holdRecordsRefresh,
   } = useData();
   const { can, currentUser } = useAuth();
   const { showToast } = useToast();
@@ -89,6 +90,20 @@ export default function IncidentFeed() {
   const [archivingId, setArchivingId] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
+
+  // The background poll replaces `records` wholesale (see DataContext's
+  // refreshRecords). That must not happen while a record is open for reading,
+  // editing or creation, or the object behind the modal would change under the
+  // person using it. Holding is advisory only — it delays a refresh, never a
+  // save — and a refresh wanted during the hold runs the moment it lifts.
+  useEffect(() => {
+    holdRecordsRefresh(Boolean(viewing || editing || creating));
+  }, [viewing, editing, creating, holdRecordsRefresh]);
+
+  // Leaving the page with a modal open must not leave the hold on forever.
+  // Separate effect so it runs on unmount only — holdRecordsRefresh is a
+  // stable useCallback, so this does not re-run as the modals open and close.
+  useEffect(() => () => holdRecordsRefresh(false), [holdRecordsRefresh]);
 
   // Arriving from a notification click (e.g. "Case Resolved" / "Overdue
   // Case") carries the referenced case number in router state — pre-fill the

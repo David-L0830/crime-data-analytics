@@ -324,6 +324,69 @@ export function DataProvider({ children }) {
       .catch(() => {});
   }, []);
 
+  // ===== Live incident list =====
+  //
+  // `records` used to be fetched exactly once, in the mount effect above, and
+  // afterwards changed only by THIS user's own writes. The bell, meanwhile,
+  // has always been polled. So an incident logged by an encoder announced
+  // itself in the topbar while the table underneath it stayed as it was until
+  // somebody reloaded the page — a validator was told there was a new record
+  // and then could not see it.
+  //
+  // The fix deliberately reuses the notification poll rather than adding a
+  // second one: same interval, same visibility cadence, same catch-up on
+  // focus. Nothing here subscribes to Postgres. Incident data keeps arriving
+  // through Laravel, which is what applies the per-role redaction in
+  // IncidentResource (a BADAC Validator is not shown complainant or victim
+  // contact details) — a direct database subscription would deliver the raw
+  // row and quietly defeat that.
+  const recordsFetchInFlight = useRef(false);
+
+  // A refresh replaces the whole array. That is what keeps duplicates
+  // impossible, but it is also why it must not land while somebody is reading
+  // or editing a record: the row behind the open modal would be swapped for a
+  // different object mid-review. While held, a refresh records that it was
+  // wanted and runs as soon as the hold lifts.
+  const recordsRefreshHeld = useRef(false);
+  const recordsRefreshMissed = useRef(false);
+
+  const refreshRecords = useCallback(() => {
+    if (recordsRefreshHeld.current) {
+      recordsRefreshMissed.current = true;
+      return;
+    }
+    if (recordsFetchInFlight.current) return;
+    recordsFetchInFlight.current = true;
+
+    incidentService
+      .list()
+      // Whole-array replacement, exactly as the mount effect does it — never
+      // an append or a merge, so a row cannot appear twice however many ticks
+      // overlap.
+      .then((list) => setRecords(list || []))
+      // Swallowed like every other background refresh here: a poll that could
+      // not reach the server is not something to interrupt the user with
+      // every thirty seconds, and the next tick will try again.
+      .catch(() => {})
+      .finally(() => {
+        recordsFetchInFlight.current = false;
+      });
+  }, []);
+
+  // Called by the page that owns the modals (IncidentFeed) so this context
+  // does not have to know what a modal is. Releasing runs the catch-up if a
+  // refresh was wanted while held.
+  const holdRecordsRefresh = useCallback(
+    (held) => {
+      recordsRefreshHeld.current = Boolean(held);
+      if (!recordsRefreshHeld.current && recordsRefreshMissed.current) {
+        recordsRefreshMissed.current = false;
+        refreshRecords();
+      }
+    },
+    [refreshRecords],
+  );
+
   // The server now writes a real notification when an incident is created or
   // genuinely transitions into a resolved status (see
   // IncidentController::announceResolutionIfNewlyResolved). The topbar bell
@@ -355,6 +418,15 @@ export function DataProvider({ children }) {
         notificationFetchInFlight.current = false;
       });
   }, [applyNotificationList]);
+
+  // What one tick of the poll below does. The two refreshes are independent —
+  // separate in-flight guards, separate promises, each swallowing its own
+  // failure — so a records fetch that fails cannot stop the bell updating,
+  // and a notifications fetch that fails cannot stop the table updating.
+  const refreshPolledData = useCallback(() => {
+    refreshNotifications();
+    refreshRecords();
+  }, [refreshNotifications, refreshRecords]);
 
   // Polls for notifications raised elsewhere — another encoder logging an
   // incident, an Administrator resolving a case. Without this the bell would
@@ -405,7 +477,7 @@ export function DataProvider({ children }) {
       if (timer && currentInterval === intervalMs) return;
       if (timer) clearInterval(timer);
       currentInterval = intervalMs;
-      timer = setInterval(refreshNotifications, intervalMs);
+      timer = setInterval(refreshPolledData, intervalMs);
     };
 
     const stop = () => {
@@ -421,8 +493,8 @@ export function DataProvider({ children }) {
       if (document.visibilityState === 'visible') {
         // Catch-up on return: whatever the hidden cadence missed (or whatever
         // the browser's throttle delayed) is fetched immediately, so coming
-        // back to the tab never shows a stale bell.
-        refreshNotifications();
+        // back to the tab never shows a stale bell — or, now, a stale table.
+        refreshPolledData();
       }
       schedule(intervalForCurrentVisibility());
     };
@@ -434,7 +506,7 @@ export function DataProvider({ children }) {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [isAuthenticated, refreshNotifications]);
+  }, [isAuthenticated, refreshPolledData]);
 
   // Local audit-log entries are no longer created client-side — every
   // mutating API call already writes its own audit_logs row server-side.
@@ -787,6 +859,11 @@ export function DataProvider({ children }) {
     newNotifications,
     consumeNewNotifications,
     refreshNotifications,
+    // Live incident list — the poll drives this itself; the page that owns
+    // the incident modals calls holdRecordsRefresh so an open record is not
+    // swapped underneath the person reading it.
+    refreshRecords,
+    holdRecordsRefresh,
     saveSettings,
     getLastSync,
     backup,
