@@ -164,7 +164,14 @@ describe('a refresh is deferred while a record is open', () => {
   });
 
   it('is wired to IncidentFeed’s view, edit and create state', () => {
-    expect(incidentFeed).toMatch(/holdRecordsRefresh,\n\s*\} = useData\(\)/);
+    // Asserted against the destructuring block rather than its last line:
+    // what matters is that the page takes holdRecordsRefresh from the
+    // context, not where in the list it happens to sit.
+    const useDataBlock = incidentFeed.slice(
+      incidentFeed.indexOf('  const {'),
+      incidentFeed.indexOf('} = useData()'),
+    );
+    expect(useDataBlock).toMatch(/\bholdRecordsRefresh,/);
     expect(incidentFeed).toMatch(
       /holdRecordsRefresh\(Boolean\(viewing \|\| editing \|\| creating\)\)/,
     );

@@ -57,6 +57,8 @@ export default function IncidentFeed() {
     returnRecordForCorrection,
     addRecord,
     holdRecordsRefresh,
+    unreadValidationCount,
+    markAllNotificationsRead,
   } = useData();
   const { can, currentUser } = useAuth();
   const { showToast } = useToast();
@@ -90,6 +92,7 @@ export default function IncidentFeed() {
   const [archivingId, setArchivingId] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
+  const [openingValidation, setOpeningValidation] = useState(false);
 
   // The background poll replaces `records` wholesale (see DataContext's
   // refreshRecords). That must not happen while a record is open for reading,
@@ -273,6 +276,37 @@ export default function IncidentFeed() {
       returned: active.filter((r) => r.validationStatus === 'returned').length,
     };
   }, [records]);
+
+  // Opening Validation is a READ action and nothing more. It clears this
+  // user's unread markers for the 'New Incident' announcements — the same
+  // mechanism the Trends page's "Mark All as Read" uses for Hotspot Alerts —
+  // and touches no incident at all: no validate call, no return call, no
+  // status change. Records that were pending stay pending; the badge is about
+  // what has been seen, not about what has been dealt with.
+  //
+  // CP-3 will open the validation drawer from here. Until then this is the
+  // whole behaviour, deliberately.
+  const handleOpenValidation = async () => {
+    if (openingValidation) return;
+    // Nothing unread means nothing to mark — skip the pointless request
+    // rather than issuing a write that would change no row.
+    if (unreadValidationCount === 0) return;
+
+    setOpeningValidation(true);
+    try {
+      await markAllNotificationsRead('New Incident');
+    } catch {
+      // markAllNotificationsRead restores the previous list and rethrows, so
+      // the badge comes back on failure. Say so rather than letting it look
+      // like nothing happened.
+      showToast(
+        'Could not mark new incidents as read. Check your connection and try again.',
+        'error',
+      );
+    } finally {
+      setOpeningValidation(false);
+    }
+  };
 
   const handleApprove = async (record) => {
     if (!canValidate || reviewingId) return;
@@ -522,6 +556,38 @@ export default function IncidentFeed() {
             <Button variant="secondary" onClick={() => window.print()}>
               <Icons.Printer size={15} strokeWidth={2} /> Print Report
             </Button>
+            {/* Record validation lives inside Crime Data Collection rather
+                than in its own module, so the way in is a control on this
+                page. Gated on the same 'validate_record' permission that
+                already decides whether the review actions render at all — an
+                Encoder does not hold it, so this button and its badge do not
+                exist for them. The real control remains server-side
+                (role:badac_admin,badac_validator on the validate/return
+                routes); this only decides what is shown. */}
+            {canValidate && (
+              <Button
+                variant="secondary"
+                onClick={handleOpenValidation}
+                aria-label={
+                  unreadValidationCount > 0
+                    ? `Validation, ${unreadValidationCount} new submissions`
+                    : 'Validation'
+                }
+              >
+                <Icons.ShieldCheck size={15} strokeWidth={2} /> Validation
+                {unreadValidationCount > 0 && (
+                  // Same unread badge the topbar bell uses, positioned
+                  // statically inside the button exactly as the Trends
+                  // "Mark All as Read" control does it.
+                  <span
+                    className="notif-bell-count"
+                    style={{ position: 'static', marginLeft: 6 }}
+                  >
+                    {unreadValidationCount > 99 ? '99+' : unreadValidationCount}
+                  </span>
+                )}
+              </Button>
+            )}
             {can('create_incident') && (
               <Button variant="primary" onClick={() => setCreating(true)}>
                 <Icons.ClipboardList size={15} strokeWidth={2} /> New Incident
