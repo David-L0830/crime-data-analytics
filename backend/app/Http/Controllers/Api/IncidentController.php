@@ -537,6 +537,14 @@ class IncidentController extends Controller
      *
      * The message is built from the row that was just written, so the
      * notification can never disagree with the database.
+     *
+     * Called only from update(), strictly after its DB::transaction() has
+     * already committed the status change. A failure writing this
+     * notification is therefore isolated the same way announceNewIncident()
+     * and announceHotspotIfCrossed() already isolate theirs: the transition is
+     * already committed and the caller has been told it succeeded, so a
+     * failure to announce must not turn a successful status update into an
+     * error.
      */
     private function announceResolutionIfNewlyResolved(Incident $incident, ?string $statusBefore): void
     {
@@ -554,12 +562,20 @@ class IncidentController extends Controller
             return;
         }
 
-        AppNotification::create([
-            'title' => 'Case Resolved',
-            'message' => "Case {$incident->case_number} ({$incident->crime_type}) was marked as {$statusAfter}.",
-            'type' => 'success',
-            'read' => false,
-        ]);
+        try {
+            AppNotification::create([
+                'title' => 'Case Resolved',
+                'message' => "Case {$incident->case_number} ({$incident->crime_type}) was marked as {$statusAfter}.",
+                'type' => 'success',
+                'read' => false,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Incident resolved but its "Case Resolved" notification could not be written', [
+                'incident_id' => $incident->id,
+                'case_number' => $incident->case_number,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     // PUT /api/incidents/{incident}/archive — Checkpoint 20 (Tasks 2-4).

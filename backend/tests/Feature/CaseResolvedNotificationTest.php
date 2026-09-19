@@ -6,6 +6,7 @@ use App\Models\AppNotification;
 use App\Models\Incident;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 // "Case Resolved" end to end: action -> API request -> status written to the
@@ -67,6 +68,46 @@ class CaseResolvedNotificationTest extends TestCase
         // not guarantee.
         $this->assertStringContainsString($incident->case_number, $notification->message);
         $this->assertStringContainsString('Solved', $notification->message);
+    }
+
+    // L-6 — a failure writing the "Case Resolved" notification must not turn
+    // an already-committed status update into a failed request.
+    //
+    // announceResolutionIfNewlyResolved() is called strictly after update()'s
+    // DB::transaction() has already committed the status change (see its own
+    // doc comment), the same way announceNewIncident() and
+    // announceHotspotIfCrossed() are already proven tolerant of this — this
+    // test proves the third one now is too.
+    //
+    // MECHANISM: the table the notification would be written to is dropped
+    // for the duration of this one test, which is what makes the real
+    // AppNotification::create() call genuinely throw rather than simulating
+    // the throw. No mock, no new dependency: RefreshDatabase wraps this test
+    // in a database transaction, and SQLite — this suite's test connection
+    // (phpunit.xml) — supports transactional DDL, so the dropped table is
+    // restored automatically when the transaction rolls back at teardown,
+    // exactly like any other write this trait already undoes between tests.
+    public function test_a_failed_resolution_notification_does_not_fail_the_status_update(): void
+    {
+        $this->admin();
+        $incident = Incident::factory()->create(['status' => 'Open']);
+
+        Schema::drop('app_notifications');
+
+        // The request must still succeed, and the status must still be the
+        // one that was requested — the transition was already committed
+        // before the notification was ever attempted — even though the
+        // notification itself could not be written at all.
+        $this->putJson("/api/incidents/{$incident->id}", $this->updatePayload($incident, [
+            'status' => 'Solved',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'Solved');
+
+        $this->assertDatabaseHas('incidents', [
+            'id' => $incident->id,
+            'status' => 'Solved',
+        ]);
     }
 
     public function test_closing_an_under_investigation_case_also_announces_it(): void
