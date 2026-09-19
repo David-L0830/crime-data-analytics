@@ -12,6 +12,14 @@ import { reportScheduleService } from '../services/reportScheduleService';
 import { SITIOS, STATUSES, DAY_NAMES } from '../utils/constants';
 import { formatDateTime } from '../utils/helpers';
 
+// A generated report is always official-data scoped (ReportGenerator applies
+// Incident::scopeOfficial(), which excludes Archived unconditionally), so a
+// schedule's Case-status filter can never actually match an Archived record.
+// Offering it here would let a schedule be saved that silently produces an
+// empty report on every run, forever, with nothing telling the person who
+// created it why.
+const SCHEDULE_STATUSES = STATUSES.filter((s) => s !== 'Archived');
+
 // Reports — automated report schedules and their delivery log (/reports, in
 // the REPORTING sidebar section; /scheduled-reports redirects here).
 //
@@ -458,7 +466,7 @@ function ScheduleFormModal({
                 onChange={(e) => setField('status', e.target.value)}
               >
                 <option value="">All</option>
-                {STATUSES.map((s) => (
+                {SCHEDULE_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
