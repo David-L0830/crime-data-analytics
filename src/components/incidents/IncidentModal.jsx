@@ -581,10 +581,6 @@ export function IncidentViewModal({
               r.evidence || '—'
             )}
           </div>
-          <div className="full">
-            <strong>Synced At:</strong>{' '}
-            {r.synced_at ? new Date(r.synced_at).toLocaleString('en-PH') : '—'}
-          </div>
         </div>
       </div>
     </Modal>

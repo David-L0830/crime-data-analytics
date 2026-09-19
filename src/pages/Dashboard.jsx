@@ -344,10 +344,6 @@ export default function Dashboard() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([name, count]) => ({ name, count }));
-  const synced = [...filtered]
-    .filter((r) => r.synced_at)
-    .sort((a, b) => new Date(b.synced_at) - new Date(a.synced_at))
-    .slice(0, 5);
 
   // One definition, consumed by both the printed report header and the Excel
   // metadata line, so the document and the workbook always describe the same
@@ -771,25 +767,6 @@ export default function Dashboard() {
                   { key: 'count', label: 'Incidents' },
                 ]}
                 rows={repeat}
-              />
-            </div>
-          </div>
-          <div className="card">
-            <h3>Recently Synchronized</h3>
-            <div className="table-wrap">
-              <Table
-                columns={[
-                  { key: 'caseNumber', label: 'Case #' },
-                  { key: 'crimeType', label: 'Type' },
-                  { key: 'date', label: 'Date', render: formatDate },
-                  {
-                    key: 'synced_at',
-                    label: 'Synced',
-                    render: (v) =>
-                      v ? new Date(v).toLocaleString('en-PH') : '—',
-                  },
-                ]}
-                rows={synced}
               />
             </div>
           </div>

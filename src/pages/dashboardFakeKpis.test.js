@@ -37,6 +37,20 @@ import { describe, expect, it } from 'vitest';
  * sync_logs infrastructure (SyncLogController, SyncLogSeeder, syncLogService,
  * the syncLogs fetch, or getLastSync) is absent — removing those was
  * explicitly out of scope for this fix, and they remain in place.
+ *
+ * SECOND HALF OF THE SAME DEFECT (audit item H-1)
+ * ------------------------------------------------
+ * The KPI cards above were only half of where fabricated sync data reached
+ * the screen. Two more surfaces read the same seeded, never-really-written
+ * `synced_at` column as though it meant something: the Dashboard's "Recently
+ * Synchronized" table (and the `synced` array that fed it) and the incident
+ * view modal's "Synced At:" row. Both are now removed, for the identical
+ * reason the KPI cards were: SyncLogSeeder invents these values under fake
+ * source names ("PNP Regional Feed", "Manual Upload", "BADAC Field Report"),
+ * and nothing in the application has ever written a real one. This is pinned
+ * below the same way — the label/table cannot come back on either surface —
+ * while `getLastSync` and the raw `syncLogService.list()` fetch remain
+ * untouched in DataContext, exactly as the original fix left them.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -44,6 +58,7 @@ const read = (relative) => readFileSync(join(here, relative), 'utf8');
 
 const dashboard = read('Dashboard.jsx');
 const dataContext = read('../context/DataContext.jsx');
+const incidentModal = read('../components/incidents/IncidentModal.jsx');
 
 describe('Dashboard no longer shows the fabricated import KPIs', () => {
   it('does not render a "Today Imported" or "Month Imported" card', () => {
@@ -71,5 +86,22 @@ describe('DataContext no longer computes the fabricated import counts', () => {
   it('still fetches sync logs and still exposes getLastSync, unchanged by this fix', () => {
     expect(dataContext).toContain('syncLogService.list()');
     expect(dataContext).toContain('const getLastSync = useCallback(');
+  });
+});
+
+describe('Dashboard no longer shows the "Recently Synchronized" table', () => {
+  it('does not render the card', () => {
+    expect(dashboard).not.toContain('Recently Synchronized');
+  });
+
+  it('does not compute the synced array that fed it', () => {
+    expect(dashboard).not.toMatch(/\bconst synced\b/);
+    expect(dashboard).not.toContain('rows={synced}');
+  });
+});
+
+describe('the incident view modal no longer shows "Synced At:"', () => {
+  it('does not render the row', () => {
+    expect(incidentModal).not.toContain('Synced At:');
   });
 });
