@@ -153,6 +153,38 @@ export const VALIDATION_STATUS_LABELS = {
 };
 export const VALIDATION_STATUSES = Object.keys(VALIDATION_STATUS_LABELS);
 
+// Predefined Return-for-Correction reasons — Checkpoint 2. Presented to a
+// BADAC Administrator / BADAC Validator as clickable checkboxes on
+// PUT /incidents/{id}/return, instead of asking them to type the reason from
+// scratch every time. This is a FRONTEND-ONLY vocabulary: the backend
+// endpoint still takes one free-text `reason` string (min 5 characters) and
+// is unchanged, so selecting one or more of these and/or writing custom text
+// is composed into that single string client-side — see
+// composeReturnReason() in IncidentModal.jsx. `code` is used only as the
+// React key / selection identifier and is never sent to the server; only the
+// composed text is.
+export const CORRECTION_REASONS = [
+  { code: 'incorrect_information', label: 'Incorrect incident information' },
+  { code: 'missing_information', label: 'Missing required information' },
+  { code: 'incorrect_date_time', label: 'Incorrect date/time' },
+  { code: 'incorrect_location', label: 'Incorrect incident location' },
+  { code: 'incorrect_sitio_street', label: 'Incorrect Sitio/street' },
+  {
+    code: 'incorrect_classification',
+    label: 'Incorrect crime classification',
+  },
+  { code: 'insufficient_description', label: 'Insufficient description' },
+  {
+    code: 'incorrect_complainant',
+    label: 'Incorrect complainant/respondent information',
+  },
+  {
+    code: 'incorrect_supporting_details',
+    label: 'Incorrect supporting details',
+  },
+  { code: 'other', label: 'Other' },
+];
+
 export const CRIMINAL_STATUSES = [
   'Active',
   'Wanted',

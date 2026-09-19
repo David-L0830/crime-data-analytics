@@ -9,7 +9,10 @@ import {
   formatTime,
   today,
 } from '../../utils/helpers';
-import { VALIDATION_STATUS_LABELS } from '../../utils/constants';
+import {
+  VALIDATION_STATUS_LABELS,
+  CORRECTION_REASONS,
+} from '../../utils/constants';
 import { exportWorkbook } from '../../utils/exportWorkbook';
 import { auditLogService } from '../../services/auditLogService';
 import { useToast } from '../../hooks/useToast';
@@ -22,6 +25,7 @@ import {
 } from './incidentSubmission';
 import LocationPicker from './LocationPicker';
 import { formatCoordinate } from './locationPickerState';
+import { composeReturnReason } from './returnReason';
 
 // The complainant is whoever filed the report. Usually that is the victim
 // themselves, which is what complainantIsVictim records; when it is not, the
@@ -52,14 +56,17 @@ function evidenceSummary(r) {
 // role:badac_admin.
 function ValidationPanel({ record, onApprove, onReturn, busy }) {
   const [returning, setReturning] = useState(false);
-  const [reason, setReason] = useState('');
+  const [selectedReasons, setSelectedReasons] = useState([]);
+  const [customText, setCustomText] = useState('');
   const [reasonError, setReasonError] = useState('');
   const reasonId = useId();
+  const reasonGroupLabelId = `${reasonId}-group-label`;
 
   // A different record, or the same record in a new state, starts clean.
   useEffect(() => {
     setReturning(false);
-    setReason('');
+    setSelectedReasons([]);
+    setCustomText('');
     setReasonError('');
   }, [record.id, record.validationStatus]);
 
@@ -67,14 +74,33 @@ function ValidationPanel({ record, onApprove, onReturn, busy }) {
   const archived = record.status === 'Archived';
   const canReview = !archived && (onApprove || onReturn);
 
+  const toggleReason = (code) => {
+    setSelectedReasons((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+  };
+
   const submitReturn = async () => {
-    const trimmed = reason.trim();
-    if (trimmed.length < 5) {
-      setReasonError('Give the encoder a reason of at least 5 characters.');
+    const composed = composeReturnReason(selectedReasons, customText);
+    if (composed.length < 5) {
+      setReasonError(
+        'Select at least one reason, or give the encoder a custom description of at least 5 characters.',
+      );
+      return;
+    }
+    // PUT /incidents/{id}/return validates `reason` at max:1000 — unchanged,
+    // see IncidentController::returnForCorrection() on the server. Composing
+    // several reason labels plus a near-full custom text field can exceed
+    // that on its own, so this is checked client-side with a clear message
+    // rather than left to surface as a raw 422 from the API.
+    if (composed.length > 1000) {
+      setReasonError(
+        `That is too long by ${composed.length - 1000} character(s) — shorten the additional details.`,
+      );
       return;
     }
     setReasonError('');
-    await onReturn(record, trimmed);
+    await onReturn(record, composed);
   };
 
   let detail = null;
@@ -166,21 +192,38 @@ function ValidationPanel({ record, onApprove, onReturn, busy }) {
 
       {canReview && returning && (
         <div className="validation-return-form print-hidden">
-          <label htmlFor={reasonId}>
+          <p id={reasonGroupLabelId}>
             Reason for returning <span aria-hidden="true">*</span>
-          </label>
+          </p>
+          <div
+            className="validation-reason-choices"
+            role="group"
+            aria-labelledby={reasonGroupLabelId}
+            style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+          >
+            {CORRECTION_REASONS.map((r, index) => (
+              <label key={r.code} className="form-check">
+                <input
+                  type="checkbox"
+                  checked={selectedReasons.includes(r.code)}
+                  onChange={() => toggleReason(r.code)}
+                  /* eslint-disable-next-line jsx-a11y/no-autofocus */
+                  autoFocus={index === 0}
+                />
+                <span>{r.label}</span>
+              </label>
+            ))}
+          </div>
+          <label htmlFor={reasonId}>Additional details (optional)</label>
           <textarea
             id={reasonId}
             rows={3}
             maxLength={1000}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="State what the encoder needs to correct."
-            aria-required="true"
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+            placeholder="Add specific details the encoder needs — required if none of the reasons above is selected."
             aria-invalid={reasonError ? true : undefined}
             aria-describedby={reasonError ? `${reasonId}-error` : undefined}
-            /* eslint-disable-next-line jsx-a11y/no-autofocus */
-            autoFocus
           />
           {reasonError && (
             <div
