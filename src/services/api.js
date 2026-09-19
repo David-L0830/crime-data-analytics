@@ -21,6 +21,14 @@ import { supabase } from '../lib/supabaseClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
+// Render's free tier idles out after roughly 15 minutes and takes ~50 seconds
+// to wake (README "Troubleshooting"). Without a bound, a request made while
+// the backend is asleep — or one that simply stalls — waits indefinitely
+// with no feedback. 60s clears the documented wake time with headroom so a
+// genuine cold start still succeeds, while still turning an indefinite hang
+// into a finite, user-visible failure.
+const REQUEST_TIMEOUT_MS = 60_000;
+
 // supabase.auth.getSession() is not a cheap in-memory read: supabase-js
 // serialises it behind a navigator lock and may perform a token refresh
 // inside that lock. Every request in this module awaits it, so a screen that
@@ -63,6 +71,9 @@ async function currentAccessToken() {
 // This is purely additive — existing callers that only ever read
 // `.status` / `.message` / `.errors` are unaffected.
 //   'network'         — fetch() itself threw; the server was never reached.
+//   'timeout'          — fetch() never settled within REQUEST_TIMEOUT_MS and
+//                        was aborted; the server may or may not have been
+//                        reached, but no response arrived in time.
 //   'mfa_required'     — reached the server; a valid aal1 session exists but
 //                        the route requires aal2 (see EnsureSupabaseAal2).
 //   'unauthenticated' — reached the server; no/invalid/expired session.
@@ -140,6 +151,12 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
 
   const accessToken = token || (await currentAccessToken());
 
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(
+    () => timeoutController.abort(),
+    REQUEST_TIMEOUT_MS,
+  );
+
   let response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -150,17 +167,31 @@ async function request(path, { method = 'GET', body, token, ...rest } = {}) {
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
       body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
+      signal: timeoutController.signal,
       ...rest,
     });
-  } catch {
-    // fetch() itself threw — DNS/connection failure, offline, CORS, etc.
-    // The server was never reached, unlike every branch below.
+  } catch (err) {
+    // The timeout fires by aborting timeoutController, which is what turns
+    // into this AbortError — distinguished from an ordinary network failure
+    // (DNS/connection/offline/CORS, where the server was never reached
+    // either, but not because we gave up waiting) so callers can tell the
+    // two apart instead of both reading as a generic connection problem.
+    if (err?.name === 'AbortError') {
+      throw new ApiError(
+        'The request took too long to complete. Please check your connection and try again.',
+        0,
+        null,
+        'timeout',
+      );
+    }
     throw new ApiError(
       'Unable to reach the server. Check your connection and try again.',
       0,
       null,
       'network',
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (response.status === 204) return null;
