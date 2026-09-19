@@ -197,7 +197,7 @@ function popupContent(r, color) {
 }
 
 export default function Mapping() {
-  const { CRIME_TYPES, crimeTypeColors } = useData();
+  const { CRIME_TYPES, CATEGORIES, crimeTypeColors } = useData();
   const { showToast } = useToast();
   const [filters, setFilters] = useState({});
   const [vizType, setVizType] = useState('markers');
@@ -349,14 +349,16 @@ export default function Mapping() {
     };
   }, [classified]);
 
-  // No category filter. The map payload deliberately does not carry `category`,
-  // and filterRecords compares it strictly — passing an undefined field against
-  // a selected value would exclude every incident and render an empty map with
-  // no explanation. Crime Type, Sitio, Status and the date range are unchanged.
+  // L-9 — Category filter added. IncidentController::map() has carried
+  // `category` in its projection since before this change (see the pin
+  // popup and the export column below, which already read r.category); only
+  // the filter itself and this comment had not caught up. Crime Type, Sitio,
+  // Status and the date range are unchanged.
   const filtered = useMemo(
     () =>
       filterRecords(plottable, {
         crimeType: filters['map-crimeType'],
+        category: filters['map-category'],
         sitio: filters['map-sitio'],
         status: filters['map-status'],
         dateFrom: filters['map-dateFrom'],
@@ -891,13 +893,13 @@ export default function Mapping() {
   // the run always describe the same filter state. Same pattern as
   // Dashboard.jsx and Analytics.jsx.
   //
-  // No Category row, deliberately: this page cannot filter by category (see
-  // `filtered` above), so naming one here would describe a filter that was
-  // never applied.
+  // L-9 — Category row added, same field order as Dashboard.jsx and
+  // Analytics.jsx, now that this page filters by category too.
   const filterSummary = [
     `From: ${filters['map-dateFrom'] || 'Any'}`,
     `To: ${filters['map-dateTo'] || 'Any'}`,
     `Crime Type: ${filters['map-crimeType'] || 'All'}`,
+    `Category: ${filters['map-category'] || 'All'}`,
     `Sitio: ${filters['map-sitio'] || 'All'}`,
     `Status: ${filters['map-status'] || 'All'}`,
   ].join(' · ');
@@ -1014,11 +1016,13 @@ export default function Mapping() {
     }
   };
 
-  // Crime Type comes from the configured, enabled vocabulary (see
-  // DataContext), not a hard-coded list — an Administrator adding a crime type
-  // in System Settings makes it filterable here immediately.
+  // Crime Type and Category come from the configured, enabled vocabularies
+  // (see DataContext), not a hard-coded list — an Administrator adding a
+  // crime type or category in System Settings makes it filterable here
+  // immediately. L-9 — Category added, matching Dashboard.jsx/Analytics.jsx.
   const fields = [
     { id: 'map-crimeType', label: 'Crime Type', options: CRIME_TYPES },
+    { id: 'map-category', label: 'Category', options: CATEGORIES },
     { id: 'map-sitio', label: 'Sitio', options: SITIOS },
     { id: 'map-status', label: 'Status', options: STATUSES },
   ];
