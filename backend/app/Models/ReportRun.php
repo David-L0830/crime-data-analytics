@@ -8,12 +8,19 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * One run of the reporting process.
  *
- * Reporting is a process inside CDARS rather than a module: a person exports
- * from the module that owns the data, and this row records that it happened.
- * There is no Reports page, no listing endpoint and no export of this table —
- * it is backend history. See the create_report_runs_table migration for what
- * the row deliberately does not contain (the report itself, any personal
- * detail, any recipient).
+ * A person exports from the module that owns the data, or an active schedule
+ * sends one automatically (see ReportSchedule / ScheduledReportDispatcher),
+ * and this row records that it happened. Reporting is a functional capability
+ * of CDARS — the output stage of Crime Data Collection -> Validation ->
+ * Analytics -> Reporting — not a separate operational module beside them.
+ *
+ * THIS TABLE SPECIFICALLY has no page of its own, no listing endpoint and no
+ * export — it is backend history, read directly from the database. That is a
+ * statement about report_runs, not about Reporting as a whole: the Reports
+ * page (/reports) is a real, supported part of the product, listing
+ * report_schedules and report_email_logs. See the create_report_runs_table
+ * migration for what a row here deliberately does not contain (the report
+ * itself, any personal detail, any recipient).
  */
 class ReportRun extends Model
 {
@@ -31,8 +38,13 @@ class ReportRun extends Model
     public const ORIGIN_EXTERNAL_REQUEST = 'external_request';
 
     /**
-     * A historical run of the retired scheduled-report feature, preserved by
-     * the backfill. Nothing writes this value any more.
+     * A historical run of the scheduled/e-mailed report feature, preserved by
+     * the create_report_runs_table migration's backfill from
+     * report_email_logs. That feature is not retired — it remains a live,
+     * supported part of CDARS (see ScheduledReportDispatcher) — but it writes
+     * to report_email_logs, not to this table, so nothing writes
+     * ORIGIN_SCHEDULED_LEGACY going forward. The value exists only so the
+     * backfilled rows below say honestly where they came from.
      */
     public const ORIGIN_SCHEDULED_LEGACY = 'scheduled_legacy';
 

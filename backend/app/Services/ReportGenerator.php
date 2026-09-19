@@ -63,8 +63,19 @@ class ReportGenerator
      */
     private const BOM = "\u{FEFF}";
 
+    /**
+     * 'Crime Incident Report', not 'Crime Data Collection'. The latter is the
+     * name of the module this data is exported FROM (see IncidentFeed.jsx and
+     * AuditLogController::REPORTS, which correctly uses that name for an
+     * on-screen export audited from that module) — using it here as well made
+     * every scheduled/emailed report look like a raw copy of the data-entry
+     * screen rather than the output of the CDARS reporting process. This
+     * label is the one an administrator picks in the schedule form, the one
+     * shown in the schedule table and delivery log, and the one that reaches
+     * the e-mail subject via ScheduledReportMail.
+     */
     public const REPORTS = [
-        'incidents' => 'Crime Data Collection',
+        'incidents' => 'Crime Incident Report',
     ];
 
     /**

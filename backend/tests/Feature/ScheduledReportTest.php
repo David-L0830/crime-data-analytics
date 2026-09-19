@@ -203,7 +203,7 @@ class ScheduledReportTest extends TestCase
         $this->postJson('/api/report-schedules', $this->payload())
             ->assertCreated()
             ->assertJsonPath('name', 'Weekly Crime Summary')
-            ->assertJsonPath('reportLabel', 'Crime Data Collection')
+            ->assertJsonPath('reportLabel', 'Crime Incident Report')
             ->assertJsonPath('isActive', true);
 
         $this->assertDatabaseHas('report_schedules', [
@@ -1023,7 +1023,7 @@ class ScheduledReportTest extends TestCase
             ->assertJsonCount(1)
             ->assertJsonPath('0.scheduleName', 'Weekly Crime Summary')
             ->assertJsonPath('0.status', ReportEmailLog::STATUS_SENT)
-            ->assertJsonPath('0.reportLabel', 'Crime Data Collection');
+            ->assertJsonPath('0.reportLabel', 'Crime Incident Report');
     }
 
     // ---------------------------------------------------------------
@@ -1040,6 +1040,40 @@ class ScheduledReportTest extends TestCase
 
         $report = app(ReportGenerator::class)->generate('incidents');
 
+        $mail = new ScheduledReportMail(
+            scheduleName: 'Weekly Crime Summary',
+            reportLabel: $report['label'],
+            scopeSummary: $report['summary'],
+            rowCount: $report['rowCount'],
+            generatedAt: '15 May 2026, 6:00 AM',
+            attachmentName: $report['filename'],
+            attachmentContents: $report['contents'],
+        );
+        $body = $mail->render();
+
+        // The body names the report and its scope...
+        $this->assertStringContainsString('Weekly Crime Summary', $body);
+        $this->assertStringContainsString('Crime Incident Report', $body);
+
+        // ...and carries no record from it. Mail leaves this system's access
+        // control entirely: it is relayed, stored on servers nobody here
+        // administers, and read in inboxes that Supabase MFA does not guard.
+        $this->assertStringNotContainsString('CN-CONFIDENTIAL-1', $body);
+        $this->assertStringNotContainsString('Juana Dela Cruz', $body);
+    }
+
+    // Checkpoint 1 (reporting/email output) — the body and subject must make
+    // three things unmistakable to whoever opens the e-mail: which barangay
+    // system this is from, what pipeline stage produced it, and that the
+    // attached CSV holds official data rather than an unfiltered dump. This
+    // is what a panel member would actually read, so it is asserted directly
+    // rather than left to the label rename above to imply.
+    public function test_the_body_identifies_the_system_and_states_the_data_is_official(): void
+    {
+        $this->officialIncidents()->create(['incident_date' => Carbon::now()->toDateString()]);
+
+        $report = app(ReportGenerator::class)->generate('incidents');
+
         $body = (new ScheduledReportMail(
             scheduleName: 'Weekly Crime Summary',
             reportLabel: $report['label'],
@@ -1050,15 +1084,33 @@ class ScheduledReportTest extends TestCase
             attachmentContents: $report['contents'],
         ))->render();
 
-        // The body names the report and its scope...
-        $this->assertStringContainsString('Weekly Crime Summary', $body);
-        $this->assertStringContainsString('Crime Data Collection', $body);
+        $this->assertStringContainsString('Barangay 178', $body);
+        $this->assertStringContainsString('BADAC Analytics', $body);
+        $this->assertStringContainsString(
+            'Crime Data Collection -> Validation -> Analytics -> Reporting',
+            $body,
+        );
+        $this->assertStringContainsString('VALIDATED, OFFICIAL CDARS records only', $body);
+    }
 
-        // ...and carries no record from it. Mail leaves this system's access
-        // control entirely: it is relayed, stored on servers nobody here
-        // administers, and read in inboxes that Supabase MFA does not guard.
-        $this->assertStringNotContainsString('CN-CONFIDENTIAL-1', $body);
-        $this->assertStringNotContainsString('Juana Dela Cruz', $body);
+    public function test_the_subject_names_the_system_the_report_and_the_period_as_official(): void
+    {
+        $report = app(ReportGenerator::class)->generate('incidents', [], '2026-05-01', '2026-05-31');
+
+        $subject = (new ScheduledReportMail(
+            scheduleName: 'Weekly Crime Summary',
+            reportLabel: $report['label'],
+            scopeSummary: $report['summary'],
+            rowCount: $report['rowCount'],
+            generatedAt: '15 May 2026, 6:00 AM',
+            attachmentName: $report['filename'],
+            attachmentContents: $report['contents'],
+        ))->envelope()->subject;
+
+        $this->assertStringContainsString('Barangay 178 BADAC Analytics', $subject);
+        $this->assertStringContainsString('Crime Incident Report', $subject);
+        $this->assertStringContainsString('2026-05-01 to 2026-05-31', $subject);
+        $this->assertStringContainsString('Official Records', $subject);
     }
 
     public function test_the_email_log_stores_no_report_content(): void

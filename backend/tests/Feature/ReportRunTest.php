@@ -14,15 +14,18 @@ use Tests\TestCase;
 /**
  * Report execution history (report_runs).
  *
- * Reporting is a PROCESS inside the modules, not a module: there is no Reports
- * page and no listing endpoint for this table, so everything asserted here is
- * about what the backend records when a person exports from a module they can
- * already reach.
+ * Reporting is the output stage of a PROCESS inside CDARS — Crime Data
+ * Collection -> Validation -> Analytics -> Reporting — not a module unrelated
+ * to the ones that feed it. THIS TABLE has no page and no listing endpoint of
+ * its own, so everything asserted here is about what the backend records when
+ * a person exports from a module they can already reach; that is a statement
+ * about report_runs, not about Reporting as a whole, which the Reports page
+ * (/reports) remains a real, supported part of.
  *
- * The retired scheduled-report feature is NOT touched by this checkpoint. Its
- * tables still exist, still hold their rows, and ScheduledReportTest still
- * covers it; the assertions below prove the backfill reads that history
- * without disturbing it.
+ * The scheduled/e-mailed report feature is NOT touched by this checkpoint and
+ * is not retired. Its tables still exist, still hold their rows, and
+ * ScheduledReportTest still covers it as a live feature; the assertions below
+ * prove the backfill reads that history without disturbing it.
  */
 class ReportRunTest extends TestCase
 {
@@ -39,9 +42,11 @@ class ReportRunTest extends TestCase
     }
 
     /**
-     * One legacy delivery-log row, written the way the retired feature wrote
-     * them. Inserted through the query builder so this test does not depend on
-     * a model that is itself scheduled for removal.
+     * One legacy delivery-log row, written the way the scheduled/e-mailed
+     * report feature writes them today. Inserted through the query builder
+     * rather than the ReportEmailLog model, so this test exercises the
+     * backfill's own read of the table's columns instead of depending on that
+     * model's current shape.
      */
     private function legacyLog(array $overrides = []): int
     {

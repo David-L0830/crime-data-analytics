@@ -8,12 +8,17 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Report execution history.
  *
- * Reporting in CDARS is a PROCESS, not a module: a report is generated from
- * inside the module that owns the data (Crime Data Collection, Crime Mapping,
- * Statistical Analysis, Trend and Pattern Detection, the Crime Reporting
- * Dashboard) and handed straight to the person who asked for it. This table is
- * the record that the process ran. It is backend data with no page of its own,
- * and nothing in the interface lists it.
+ * Reporting in CDARS is the output stage of a PROCESS — Crime Data Collection
+ * -> Validation -> Analytics -> Reporting — not a module unrelated to the
+ * ones that feed it: a report is generated from inside the module that owns
+ * the data (Crime Data Collection, Crime Mapping, Statistical Analysis, Trend
+ * and Pattern Detection, the Crime Reporting Dashboard) and handed straight to
+ * the person who asked for it, OR generated and e-mailed automatically by a
+ * schedule (see ReportSchedule / ScheduledReportDispatcher / the Reports page
+ * at /reports). This table is the record that the process ran. THIS TABLE
+ * ITSELF has no page of its own and nothing in the interface lists it — that
+ * is a statement about report_runs, not about Reporting as a whole, which the
+ * Reports page remains a real, supported part of.
  *
  * WHAT IT DELIBERATELY DOES NOT STORE: the report itself. No file, no rows, no
  * personal detail, and no recipient — there is no recipient, because reports
@@ -36,15 +41,19 @@ use Illuminate\Support\Facades\Schema;
  *                       (Security Alert System, Campaign Planning). NOT
  *                       IMPLEMENTED; the value exists so the column does not
  *                       have to change when it is.
- *   scheduled_legacy  - a historical run of the retired scheduled-report
+ *   scheduled_legacy  - a historical run of the scheduled/e-mailed report
  *                       feature, preserved by the backfill below. NOTHING
- *                       WRITES THIS VALUE ANY MORE. Scheduled reporting is
- *                       being retired and no new scheduling exists.
+ *                       WRITES THIS VALUE ANY MORE, because that feature logs
+ *                       to report_email_logs, not to this table — it is NOT
+ *                       retired, and remains a live, supported part of CDARS
+ *                       (see ScheduledReportDispatcher and the Reports page).
  *
  * LEGACY DATA. report_email_logs holds the only record of reports this system
- * has already produced, and those runs really happened. They are copied here so
- * the history survives the retirement of the e-mail feature. The copy takes
- * only the fields that describe the REPORT: recipients, status, error and
+ * had already produced before this table existed, and those runs really
+ * happened. They are copied here so report_runs' history is complete from the
+ * start, even though the live scheduled/e-mailed feature keeps logging its own
+ * runs to report_email_logs going forward rather than to this table. The copy
+ * takes only the fields that describe the REPORT: recipients, status, error and
  * report_schedule_id are e-mail and scheduling concerns and are deliberately
  * left behind. Nothing in report_email_logs or report_schedules is read
  * destructively, updated or deleted — both tables are left exactly as they

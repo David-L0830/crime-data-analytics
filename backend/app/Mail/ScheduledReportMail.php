@@ -49,8 +49,31 @@ class ScheduledReportMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: sprintf('[Barangay 178 CDARS] %s — %s', $this->reportLabel, $this->scheduleName),
+            subject: sprintf(
+                'Barangay 178 BADAC Analytics — %s (%s) — Official Records',
+                $this->reportLabel,
+                $this->periodText(),
+            ),
         );
+    }
+
+    /**
+     * The reporting period, pulled out of $scopeSummary rather than passed in
+     * separately. ReportGenerator::describeScope() always starts its summary
+     * with 'Period: <text> · ' (or just 'Period: <text>' when nothing else
+     * follows), so this reads the one piece the subject line needs without
+     * widening the constructor or duplicating how the period text is built.
+     * Falls back to the label alone if the summary is ever in an unexpected
+     * shape — a subject missing its date range is a smaller problem than a
+     * fatal error building the e-mail.
+     */
+    private function periodText(): string
+    {
+        if (preg_match('/^Period: (.*?)(?: · |$)/', $this->scopeSummary, $matches) === 1) {
+            return $matches[1];
+        }
+
+        return 'All dates';
     }
 
     public function content(): Content

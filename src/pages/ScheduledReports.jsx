@@ -55,7 +55,15 @@ const FREQUENCIES = [
 // The one report the server can generate without a browser. Incidents have an
 // unambiguous rolling period (the date the crime occurred); criminal and victim
 // records do not. See ReportGenerator on the server.
-const REPORTS = [['incidents', 'Crime Data Collection']];
+//
+// Labelled 'Crime Incident Report', not 'Crime Data Collection' — the latter
+// is the name of the module this data is exported FROM, and using it here as
+// well made every report look like a raw copy of the data-entry screen rather
+// than the output of the CDARS reporting process. Mirrors
+// ReportGenerator::REPORTS on the server, which is where this label actually
+// comes from (see reportLabel in the schedule/log API responses); this array
+// only drives the "Report type" choice in the create form.
+const REPORTS = [['incidents', 'Crime Incident Report']];
 
 const EMPTY_FORM = {
   name: '',
@@ -667,7 +675,7 @@ export default function ScheduledReports() {
         <h3>No report schedules yet</h3>
         <p>
           {canManage
-            ? 'Create a schedule to e-mail the Crime Data Collection report to barangay officials automatically — daily, weekly or monthly.'
+            ? 'Create a schedule to e-mail the Crime Incident Report to barangay officials automatically — daily, weekly or monthly.'
             : 'No reports are currently scheduled.'}
         </p>
         {canManage && (
@@ -833,10 +841,20 @@ export default function ScheduledReports() {
     <section className="module scheduled-reports">
       <div className="module-intro">
         <div>
+          {/* States where Reports sits in the CDARS process, so this page
+              does not read as an unrelated fifth module: it is the output
+              stage of Crime Data Collection -> Validation -> Analytics ->
+              Reporting, and it draws only from the same validated, official
+              records the Dashboard, Statistical Analysis and Trend and
+              Pattern Detection already show. */}
           <p className="module-intro-text">
-            Automatically generate the Crime Data Collection report on the
-            server and e-mail it to barangay officials on a fixed schedule.
-            Every run — scheduled or manual — is recorded in the delivery log.
+            Reports are generated from validated, official CDARS records
+            only — the same data shown on the Dashboard, Statistical
+            Analysis and Trend and Pattern Detection. Configure a schedule
+            to generate the Crime Incident Report on the server and e-mail
+            it to barangay officials automatically — daily, weekly or
+            monthly. Every delivery, automatic or manual, is recorded in
+            the log below.
           </p>
         </div>
         {canManage && (
