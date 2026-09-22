@@ -52,7 +52,7 @@ describe('the incident form no longer accepts a typed coordinate', () => {
   });
 
   it('formats through the shared helper rather than its own rounding', () => {
-    expect(code).toContain("import { formatCoordinate } from './locationPickerState'");
+    expect(code).toContain("formatCoordinate, pinStateFor, PIN_STATUS } from './locationPickerState'");
     expect(code).toContain('return formatCoordinate(value) || String(value);');
     // No second precision rule anywhere in the modal.
     expect(code).not.toContain('toFixed(');
@@ -84,8 +84,13 @@ describe('the picker is wired to the form state, once', () => {
     expect(fields).toContain("setValue('latitude', latitude)");
     expect(fields).toContain("setValue('longitude', longitude)");
     // No parallel coordinate state that could disagree with the form.
+    //
+    // pinStateFor IS read here now — the automatic street lookup below uses it
+    // to gate on a point the boundary check already accepted. Reading the pair
+    // is not holding it: the form remains the only place latitude and longitude
+    // live, which is what this assertion is about.
     expect(fields).not.toMatch(/useState\([^)]*latitude/i);
-    expect(fields).not.toContain('pinStateFor');
+    expect(fields).not.toMatch(/useState\([^)]*longitude/i);
   });
 });
 
@@ -124,7 +129,7 @@ describe('the submission contract is unchanged', () => {
   });
 });
 
-describe('sitio and street are untouched', () => {
+describe('sitio and street follow the pin without being dictated by it', () => {
   it('keeps the required Sitio select and the free-text Street field', () => {
     expect(fields).toContain('Sitio *');
     expect(fields).toContain("value={form.sitio}");
@@ -133,11 +138,59 @@ describe('sitio and street are untouched', () => {
     expect(fields).toContain("onChange={set('street')}");
   });
 
-  it('derives neither of them from the coordinates', () => {
-    // No reverse geocoding, no automatic sitio, no street lookup.
-    expect(code).not.toMatch(/geocod|nominatim/i);
-    expect(fields).not.toMatch(/setValue\('sitio'/);
-    expect(fields).not.toMatch(/setValue\('street'/);
+  it('keeps both fields editable after the pin fills them', () => {
+    // The automatic lookup offers a value; it never takes the field away. A
+    // disabled or readonly Sitio/Street would make the map's answer the only
+    // answer, which is the opposite of what autofillPatch guarantees.
+    const sitioAt = fields.indexOf('id={`${uid}-sitio`}');
+    expect(fields.slice(sitioAt, sitioAt + 400)).not.toMatch(/disabled|readOnly/);
+    const streetAt = fields.indexOf('id={`${uid}-street`}');
+    expect(fields.slice(streetAt, streetAt + 400)).not.toMatch(/disabled|readOnly/);
+  });
+
+  it('derives them only through reverseGeocode, never inside the modal', () => {
+    // The rules about what may be written — blank fields and this feature's
+    // own stale values only, never the encoder's text — live in one tested
+    // module. The modal applies the patch and holds no policy of its own.
+    expect(code).toContain(
+      "import { autofillPatch, reverseGeocode } from '../../utils/reverseGeocode';",
+    );
+    expect(fields).toContain('autofillPatch(');
+    // No second opinion about the street, and no sitio guessed from anything.
+    expect(fields).not.toMatch(/nearest|closest|fallbackSitio|guess/i);
+    expect(fields).not.toContain('STREETS');
+  });
+
+  it('applies the patch rather than assigning either field directly', () => {
+    // setValue is reached only through the patch autofillPatch produced, so
+    // there is no path that writes a sitio or a street the module refused.
+    expect(fields).toContain('Object.entries(patch).forEach(');
+    expect(fields).not.toMatch(/setValue\('sitio',\s*(?!.*patch)/);
+    expect(fields).not.toMatch(/setValue\('street',\s*(?!.*patch)/);
+  });
+
+  it('looks up only points the boundary check already accepted', () => {
+    // An out-of-area or half-written stored coordinate is never sent to the
+    // lookup, and the lookup never decides what may be saved.
+    expect(fields).toContain('pinStateFor(form.latitude, form.longitude)');
+    expect(fields).toContain('state.status !== PIN_STATUS.INSIDE');
+  });
+
+  it('abandons a lookup whose pin has moved on', () => {
+    expect(fields).toContain('controller.abort()');
+    expect(fields).toContain('clearTimeout(timer)');
+    expect(fields).toContain('if (cancelled) return;');
+  });
+
+  it('re-runs on the coordinates alone, so a write cannot loop', () => {
+    // Depending on `form` or on `setValue` — a new arrow each render — with a
+    // setValue inside the effect is an update loop.
+    expect(fields).toContain('}, [form.latitude, form.longitude]);');
+  });
+
+  it('says nothing was filled rather than leaving it ambiguous', () => {
+    expect(code).toMatch(/does not name a street at this point/);
+    expect(code).toMatch(/could not be reached, so nothing was filled in/);
   });
 });
 

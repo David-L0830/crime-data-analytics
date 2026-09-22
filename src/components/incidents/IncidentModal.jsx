@@ -24,7 +24,8 @@ import {
   submissionErrorMessages,
 } from './incidentSubmission';
 import LocationPicker from './LocationPicker';
-import { formatCoordinate } from './locationPickerState';
+import { formatCoordinate, pinStateFor, PIN_STATUS } from './locationPickerState';
+import { autofillPatch, reverseGeocode } from '../../utils/reverseGeocode';
 import { composeReturnReason } from './returnReason';
 
 // The complainant is whoever filed the report. Usually that is the victim
@@ -643,6 +644,53 @@ function coordinateDisplay(value) {
   return formatCoordinate(value) || String(value);
 }
 
+/**
+ * How long a newly placed pin must sit still before its street is looked up.
+ *
+ * Dragging a marker produces one final position, but CLICKING around the map
+ * while deciding produces several in a row. Half a second is long enough that
+ * a person still choosing does not fire a request per candidate, and short
+ * enough that it feels like part of placing the pin rather than a separate
+ * step. The in-flight request is aborted on every change regardless, so this is
+ * about not making the requests at all rather than about ignoring the answers.
+ */
+const LOCATION_LOOKUP_DELAY_MS = 500;
+
+/**
+ * What the encoder is told about the automatic lookup, keyed by its state.
+ *
+ * Every message ends somewhere the encoder can act, because none of these
+ * states stops them saving: the Sitio select and the Street field stay exactly
+ * as editable as they were, and a lookup that found nothing or failed outright
+ * leaves the form in precisely the condition it is in today.
+ *
+ * `determined` is built rather than looked up, because it has to name what was
+ * actually filled — which of the two fields, and with what — rather than claim
+ * both were.
+ */
+const LOOKUP_MESSAGES = {
+  looking: 'Looking up the street for this pin…',
+  none: 'OpenStreetMap does not name a street at this point. Enter the Sitio and Location / Street yourself — nothing has been filled in.',
+  unavailable:
+    'The street lookup could not be reached, so nothing was filled in. Enter the Sitio and Location / Street yourself.',
+};
+
+/**
+ * The sentence describing a successful lookup, or null when it filled nothing.
+ *
+ * Only ever describes fields this feature ACTUALLY wrote. A lookup that found a
+ * street the encoder had already typed over changes nothing and says nothing,
+ * rather than implying the form now holds the map's answer.
+ */
+function lookupFilledMessage(patch) {
+  const filled = ['sitio', 'street']
+    .filter((field) => typeof patch[field] === 'string' && patch[field] !== '')
+    .map((field) => `${field === 'sitio' ? 'Sitio' : 'Location / Street'}: ${patch[field]}`);
+
+  if (!filled.length) return null;
+  return `Filled from the map — ${filled.join(', ')}. Correct either field if the report says otherwise.`;
+}
+
 // Shared form body for both create and edit — keeps the two modals visually
 // and behaviorally identical (Part H-27: Encoder needs this same form to
 // "enter crime type/category, incident date/time, location, sitio/street,
@@ -670,6 +718,135 @@ function IncidentFormFields({
   // gives each instance its own prefix, so the two cannot collide however the
   // page is driven.
   const uid = useId();
+
+  // ===== Pin -> Sitio / street =====
+  //
+  // WHAT THIS DOES, AND THE THREE THINGS IT IS NOT ALLOWED TO DO
+  //
+  // When a pin is placed INSIDE Barangay 178, OpenStreetMap is asked what is at
+  // that exact point and the answer is offered to the Sitio and Location /
+  // Street fields. It saves the encoder typing a street that the map already
+  // knows, and it makes the street on the record agree with the street under
+  // the pin.
+  //
+  //   1. It does not validate. The decision about which points may be recorded
+  //      is pinStateFor's here and ValidatesIncidentLocation's on the server,
+  //      both reading the stored boundary polygon. This runs only for points
+  //      those have already accepted, and a failed or empty lookup changes
+  //      nothing about what can be saved.
+  //   2. It does not invent. src/utils/reverseGeocode.js returns null rather
+  //      than a nearest-plausible answer, and a Sitio is accepted only when
+  //      OpenStreetMap names one this form's own dropdown already offers.
+  //   3. It does not overrule the encoder. autofillPatch writes only into a
+  //      blank field or into a value this effect itself wrote; text somebody
+  //      typed is never overwritten and never cleared.
+  //
+  // Both coordinate fields are the FORM's, so nothing here holds a second copy
+  // of the location — this reads the pair the picker already set and writes
+  // back through the same setValue every other field uses.
+  const [lookupMessage, setLookupMessage] = useState(null);
+
+  // The values this effect last wrote, so a stale answer of its own can be
+  // replaced or withdrawn while the encoder's own text cannot. A ref rather
+  // than state: it is read inside the effect and must never cause a render,
+  // because a render that re-ran the lookup would re-derive what it just wrote.
+  const autoFilledRef = useRef({ street: null, sitio: null });
+
+  // The latest Sitio/street, the latest setter and the latest options, read
+  // through refs so the effect below can depend on the COORDINATES ALONE.
+  // Depending on `form` would re-run the lookup on every keystroke anywhere in
+  // the form; depending on `setValue` — a new arrow function on each of the
+  // parent's renders — would re-run it on every render, which with a write
+  // inside is an update loop.
+  const lookupInputsRef = useRef({ street: '', sitio: '', setValue, sitios });
+  useEffect(() => {
+    lookupInputsRef.current = {
+      street: form.street,
+      sitio: form.sitio,
+      setValue,
+      sitios,
+    };
+  });
+
+  useEffect(() => {
+    const state = pinStateFor(form.latitude, form.longitude);
+
+    // Cleared, half-written, unusable, or a stored point outside the barangay.
+    // None of those is a point to ask about, and an out-of-area coordinate in
+    // particular must not be handed to a Barangay 178 street lookup as though
+    // it were one.
+    if (state.status !== PIN_STATUS.INSIDE) {
+      // The pin was cleared, or the record holds a coordinate that cannot be
+      // pinned. Either way this feature's own values were derived from a point
+      // the form no longer has, so they are withdrawn on exactly the rule
+      // autofillPatch applies when a pin MOVES somewhere unnamed — a blank
+      // result and nothing previously written leaves the fields alone, and the
+      // encoder's own text is never touched.
+      const inputs = lookupInputsRef.current;
+      const { patch } = autofillPatch(
+        { street: inputs.street, sitio: inputs.sitio },
+        { street: null, sitio: null },
+        autoFilledRef.current,
+      );
+      Object.entries(patch).forEach(([field, value]) =>
+        inputs.setValue(field, value),
+      );
+
+      autoFilledRef.current = { street: null, sitio: null };
+      setLookupMessage(null);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    setLookupMessage(LOOKUP_MESSAGES.looking);
+
+    const timer = setTimeout(() => {
+      reverseGeocode(state.pin.lat, state.pin.lng, {
+        signal: controller.signal,
+        sitios: lookupInputsRef.current.sitios,
+      }).then((found) => {
+        // The pin moved on, or the modal closed, while this was in flight.
+        if (cancelled) return;
+
+        if (!found) {
+          setLookupMessage(LOOKUP_MESSAGES.unavailable);
+          return;
+        }
+
+        const inputs = lookupInputsRef.current;
+        const { patch, written } = autofillPatch(
+          { street: inputs.street, sitio: inputs.sitio },
+          found,
+          autoFilledRef.current,
+        );
+
+        autoFilledRef.current = written;
+        Object.entries(patch).forEach(([field, value]) =>
+          inputs.setValue(field, value),
+        );
+
+        // Three genuinely different outcomes, and only the middle one may say
+        // that nothing is known about this point:
+        //   something was filled   -> name exactly what, and with what.
+        //   nothing was determined -> say so, and hand it back to the encoder.
+        //   determined, but the encoder's own text is in the way -> say
+        //   nothing. Their values stand, and announcing a street that was not
+        //   written would read as though it had been.
+        const filled = lookupFilledMessage(patch);
+        const determined = found.street !== null || found.sitio !== null;
+
+        setLookupMessage(filled ?? (determined ? null : LOOKUP_MESSAGES.none));
+      });
+    }, LOCATION_LOOKUP_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [form.latitude, form.longitude]);
 
   const evidenceItems = form.evidenceItems?.length
     ? form.evidenceItems
@@ -837,7 +1014,9 @@ function IncidentFormFields({
         <p className="form-hint" id={`${uid}-location-hint`}>
           Click inside the Barangay 178 boundary to place the pin, or drag the
           pin to adjust it. Optional — leave it unset if this report has no
-          exact location.
+          exact location. Where the map names the street, Sitio and Location /
+          Street above are filled in for you; anything you have typed yourself
+          is left alone.
         </p>
 
         {/* Named and described for a screen reader here rather than inside the
@@ -901,6 +1080,20 @@ function IncidentFormFields({
             Clear location
           </Button>
         </div>
+
+        {/* What the automatic Sitio/street lookup is doing, in its own live
+            region — separate from the coordinate readout above so that moving
+            the pin announces the new coordinates immediately and the lookup's
+            outcome when it arrives, rather than re-reading both twice.
+
+            Rendered only when there is something to say. A lookup that found a
+            street the encoder had already typed over stays silent, because the
+            form did not change and saying otherwise would imply it had. */}
+        {lookupMessage && (
+          <p className="form-hint incident-location-lookup" role="status">
+            {lookupMessage}
+          </p>
+        )}
       </div>
       <div className="form-group">
         <label htmlFor={`${uid}-victim-name`}>Victim Name</label>

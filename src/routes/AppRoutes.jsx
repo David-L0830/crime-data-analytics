@@ -22,7 +22,6 @@ const VictimProfile = lazy(() => import('../pages/VictimProfile'));
 const AuditLogs = lazy(() => import('../pages/AuditLogs'));
 const UserManagement = lazy(() => import('../pages/UserManagement'));
 const Settings = lazy(() => import('../pages/Settings'));
-const ScheduledReports = lazy(() => import('../pages/ScheduledReports'));
 
 function PageFallback() {
   return (
@@ -111,14 +110,6 @@ export default function AppRoutes() {
         <Route
           path="/user-management"
           element={guarded('user-management', UserManagement)}
-        />
-        <Route path="/reports" element={guarded('reports', ScheduledReports)} />
-        {/* Legacy URL of the Reports module. Kept as a redirect so existing
-            bookmarks still arrive; it grants nothing — /reports applies its
-            own guard, so a role without Reports access is still turned away. */}
-        <Route
-          path="/scheduled-reports"
-          element={<Navigate to="/reports" replace />}
         />
         <Route path="/settings" element={guarded('settings', Settings)} />
         {/* Checkpoint 28 — /security route removed; its Two-Factor

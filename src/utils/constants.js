@@ -246,7 +246,6 @@ export const ROLES = {
       'criminal-records',
       'audit-logs',
       'user-management',
-      'reports',
       'settings',
     ],
   },
@@ -278,10 +277,6 @@ export const ROLES = {
     // removed). This role never had 'security'/2FA access and still doesn't
     // (unaffected by the Security→User Management move). Checkpoint 38 —
     // 'audit-logs' removed.
-    // 'reports' — VIEW only: schedules and delivery status. The backend
-    // withholds recipient addresses and raw delivery errors from this role,
-    // and every Reports action is gated on 'manage_reports', which this role
-    // does not have.
     modules: [
       'dashboard',
       'incident-feed',
@@ -289,7 +284,6 @@ export const ROLES = {
       'analytics',
       'trends',
       'criminal-records',
-      'reports',
     ],
   },
 };
@@ -310,17 +304,13 @@ export const PERMISSIONS = {
     // the real control is role:badac_admin,badac_validator on
     // PUT /incidents/{id}/validate and /return in backend/routes/api.php.
     'validate_record',
-    // Reports: create, edit, pause/resume, archive, restore and Run Now. UI
-    // gating only — every one of those endpoints is role:badac_admin in
-    // backend/routes/api.php.
-    'manage_reports',
   ],
   // badac_validator's only action is record validation. View access is
   // granted entirely through ROLES.badac_validator.modules above, and can()
   // returns false for every other permission (create_incident,
   // edit_any_record, edit_own_incident, archive_record, archive_own_incident,
-  // view_audit_logs, manage_settings, manage_reports) since none of them are
-  // listed for this role.
+  // view_audit_logs, manage_settings) since none of them are listed for this
+  // role.
   badac_validator: ['validate_record'],
   // Encoder has no Archive capability in the UI: 'archive_own_incident' is
   // deliberately absent here, so can() returns false and IncidentFeed hides
@@ -386,17 +376,6 @@ export const NAV_ITEMS = [
     icon: 'trends',
     section: 'analytics',
   },
-  // Reports — its own REPORTING section: reporting is a functional capability
-  // of the system, not account administration. The id is the route (/reports;
-  // the old /scheduled-reports redirects here). Administrator manages;
-  // BADAC Validator views. The real control is server-side: reads are
-  // role:badac_admin,badac_validator and every write is role:badac_admin.
-  {
-    id: 'reports',
-    label: 'Reports',
-    icon: 'scheduledReports',
-    section: 'reporting',
-  },
   {
     id: 'audit-logs',
     label: 'Audit Logs',
@@ -437,7 +416,6 @@ export const NAV_SECTION_LABELS = {
   overview: 'Overview',
   'crime-management': 'Crime Management',
   analytics: 'Analytics',
-  reporting: 'Reporting',
   administration: 'Administration',
 };
 
@@ -454,7 +432,6 @@ export const PAGE_TITLES = {
   'criminal-records/victim': 'Victim Records',
   'audit-logs': 'Audit Logs',
   'user-management': 'User Management',
-  reports: 'Reports',
   settings: 'System Settings',
 };
 
