@@ -164,19 +164,25 @@ ownership checks described above.
 backend/
 ├── app/
 │   ├── Http/
-│   │   ├── Controllers/Api/       15 controllers (see §8), incl. CrimeTypeController
+│   │   ├── Controllers/Api/       18 controllers (see §8), incl. CrimeTypeController,
+│   │   │                          ReportScheduleController, RolePermissionController, EmailMfaController
 │   │   ├── Middleware/
 │   │   │   ├── EnsureRole.php            role: middleware — RBAC
 │   │   │   ├── EnsureSupabaseAal2.php    MFA/aal2 gate — enforced on every protected route except GET /user, POST /logout (see below)
+│   │   │   ├── EnsurePasswordChanged.php password.changed — blocks access for an account that still owes a forced password change, or whose session predates its last password change (see §7)
 │   │   │   └── LogAuditAction.php        alias registered but NOT attached to any route
 │   │   ├── Requests/              8 FormRequests (Store/Update Incident, Criminal, Victim, User)
 │   │   └── Resources/             7 API Resources (Incident, Criminal, Victim, User, AuditLog, Notification, CrimeType)
-│   ├── Models/                    User, Incident, Criminal, Victim, AuditLog, AppNotification, Setting, SyncLog, CrimeType, Evidence, NotificationRead
+│   ├── Models/                    User, Incident, Criminal, Victim, AuditLog, AppNotification, Setting, SyncLog,
+│   │                              CrimeType, Evidence, NotificationRead, ReportSchedule, ReportEmailLog, ReportRun,
+│   │                              EmailMfaChallenge, EmailMfaFailureWindow, EmailMfaVerifiedSession
 │   ├── Providers/AppServiceProvider.php   registers the 'supabase' guard; forces HTTPS in production
 │   └── Services/
 │       ├── SupabaseTokenValidator.php     JWT verification + user resolution
 │       ├── SupabaseAdminService.php       Supabase Admin API — MFA factor status/removal, admin-imposed MFA requirement
-│       └── MetabaseEmbedService.php       signs Metabase embed JWTs
+│       ├── MetabaseEmbedService.php       signs Metabase embed JWTs
+│       ├── EmailMfaService.php            issues and verifies Email OTP codes (§7)
+│       └── ScheduledReportDispatcher.php  builds and sends a report schedule's email (backend-only; no frontend page consumes it — see §8)
 ├── bootstrap/app.php              routing, /up health route, middleware aliases, JSON exceptions
 ├── config/                        app, auth, cache, cors, database, filesystems, logging,
 │                                  mail, metabase, queue, services, session, supabase, view
@@ -198,7 +204,7 @@ backend/
 └── phpunit.xml                    in-memory SQLite test environment
 ```
 
-**One middleware class is wired everywhere; one is registered but unused:**
+**Two middleware classes are wired on almost every protected route; one is registered but unused:**
 
 - `EnsureSupabaseAal2` (`supabase.mfa`) — **MFA/`aal2` step-up is enforced.**
   This middleware is attached to every protected route in `routes/api.php`
@@ -209,6 +215,15 @@ backend/
   account has enrolled a factor or an administrator has required one via
   `POST /users/{user}/two-factor/require`. See §7 and the class's own
   comment for the full rule, including its fail-closed behaviour.
+- `EnsurePasswordChanged` (`password.changed`) — listed immediately after
+  `supabase.mfa` on every protected route group except the handful the
+  forced-change flow itself needs (`GET /user`, `POST /logout`, the two
+  email-MFA routes, `POST /me/password`). Blocks an account that still owes a
+  password change (`must_change_password`, set when an administrator issues a
+  temporary password via `POST /users/{user}/temporary-password`), refuses a
+  request once that temporary password has expired, and forces
+  re-authentication for a session opened before the account's last password
+  change. See the class's own comment for the exact rule order.
 - `LogAuditAction` (`audit.log`) — the alias is registered, but audit entries
   are written directly inside the controllers rather than by this middleware.
 
@@ -385,14 +400,30 @@ adaptively** — see the MFA subsection below.
 
 ### Multi-factor authentication (MFA)
 
-MFA is Supabase TOTP, enforced server-side by `EnsureSupabaseAal2`
-(`supabase.mfa`) and self-service on the frontend
-(`src/components/settings/TwoFactorSelfService.jsx`, rendered on
-`/user-management`). An account is required to complete a second factor
-when it has a **verified** Supabase TOTP factor enrolled, **or** an
-administrator has flagged it via `POST /users/{user}/two-factor/require`
-— whichever comes first. An account with neither is unaffected and signs
-in at `aal1` as before.
+MFA is enforced server-side by `EnsureSupabaseAal2` (`supabase.mfa`) and can
+be satisfied one of two ways, tracked by `users.mfa_method`:
+
+- **Supabase TOTP** (`mfa_method` is `NULL`) — self-service on the frontend
+  (`src/components/settings/TwoFactorSelfService.jsx`, rendered on
+  `/user-management`). An account is required to complete this factor when it
+  has a **verified** TOTP factor enrolled, **or** an administrator has
+  flagged it via `POST /users/{user}/two-factor/require` — whichever comes
+  first.
+- **Email OTP** (`mfa_method` = `email_otp`, `User::MFA_METHOD_EMAIL_OTP`) —
+  an administrator-assigned alternative, set at account creation
+  (`StoreUserRequest`) and never mass-assignable afterward. `EmailMfaController`
+  exposes `POST /mfa/email/send` and `POST /mfa/email/verify`, both running
+  behind `auth:supabase` only (not `supabase.mfa`, since they are how an
+  `aal1` session that owes email MFA gets past that gate) and each behind its
+  own rate limiter. Neither route takes an email address, user id, or session
+  id from the request — the account is the verified token's own user, and the
+  session is the token's own signed `session_id` claim. `EmailMfaService`
+  issues and checks the one-time code.
+
+An account with neither a verified TOTP factor nor an administrator-imposed
+requirement is unaffected and signs in at `aal1` as before. Every account an
+administrator creates is given one of these two methods; "none" is
+deliberately not an option (`StoreUserRequest`).
 
 | Endpoint | Role | Purpose |
 |---|---|---|
@@ -420,20 +451,30 @@ Defined as constants on `App\Models\User`:
 |---|---|---|
 | `ROLE_BADAC_ADMIN` | `badac_admin` | Administrator |
 | `ROLE_ENCODER` | `encoder` | Encoder |
-| `ROLE_BADAC_READONLY` | `badac_readonly` | BADAC |
+| `ROLE_BADAC_VALIDATOR` | `badac_validator` | BADAC Validator |
+
+`ROLE_BADAC_VALIDATOR` replaced the former `ROLE_BADAC_READONLY` /
+`badac_readonly` (migration
+`2026_09_18_000001_rename_badac_readonly_role_to_badac_validator.php`). It is
+a rename plus one added capability — record validate/return — not a fourth
+role; the seeded account for it is username `Badac` ("Gilbert Franco", see
+`database/seeders/UserSeeder.php`).
 
 ### Which roles can do what
 
-| Capability | Administrator | Encoder | BADAC (read-only) |
+| Capability | Administrator | Encoder | BADAC Validator |
 |---|:---:|:---:|:---:|
 | Current user, profile, avatar, notifications, logout | ✅ | ✅ | ✅ |
-| Read incidents (list, detail, map) | ✅ | ✅ | ✅ |
+| Read incidents (list, detail, map) | ✅ | ✅ | ✅ *(no complainant contact/address — see `IncidentResource`)* |
 | Create / update / archive incidents | ✅ | ✅ *(own records only)* | ❌ |
+| Validate or return an incident for correction | ✅ | ❌ | ✅ |
 | Dashboard, analytics, Metabase embed URLs | ✅ | ❌ | ✅ |
-| Read criminals and victims | ✅ | ❌ | ✅ |
+| Read criminals and victims | ✅ | ❌ | ✅ *(no contact number/address — see `CriminalResource` / `VictimResource`)* |
 | Create / update / archive / restore criminals and victims | ✅ | ❌ | ❌ |
+| Read report schedules and delivery logs | ✅ | ❌ | ✅ *(no recipient addresses or raw delivery errors)* |
+| Create / update / archive / restore / run report schedules | ✅ | ❌ | ❌ |
 | Settings (read and write) | ✅ | ❌ | ❌ |
-| User management, audit logs, sync logs | ✅ | ❌ | ❌ |
+| User management, audit logs, sync logs, role-permission matrix | ✅ | ❌ | ❌ |
 
 ### Ownership restriction
 
@@ -452,14 +493,15 @@ No route performs a physical `DELETE` on an incident, criminal or victim.
 All three expose `PUT .../archive`, which changes `status` rather than
 removing the row.
 
-**Criminal and victim records can also be restored.** `PUT
-/criminals/{criminal}/restore` and `PUT /victims/{victim}/restore`
-(admin-only) reverse an archive by reading the row's own `previous_status`
-column — written by the archive endpoints — back onto `status`. The value is
-read only from that column, never inferred from `audit_logs` (which records
-no per-row status and no `target_id`), so the restored status is exact or
-the restore is refused (`422`) rather than guessed. Incidents have no restore
-endpoint; only criminals and victims do.
+**Incidents, criminals, and victims can all be restored.** `PUT
+/incidents/{incident}/restore` (admin + encoder, same per-record ownership
+rule as `archive()`), `PUT /criminals/{criminal}/restore`, and `PUT
+/victims/{victim}/restore` (both admin-only) reverse an archive by reading
+the row's own `previous_status` column — written by the archive endpoints —
+back onto `status`. The value is read only from that column, never inferred
+from `audit_logs` (which records no per-row status and no `target_id`), so
+the restored status is exact or the restore is refused (`422`) rather than
+guessed.
 
 ---
 
@@ -472,11 +514,13 @@ is a routing index; it is not a substitute for that document.
 
 The application exposes **49 API routes**, plus `GET /` and `GET /up`. This
 table was generated from `php artisan route:list` and cross-checked against
-`docs/API_ENDPOINTS.md`.
+`docs/API_ENDPOINTS.md`. It is a routing index, not an exhaustive list of
+every route — see the full reference linked above for anything not shown
+here.
 
 Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
-**Role**: `admin` = `badac_admin`, `encoder` = `encoder`, `readonly` =
-`badac_readonly`; "any" means any authenticated role.
+**Role**: `admin` = `badac_admin`, `encoder` = `encoder`, `validator` =
+`badac_validator`; "any" means any authenticated role.
 
 | Method | Path | Role | Purpose |
 |---|---|---|---|
@@ -486,26 +530,32 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | POST | `/api/logout` | any | Records the logout audit event |
 | PUT | `/api/me` | any | Update own profile (`fullName`, …) |
 | POST | `/api/me/avatar` | any | Upload avatar (image, jpg/jpeg/png/webp, ≤ 4 MB) |
-| GET | `/api/dashboard` | admin, readonly | Dashboard KPIs and summary data |
-| GET | `/api/analytics` | admin, readonly | Analytics aggregate payload |
-| GET | `/api/analytics/crime-types` | admin, readonly | Counts by crime type |
-| GET | `/api/analytics/monthly` | admin, readonly | Monthly totals |
-| GET | `/api/analytics/locations` | admin, readonly | Counts by location |
-| GET | `/api/embed/metabase/{dashboardKey}` | admin, readonly | Signed Metabase embed URL (§9) |
+| POST | `/api/me/password` | any | Change own password (clears `must_change_password`) |
+| POST | `/api/mfa/email/send` | any (aal1, owed) | Send an Email OTP code for the current session |
+| POST | `/api/mfa/email/verify` | any (aal1, owed) | Verify an Email OTP code |
+| GET | `/api/dashboard` | admin, validator | Dashboard KPIs and summary data |
+| GET | `/api/analytics` | admin, validator | Analytics aggregate payload |
+| GET | `/api/analytics/crime-types` | admin, validator | Counts by crime type |
+| GET | `/api/analytics/monthly` | admin, validator | Monthly totals |
+| GET | `/api/analytics/locations` | admin, validator | Counts by location |
+| GET | `/api/embed/metabase/{dashboardKey}` | admin, validator | Signed Metabase embed URL (§9) |
 | GET | `/api/incidents` | any | List/filter incidents |
 | GET | `/api/incidents/map` | any | Map payload for Leaflet |
 | GET | `/api/incidents/{incident}` | any | Incident detail |
 | POST | `/api/incidents` | admin, encoder | Create an incident |
 | PUT | `/api/incidents/{incident}` | admin, encoder¹ | Update an incident |
 | PUT | `/api/incidents/{incident}/archive` | admin, encoder¹ | Archive an incident |
-| GET | `/api/criminals` | admin, readonly | List criminal records |
-| GET | `/api/criminals/{criminal}` | admin, readonly | Criminal profile |
+| PUT | `/api/incidents/{incident}/restore` | admin, encoder¹ | Restore an archived incident to its pre-archive status |
+| PUT | `/api/incidents/{incident}/validate` | admin, validator | Approve/validate an incident record |
+| PUT | `/api/incidents/{incident}/return` | admin, validator | Return an incident to its Encoder for correction |
+| GET | `/api/criminals` | admin, validator | List criminal records |
+| GET | `/api/criminals/{criminal}` | admin, validator | Criminal profile |
 | POST | `/api/criminals` | admin | Create a criminal record |
 | PUT | `/api/criminals/{criminal}` | admin | Update a criminal record |
 | PUT | `/api/criminals/{criminal}/archive` | admin | Archive a criminal record |
 | PUT | `/api/criminals/{criminal}/restore` | admin | Restore an archived criminal record to its pre-archive status |
-| GET | `/api/victims` | admin, readonly | List victims |
-| GET | `/api/victims/{victim}` | admin, readonly | Victim profile |
+| GET | `/api/victims` | admin, validator | List victims |
+| GET | `/api/victims/{victim}` | admin, validator | Victim profile |
 | POST | `/api/victims` | admin | Create a victim record |
 | PUT | `/api/victims/{victim}` | admin | Update a victim record |
 | PUT | `/api/victims/{victim}/archive` | admin | Archive a victim record |
@@ -517,14 +567,33 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | PUT | `/api/settings` | admin | Update business configuration |
 | GET | `/api/users` | admin | List accounts |
 | GET | `/api/users/{user}` | admin | Account detail |
+| POST | `/api/users` | admin | Create an account |
 | PUT | `/api/users/{user}` | admin | Update an account (`role` is not mass-assignable) |
 | PUT | `/api/users/{user}/status` | admin | Activate/deactivate (self-lockout guarded) |
 | POST | `/api/users/{user}/two-factor/disable` | admin | Force-remove the target's Supabase MFA factors |
 | POST | `/api/users/{user}/two-factor/require` | admin | Require (or stop requiring) MFA of the target account |
+| POST | `/api/users/{user}/temporary-password` | admin | Issue a new temporary password (forces a change at next sign-in) |
+| GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
+| GET | `/api/role-permissions` | admin | Role-permission matrix, read from the live route table |
 | GET | `/api/audit-logs` | admin | Audit trail |
 | GET | `/api/sync-logs` | admin | Synchronization log |
+| GET | `/api/report-schedules` | admin, validator | List automated report schedules (backend remnant — see §9 note below and the [root README](../README.md#backend--api)) |
+| GET | `/api/report-email-logs` | admin, validator | Report delivery log |
+| POST | `/api/report-schedules` | admin | Create a report schedule |
+| PUT | `/api/report-schedules/{reportSchedule}` | admin | Update a report schedule |
+| PUT | `/api/report-schedules/{reportSchedule}/archive` | admin | Archive a report schedule |
+| PUT | `/api/report-schedules/{reportSchedule}/restore` | admin | Restore an archived report schedule |
+| POST | `/api/report-schedules/{reportSchedule}/run` | admin | Run a schedule immediately |
+| POST | `/api/report-export-audit` | any | Record that an on-demand export happened |
 
-¹ Encoders may only update/archive incidents they personally encoded.
+¹ Encoders may only update/archive/restore incidents they personally encoded.
+
+> **No frontend Reports page.** The `report-schedules` / `report-email-logs`
+> routes above remain fully functional — they back `ReportScheduleController`,
+> `ScheduledReportDispatcher`, and the `SendScheduledReports` console command
+> — but the frontend Reports/Scheduled Reports module that used to call them
+> was removed. They are currently reachable only via direct API calls, not
+> through any page in the React app.
 
 ### Common status codes
 
@@ -793,18 +862,19 @@ project.
 php artisan test          # or: ./vendor/bin/phpunit
 ```
 
-**Current result: 303 passed (1081 assertions).**
+**Current result: 781 passed, 4 skipped (5067 assertions).**
 
 Feature test classes under `tests/Feature/`, including:
 
 | Test class | Covers |
 |---|---|
-| `BadacReadonlyTest` | Read-only role boundaries |
+| `BadacValidatorTest` | `badac_validator` role boundaries (replaced the former read-only role's test) and the resources' contact-detail allow-list |
 | `CriminalRecordTest` | Criminal CRUD and archiving |
 | `IncidentTest` | Incident CRUD, ownership, map payload |
 | `MfaEnforcementTest` | Adaptive `supabase.mfa` enforcement, the two route exemptions, fail-closed lookups |
 | `NotificationTest` | Notification list and read flags |
-| `RestoreTest` | Archive → restore round-trips for criminals and victims, `previous_status` handling, and fallback behaviour when it is missing or unrecognised |
+| `RestoreTest` | Archive → restore round-trips for incidents, criminals and victims, `previous_status` handling, and fallback behaviour when it is missing or unrecognised |
+| `ScheduledReportTest` | Report-schedule CRUD, archive/restore, and dispatch via `ScheduledReportDispatcher` |
 | `SupabaseTokenValidationTest` | JWT verification and user resolution |
 | `UserManagementTest` | Account administration, MFA require/disable |
 | `VictimTest` | Victim records and case relationships |

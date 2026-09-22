@@ -43,7 +43,7 @@ A crime data analytics and reporting platform for **Barangay 178, North Caloocan
 
 ## Overview
 
-The system gives barangay staff (BADAC administrators, encoders, and read-only users) a single place to record incidents, review statistics, and analyse crime trends.
+The system gives barangay staff (BADAC administrators, encoders, and BADAC Validators) a single place to record incidents, review statistics, and analyse crime trends.
 
 Analytics are produced in two complementary ways, and the distinction matters when reading this document:
 
@@ -59,8 +59,9 @@ Both layers are driven by the **same React FilterBar**. The React filter state i
 ## Key Features
 
 - Incident recording, mapping, and audit logging
-- Role-based access control (Administrator / Encoder / BADAC read-only)
-- Adaptive multi-factor authentication (Supabase TOTP) — self-service enrollment for any account, plus administrator-imposed MFA requirements independent of enrollment
+- Automatic street detection from the map pin (reverse geocoding), with safeguards against wrong-barangay and non-street results
+- Role-based access control (Administrator / Encoder / BADAC Validator), including a record validate / return-for-correction workflow for the Validator role
+- Adaptive multi-factor authentication — Supabase TOTP (self-service enrollment for any account) or an administrator-assigned Email OTP method — plus administrator-imposed MFA requirements independent of enrollment
 - Archive and restore for incidents, criminal, and victim records
 - Crime Reporting Dashboard with 8 KPI cards and 4 tables computed in React
 - Embedded Metabase dashboards for Crime, Statistical Analysis, and Trend Detection
@@ -171,17 +172,24 @@ The legacy shared-secret verification path (`SUPABASE_JWT_SECRET`) is intentiona
 ### Multi-factor authentication (MFA)
 
 MFA is **adaptive**, not mandatory for every account. An account is required
-to complete a Supabase TOTP second factor only when it has enrolled a
-**verified** factor, or when an administrator has flagged it with **Require
-2FA**, whichever applies first — an account with neither continues to sign in
-normally.
+to complete a second factor only when it has enrolled a **verified** factor,
+or when an administrator has flagged it with **Require 2FA**, whichever
+applies first — an account with neither continues to sign in normally. Every
+account an administrator creates is given one of two second-factor methods;
+"none" is not an option.
 
-- **Self-service enrollment.** Any signed-in user can enroll, confirm, and
-  remove their own TOTP factor from the **User Management** page (backed by
-  `supabase.auth.mfa.*` client-side calls).
+- **Supabase TOTP (self-service).** Any signed-in user can enroll, confirm,
+  and remove their own TOTP factor from the **User Management** page (backed
+  by `supabase.auth.mfa.*` client-side calls).
+- **Email OTP (administrator-assigned).** An administrator can instead set an
+  account's `mfa_method` to Email OTP at creation. The account is emailed a
+  one-time code (`POST /api/mfa/email/send`, verified by
+  `POST /api/mfa/email/verify`) tied to its own signed-in session, rate-limited,
+  and never taking an email address or user id from the request.
 - **Login step-up challenge.** If the account still owes a second factor,
-  `Login.jsx` shows a TOTP challenge screen after the password/Google step
-  instead of completing sign-in.
+  `Login.jsx` shows a TOTP or email-code challenge screen (matching its
+  configured method) after the password/Google step instead of completing
+  sign-in.
 - **Administrator control.** From the same **User Management** row menu, an
   administrator can require a second factor of any account that has not
   enrolled one (`POST /api/users/{user}/two-factor/require`) — this sets an
@@ -217,6 +225,36 @@ Supporting tables include `users`, `criminals`, `victims`, `incident_victim`, `a
 **Archiving, and restoring.** Incidents, criminals, and victims are archived by setting `status = 'Archived'` rather than being removed, and every statistic excludes archived rows. All three can be **restored**: archiving writes the row's prior value to a `previous_status` column, and `PUT /incidents/{id}/restore` / `PUT /criminals/{id}/restore` / `PUT /victims/{id}/restore` read that column back onto `status`, so the restored value is exact rather than inferred from the audit trail. Criminal and victim restore is admin-only; incident restore is available to BADAC Admin and Encoder alike, with Encoder restricted to incidents they personally encoded — the same per-record ownership rule `archive()` enforces.
 
 **Row-level security.** All tables in the `public` schema have RLS enabled (enforced by migration for `crime_types`, `incident_evidence`, and `notification_reads` — the three most recently added tables, which briefly shipped without it — and configured directly in Supabase for the rest), with no permissive policies. Laravel connects as the table-owning `postgres` role, which PostgreSQL exempts from RLS by default, so the API's own access is unaffected; the purpose is to close the tables to Supabase's PostgREST surface, which the browser-visible publishable key would otherwise expose for direct read/write.
+
+### Automatic street detection (reverse geocoding)
+
+When an incident's map pin is placed or moved inside the Barangay 178
+boundary, `src/utils/reverseGeocode.js` asks OpenStreetMap's Nominatim
+service what street sits at that exact point and offers the answer back to
+the incident form — the encoder can still type over it.
+
+Safeguards, all enforced client-side before a value is ever offered:
+
+- A result attributed to a different barangay is refused outright.
+- A result that names a facility or place ("Barangay Hall", "Sari-Sari
+  Store") rather than an actual street is refused.
+- Text the encoder already typed is never overwritten.
+- If the pin moves somewhere nothing can be determined, the module withdraws
+  its own earlier suggestion rather than leaving a stale one in place.
+
+**Automatic Sitio is not implemented.** No sitio boundary data exists in this
+project — `SITIOS` in `src/utils/constants.js` is still the placeholder list
+`Sitio 1`..`Sitio 7`. The lookup only ever accepts a Sitio value from
+OpenStreetMap when it exactly matches a name the form's own dropdown already
+offers, which the current placeholder names make essentially impossible.
+Sitio remains a manual selection until official Sitio boundary data is
+available. This is a deliberate safeguard against fabricating an
+administrative division, not a bug.
+
+This feature is a convenience only: it neither performs nor weakens the
+existing Barangay 178 boundary validation (`src/utils/geo.js` client-side,
+`ValidatesIncidentLocation` / `Barangay178Boundary` server-side), and a failed
+or blocked lookup changes nothing about what can be saved.
 
 ### Manual backup (`pg_dump`)
 
@@ -470,7 +508,9 @@ Laravel 12, served by **nginx + php-fpm** inside a single Docker image.
 
 - All API routes are prefixed `/api` and protected by the `auth:supabase` guard, with role middleware (`role:…`) on top.
 - `GET /up` is Laravel's built-in health route, used by Render's health check. It is **not** under `/api`, so it is not subject to CORS.
-- `GET /api/embed/metabase/{key}` returns `{ "url": "…" }` — the signed Metabase embed URL. Restricted to BADAC administrator and read-only roles.
+- `GET /api/embed/metabase/{key}` returns `{ "url": "…" }` — the signed Metabase embed URL. Restricted to BADAC administrator and Validator roles.
+- `PUT /api/incidents/{id}/validate` and `PUT /api/incidents/{id}/return` let an Administrator or BADAC Validator approve a record or return it to its Encoder for correction. An Encoder cannot reach either route, even for their own records.
+- **Automated report-schedule endpoints still exist on the backend** (`/api/report-schedules`, `/api/report-email-logs`) even though the frontend Reports/Scheduled Reports page has been removed. Administrators and BADAC Validators may read schedules and delivery status through the API; there is currently no frontend page that surfaces them. See the [backend README](backend/README.md#8-api-endpoints) for the full endpoint list.
 
 ### CORS
 
@@ -649,7 +689,7 @@ Useful commands:
 php artisan route:list --path=up   # confirm the health route
 php artisan config:clear           # after editing .env
 php artisan view:clear             # clear compiled Blade caches
-php artisan test                   # 303 tests, in-memory SQLite
+php artisan test                   # 781 passed, 4 skipped, in-memory SQLite
 ```
 
 > If `.env` changes seem to have no effect, a stale configuration cache is the usual cause. Run `php artisan config:clear`.
@@ -863,6 +903,8 @@ The backend verifies access tokens against the project's **JWKS** endpoint using
 
 ### Functional
 
+- **Automatic Sitio detection is not implemented.** It is waiting on official Sitio boundary data; see [Automatic street detection](#automatic-street-detection-reverse-geocoding). Sitio remains a manual dropdown selection.
+- The frontend Reports/Scheduled Reports module has been removed. The backend's report-schedule endpoints and data remain, with no frontend page currently consuming them (see [Backend / API](#backend--api)).
 - *Crime by Status* cannot show semantic per-status colours while it remains a single-series bar chart.
 - **Dashboard 2's `sitio` parameter returns no rows.** The parameter is declared and mapped, but on Dashboard 2 it targets the same field as `crime_type`, so filtering by Sitio yields 0 there while Dashboards 3 and 4 behave correctly. Needs correcting in the Metabase UI. React-side Sitio filtering is unaffected.
 - Trend Detection has no Category filter by design.
