@@ -33,7 +33,7 @@
 .landing-navbar-scrolled {
   background: var(--bg-topbar);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
   box-shadow: var(--shadow);
 }
 
@@ -113,7 +113,7 @@
   width: 36px;
   height: 36px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   background: var(--bg-card);
   color: var(--text-secondary);
   cursor: pointer;
@@ -149,12 +149,12 @@
 .landing-navbar-login:hover,
 .landing-navbar-login:focus-visible {
   background: var(--bg-hover);
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
   color: var(--text-primary);
 }
 
 .landing-navbar-login:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -170,7 +170,7 @@
 @media (hover: none) {
   .landing-navbar-login:hover {
     background: var(--bg-card);
-    border-color: var(--border);
+    border-color: hsl(var(--border));
     color: var(--text-primary);
   }
 }
@@ -219,7 +219,7 @@
 }
 
 .landing-hero-accent {
-  color: var(--accent);
+  color: hsl(var(--primary));
 }
 
 .landing-hero-appname {
@@ -269,7 +269,7 @@
 }
 
 .landing-hero-points svg {
-  color: var(--accent);
+  color: hsl(var(--primary));
   flex-shrink: 0;
 }
 
@@ -280,7 +280,7 @@
 
 .landing-preview-panel {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 20px;
@@ -345,7 +345,7 @@
 }
 
 .landing-preview-footer {
-  border-top: 1px dashed var(--border);
+  border-top: 1px dashed hsl(var(--border));
   padding-top: 12px;
 }
 
@@ -361,7 +361,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent);
+  background: hsl(var(--primary));
   box-shadow: 0 0 0 0 var(--accent-light);
   animation: landing-pulse 2s ease-out infinite;
 }
@@ -432,7 +432,7 @@
 
 .landing-feature-card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 24px 22px;
   box-shadow: var(--shadow-card);
@@ -476,7 +476,7 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   padding-top: 32px;
 }
 
@@ -488,7 +488,7 @@
   display: block;
   font-family: var(--font-heading);
   font-size: 1.6rem;
-  color: var(--accent);
+  color: hsl(var(--primary));
 }
 
 .landing-stat span {
@@ -510,7 +510,7 @@
   flex: 1 1 180px;
   position: relative;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 20px 16px;
   text-align: center;
@@ -568,7 +568,7 @@
 }
 
 .landing-benefit-list svg {
-  color: var(--accent);
+  color: hsl(var(--primary));
   flex-shrink: 0;
 }
 
@@ -592,7 +592,7 @@
 
 .landing-map-panel {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 16px;
@@ -629,8 +629,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    linear-gradient(hsl(var(--border)) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px);
   background-size: 34px 34px;
   opacity: 0.5;
 }
@@ -641,7 +641,7 @@
   left: 10%;
   right: 12%;
   bottom: 14%;
-  border: 2px dashed var(--accent);
+  border: 2px dashed hsl(var(--primary));
   border-radius: 40% 45% 42% 46% / 46% 42% 48% 44%;
   opacity: 0.6;
 }
@@ -708,7 +708,7 @@
   display: flex;
   gap: 14px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 20px;
   box-shadow: var(--shadow-card);
@@ -846,7 +846,7 @@
 /* ===== Footer ===== */
 .landing-footer {
   background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   padding: 48px 24px 20px;
 }
 
@@ -930,7 +930,7 @@
   max-width: 1200px;
   margin: 32px auto 0;
   padding-top: 18px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   text-align: center;
 }
 
@@ -999,7 +999,7 @@
     left: 0;
     right: 0;
     background: var(--bg-card);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid hsl(var(--border));
     flex-direction: column;
     align-items: flex-start;
     gap: 0;

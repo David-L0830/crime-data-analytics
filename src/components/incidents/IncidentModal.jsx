@@ -493,7 +493,7 @@ export function IncidentViewModal({
           </div>
           <div
             className="full"
-            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+            style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 12 }}
           />
           <div>
             <strong>Victim Name:</strong> {r.victimName || '—'}
@@ -506,7 +506,7 @@ export function IncidentViewModal({
           </div>
           <div
             className="full"
-            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+            style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 12 }}
           />
           <div>
             <strong>Complainant:</strong>{' '}
@@ -534,7 +534,7 @@ export function IncidentViewModal({
           </div>
           <div
             className="full"
-            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+            style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 12 }}
           />
           <div>
             <strong>Suspect Name:</strong> {r.suspectName || '—'}
@@ -544,7 +544,7 @@ export function IncidentViewModal({
           </div>
           <div
             className="full"
-            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+            style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 12 }}
           />
           <div>
             <strong>Reporting Officer:</strong> {r.reportingOfficer || '—'}
@@ -561,7 +561,7 @@ export function IncidentViewModal({
           </div>
           <div
             className="full"
-            style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}
+            style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 12 }}
           />
           <div className="full">
             <strong>Description:</strong> {r.description || '—'}

@@ -5,6 +5,68 @@
    Palette: Slate · Emerald · Amber · Indigo
    ======================================== */
 
+/* ===== shadcn token layer =====
+   The shadcn/ui token contract: raw "H S% L%" triplets, consumed as
+   hsl(var(--token)). These are the Barangay Daylight palette itself, just
+   expressed in HSL, so the app's semantic variables below are aliased onto
+   them rather than redefined.
+
+   Two departures from the stock shadcn block:
+   - Dark mode is keyed on [data-theme="dark"], not .dark, because that is the
+     attribute ThemeContext sets on <html>.
+   - shadcn claims --accent (orange) and --border (a triplet), so the app's own
+     old --accent (brand green) and --border (hex) are gone: their uses read
+     hsl(var(--primary)) and hsl(var(--border)) instead.
+
+   Declared in a cascade layer, so any unlayered rule still wins over it. */
+@layer base {
+  :root {
+    --background: 75 33% 98%;
+    --foreground: 102 14% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 102 14% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 102 14% 14%;
+    --primary: 136 50% 36%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 130 40% 94%;
+    --secondary-foreground: 102 14% 14%;
+    --muted: 130 40% 94%;
+    --muted-foreground: 109 8% 41%;
+    --accent: 24 100% 62%;
+    --accent-foreground: 25 68% 10%;
+    --destructive: 6 63% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 124 27% 89%;
+    --input: 124 27% 89%;
+    --ring: 136 50% 36%;
+    --radius: 0.75rem;
+    --font-display: 'Manrope', sans-serif;
+    --font-body: 'Inter', sans-serif;
+  }
+  [data-theme="dark"] {
+    --background: 94 19% 7%;
+    --foreground: 100 27% 94%;
+    --card: 112 13% 12%;
+    --card-foreground: 100 27% 94%;
+    --popover: 112 13% 12%;
+    --popover-foreground: 100 27% 94%;
+    --primary: 139 39% 49%;
+    --primary-foreground: 132 33% 6%;
+    --secondary: 120 13% 15%;
+    --secondary-foreground: 100 27% 94%;
+    --muted: 120 13% 15%;
+    --muted-foreground: 124 8% 59%;
+    --accent: 24 100% 67%;
+    --accent-foreground: 28 86% 5%;
+    --destructive: 9 76% 57%;
+    --destructive-foreground: 100 27% 94%;
+    --border: 120 10% 19%;
+    --input: 120 10% 19%;
+    --ring: 139 39% 49%;
+  }
+}
+
 /* ===== CSS Variables ===== */
 :root {
   /* ===== Barangay Daylight (Light) — official theme, see design system doc ===== */
@@ -16,35 +78,34 @@
   --color-gray: #eaf6ec;
   --color-white: #ffffff;
 
-  /* Semantic — Light Mode */
-  --bg-primary: #fafbf7;
-  --bg-secondary: #ffffff;
-  --bg-card: #ffffff;
-  --bg-hover: #eaf6ec;
-  --bg-sidebar: #ffffff;
+  /* Semantic — aliased onto the shadcn token layer above, so they follow it in
+     both themes. --border and --accent are the shadcn tokens themselves. */
+  --bg-primary: hsl(var(--background));
+  --bg-secondary: hsl(var(--card));
+  --bg-card: hsl(var(--card));
+  --bg-hover: hsl(var(--secondary));
+  --bg-sidebar: hsl(var(--card));
   --bg-sidebar-hover: rgba(46, 139, 71, 0.08);
   --bg-topbar: rgba(255, 255, 255, 0.92);
-  --border: #dcebdd;
-  --border-light: #eaf6ec;
-  --text-primary: #22291f;
-  --text-secondary: #62705f;
-  --text-muted: #62705f;
-  --accent: var(--color-green);
+  --border-light: hsl(var(--muted));
+  --text-primary: hsl(var(--foreground));
+  --text-secondary: hsl(var(--muted-foreground));
+  --text-muted: hsl(var(--muted-foreground));
   --accent-rgb: 46, 139, 71;
   --accent-hover: #256f39;
   --accent-light: rgba(46, 139, 71, 0.12);
   --accent-dark: #1e5c31;
-  --orange: var(--color-orange);
+  --orange: hsl(var(--accent));
   --orange-rgb: 255, 138, 61;
   --orange-hover: #e67530;
   --orange-light: rgba(255, 138, 61, 0.14);
-  --brand-red: var(--color-red);
+  --brand-red: hsl(var(--destructive));
   --brand-red-light: rgba(192, 57, 43, 0.12);
   --indigo: var(--color-indigo);
   --indigo-light: rgba(99, 102, 241, 0.12);
-  --success: #2e8b47;
-  --warning: #ff8a3d;
-  --danger: #c0392b;
+  --success: hsl(var(--primary));
+  --warning: hsl(var(--accent));
+  --danger: hsl(var(--destructive));
   --danger-rgb: 192, 57, 43;
   --info: #0ea5e9;
 
@@ -90,7 +151,6 @@
   --sidebar-width: 272px;
   --sidebar-width-collapsed: 72px;
   --topbar-height: 68px;
-  --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 20px;
   --radius-xl: 24px;
@@ -103,7 +163,6 @@
     0 0 0 1px rgba(34, 41, 31, 0.04), 0 2px 8px rgba(34, 41, 31, 0.04);
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --font-heading: "Manrope", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
 
   /* Gradients */
   --gradient-brand: linear-gradient(
@@ -160,33 +219,20 @@
 
 /* Dark Mode — Barangay Daylight (Dark) */
 [data-theme="dark"] {
-  --bg-primary: #12160f;
-  --bg-secondary: #1b221a;
-  --bg-card: #1b221a;
-  --bg-hover: #212b21;
-  --bg-sidebar: #1b221a;
+  /* The backgrounds, borders, text colours, --orange, --brand-red, --success,
+     --warning and --danger need no dark values here: their :root aliases
+     read the shadcn tokens, which switch in the token layer. */
   --bg-sidebar-hover: rgba(76, 175, 107, 0.1);
   --bg-topbar: rgba(18, 22, 15, 0.95);
-  --border: #2c362c;
-  --border-light: #212b21;
-  --text-primary: #edf3ea;
-  --text-secondary: #8fa090;
-  --text-muted: #8fa090;
-  --accent: #4caf6b;
   --accent-rgb: 76, 175, 107;
   --accent-hover: #3f9a5b;
   --accent-light: rgba(76, 175, 107, 0.15);
   --accent-dark: #3f9a5b;
-  --orange: #ff9955;
   --orange-rgb: 255, 153, 85;
   --orange-hover: #ffa766;
   --orange-light: rgba(255, 153, 85, 0.15);
-  --brand-red: #e4573d;
   --brand-red-light: rgba(228, 87, 61, 0.15);
   --indigo-light: rgba(99, 102, 241, 0.15);
-  --success: #4caf6b;
-  --warning: #ff9955;
-  --danger: #e4573d;
   --danger-rgb: 228, 87, 61;
 
   /* Dark-theme text tokens. These are set to the SAME values the dark theme
@@ -418,7 +464,7 @@ h6 {
   padding: 10px 18px;
   background: var(--bg-card);
   color: var(--accent-text);
-  border: 2px solid var(--accent);
+  border: 2px solid hsl(var(--primary));
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   font-family: var(--font-body);
   font-size: 0.85rem;
@@ -468,7 +514,7 @@ h6 {
 .icon-btn:focus-visible,
 .notif-toast-close:focus-visible,
 .modal-close:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
   /* Nothing here is a colour change, so a control that already signals focus
      some other way keeps doing so; this only adds the ring. */
@@ -609,7 +655,7 @@ h6 {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--orange), var(--info));
+  background: linear-gradient(90deg, hsl(var(--primary)), var(--orange), var(--info));
 }
 
 .login-header {
@@ -686,11 +732,11 @@ h6 {
 
 .login-theme-toggle:hover {
   color: var(--login-text-heading);
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
 }
 
 .login-theme-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -761,7 +807,7 @@ h6 {
 }
 
 .login-form input:focus {
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
   box-shadow: 0 0 0 3px var(--accent-light);
 }
 
@@ -788,7 +834,7 @@ h6 {
    password input lands here with no indication of it — the input's own focus
    ring belongs to the input, not to this button. */
 .password-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
   border-radius: var(--radius-sm);
   color: var(--login-text-heading);
@@ -814,7 +860,7 @@ h6 {
 .remember-me input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--accent);
+  accent-color: hsl(var(--primary));
   cursor: pointer;
 }
 
@@ -857,7 +903,7 @@ h6 {
    ring behind, but tabbing to it must be obvious. The offset ring reads
    clearly against the button's own green fill. */
 .login-form .btn-login:focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid hsl(var(--primary));
   outline-offset: 3px;
 }
 
@@ -916,7 +962,7 @@ h6 {
 
 .btn-google:hover:not(:disabled) {
   background: var(--login-card-bg);
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
 }
 
 .btn-google:disabled {
@@ -1031,7 +1077,7 @@ h6 {
   padding: 10px 14px;
   margin: 10px 0;
   background: var(--bg-hover);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   font-size: 0.95rem;
   letter-spacing: 0.04em;
@@ -1056,7 +1102,7 @@ h6 {
 .recovery-code {
   padding: 8px 10px;
   background: var(--bg-hover);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   text-align: center;
   font-size: 0.9rem;
@@ -1084,7 +1130,7 @@ h6 {
   transition:
     width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.3s ease;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid hsl(var(--border));
   overflow: visible;
 }
 
@@ -1093,7 +1139,7 @@ h6 {
   display: flex;
   align-items: center;
   gap: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
   min-height: 88px;
   transition: padding var(--transition);
   overflow: hidden;
@@ -1186,7 +1232,7 @@ h6 {
   transform: translateY(-50%);
   width: 3px;
   height: 0;
-  background: var(--accent);
+  background: hsl(var(--primary));
   border-radius: 0 3px 3px 0;
   transition: height var(--transition);
 }
@@ -1231,7 +1277,7 @@ h6 {
 
 .sidebar-footer {
   padding: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   transition: padding var(--transition);
   flex-shrink: 0;
 }
@@ -1289,7 +1335,7 @@ h6 {
   top: 4px;
   bottom: 4px;
   width: 1px;
-  background: var(--border);
+  background: hsl(var(--border));
 }
 
 /* `hidden` must win over the display:flex above. */
@@ -1349,7 +1395,7 @@ h6 {
 }
 
 .account-menu-btn:hover {
-  background: var(--border);
+  background: hsl(var(--border));
   color: var(--text-primary);
 }
 
@@ -1359,7 +1405,7 @@ h6 {
   right: 0;
   min-width: 168px;
   background: var(--bg-card, #fff);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   padding: 4px;
@@ -1415,7 +1461,7 @@ h6 {
 .permissions-section {
   margin-top: 20px;
   padding-top: 18px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
 }
 
 .permissions-heading {
@@ -1436,7 +1482,7 @@ h6 {
 
 .permission-row {
   padding: 12px 14px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
 }
@@ -1563,7 +1609,7 @@ h6 {
   width: 100%;
   padding: 9px;
   background: var(--bg-hover);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 0.8rem;
@@ -1596,7 +1642,7 @@ h6 {
   padding: 10px;
   background: var(--bg-hover);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   transition:
     padding var(--transition),
     justify-content var(--transition);
@@ -1729,7 +1775,7 @@ h6 {
   background: var(--bg-topbar);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
   display: flex;
   align-items: center;
   padding: 0 28px;
@@ -1744,7 +1790,7 @@ h6 {
   align-items: center;
   justify-content: center;
   background: var(--bg-hover);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 1.2rem;
@@ -1756,7 +1802,7 @@ h6 {
 }
 
 .menu-toggle:hover {
-  background: var(--border);
+  background: hsl(var(--border));
 }
 
 /* Sidebar hidden state — hamburger hides sidebar on desktop */
@@ -1789,12 +1835,12 @@ h6 {
   padding: 6px 12px;
   background: var(--bg-primary);
   border-radius: 99px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
 }
 
 .theme-toggle {
   background: var(--bg-primary);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   width: 38px;
   height: 38px;
@@ -1830,7 +1876,7 @@ h6 {
 /* ===== Cards ===== */
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 22px;
   margin-bottom: 20px;
@@ -1857,7 +1903,7 @@ h6 {
    because the two selectors have equal specificity. */
 .metabase-embed:hover {
   box-shadow: var(--shadow-card);
-  border-color: var(--border);
+  border-color: hsl(var(--border));
 }
 
 .card h3 {
@@ -1923,7 +1969,7 @@ h6 {
 
 .kpi-card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 20px 22px;
   transition: all var(--transition);
@@ -1943,7 +1989,7 @@ h6 {
   left: 0;
   right: 0;
   height: 3px;
-  background: var(--border);
+  background: hsl(var(--border));
   transition: background var(--transition);
 }
 
@@ -1959,7 +2005,7 @@ h6 {
 }
 
 .kpi-card-link:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -1985,7 +2031,7 @@ h6 {
 }
 
 .kpi-card.accent::after {
-  background: var(--accent);
+  background: hsl(var(--primary));
 }
 .kpi-card.accent .kpi-value {
   color: var(--accent-text);
@@ -2054,7 +2100,7 @@ h6 {
 }
 
 .chart-card-interactive:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -2178,7 +2224,7 @@ th {
    row, and removing its outline would make the table unnavigable by keyboard
    without removing the ability to operate it. */
 .th-sort:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -2327,7 +2373,7 @@ tbody tr:last-child td {
 .btn-secondary {
   background: var(--bg-card);
   color: var(--text-primary);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   box-shadow: var(--shadow);
 }
 
@@ -2389,7 +2435,7 @@ textarea {
   width: 100%;
   padding: 10px 14px;
   background: var(--bg-primary);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 0.88rem;
@@ -2401,7 +2447,7 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
   box-shadow: 0 0 0 3px var(--accent-light);
   background: var(--bg-card);
 }
@@ -2475,7 +2521,7 @@ select {
   align-items: flex-end;
   padding: 16px 20px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
 }
@@ -2517,13 +2563,13 @@ select {
   min-width: 320px;
   padding-left: 16px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
 }
 
 .search-box input:focus {
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
 }
 
 .toolbar-actions {
@@ -2591,7 +2637,7 @@ select {
 .map-viz-options input {
   width: auto;
   margin-right: 10px;
-  accent-color: var(--accent);
+  accent-color: hsl(var(--primary));
 }
 
 .map-stats {
@@ -2636,7 +2682,7 @@ select {
   /* A pale ring so a dark swatch still separates from a dark panel, matching
      the white stroke the markers themselves carry. */
   box-shadow: 0 0 0 1.5px var(--bg-card);
-  outline: 1px solid var(--border);
+  outline: 1px solid hsl(var(--border));
 }
 
 .map-legend-label {
@@ -2673,7 +2719,7 @@ select {
   justify-content: space-between;
   gap: 4px 12px;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
   background: var(--bg-card);
 }
 
@@ -2778,7 +2824,7 @@ select {
 .leaflet-tooltip.map-hover-tip {
   background: var(--bg-card);
   color: var(--text-primary);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   padding: 10px 12px;
@@ -2791,7 +2837,7 @@ select {
    default skin, so it has to be re-pointed at the theme background or it
    remains white against a dark card. */
 .leaflet-tooltip.map-hover-tip.leaflet-tooltip-top::before {
-  border-top-color: var(--border);
+  border-top-color: hsl(var(--border));
 }
 
 .map-tip {
@@ -2905,7 +2951,7 @@ select {
 
 .stat-box {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   padding: 18px;
   box-shadow: var(--shadow-card);
@@ -2970,7 +3016,7 @@ select {
   line-height: 1.4;
   white-space: normal;
   box-shadow: var(--shadow-md);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
@@ -2984,7 +3030,7 @@ select {
 }
 
 .stat-box[title]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -3071,7 +3117,7 @@ select {
   width: 30px;
   height: 26px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: 5px;
   background: none;
   cursor: pointer;
@@ -3093,7 +3139,7 @@ select {
 }
 
 .crime-type-toggle {
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: 999px;
   background: none;
   padding: 3px 11px;
@@ -3114,7 +3160,7 @@ select {
 }
 
 .crime-type-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 1px;
 }
 
@@ -3138,7 +3184,7 @@ select {
   font-size: 0.78rem;
   font-weight: 600;
   margin: 4px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   color: var(--text-primary);
 }
 
@@ -3167,7 +3213,7 @@ select {
 
 .modal-content {
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
   width: 100%;
   max-width: 500px;
@@ -3220,7 +3266,7 @@ select {
   align-items: center;
   margin-bottom: 22px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
 }
 
 .modal-header h2 {
@@ -3231,7 +3277,7 @@ select {
 
 .modal-close {
   background: var(--bg-primary);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 1.2rem;
@@ -3253,7 +3299,7 @@ select {
   gap: 8px;
   margin-top: 22px;
   padding-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
 }
 
 /* ===== Complainant / evidence controls in the incident form ===== */
@@ -3276,7 +3322,7 @@ select {
   height: 16px;
   margin: 0;
   flex-shrink: 0;
-  accent-color: var(--accent);
+  accent-color: hsl(var(--primary));
   cursor: pointer;
 }
 
@@ -3310,7 +3356,7 @@ select {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: 6px;
   background: none;
   color: var(--text-muted);
@@ -3323,7 +3369,7 @@ select {
 }
 
 .evidence-row-remove:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 1px;
 }
 
@@ -3356,7 +3402,7 @@ select {
   bottom: 28px;
   right: 28px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   padding: 14px 22px;
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
@@ -3429,7 +3475,7 @@ select {
   align-items: flex-start;
   gap: 10px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-left: 4px solid var(--info);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
@@ -3500,7 +3546,7 @@ select {
 }
 
 .notif-toast-close:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 1px;
 }
 
@@ -3512,14 +3558,14 @@ select {
 }
 
 .notif-toast.actionable:hover {
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
   box-shadow:
     var(--shadow-lg),
-    0 0 0 1px var(--accent);
+    0 0 0 1px hsl(var(--primary));
 }
 
 .notif-toast.actionable:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -3591,9 +3637,9 @@ select {
   background: linear-gradient(
     90deg,
     rgba(46, 139, 71, 0) 0%,
-    var(--accent, #2e8b47) 25%,
+    hsl(var(--primary)) 25%,
     rgba(255, 138, 61, 0.9) 50%,
-    var(--accent, #2e8b47) 75%,
+    hsl(var(--primary)) 75%,
     rgba(46, 139, 71, 0) 100%
   );
 }
@@ -3665,7 +3711,7 @@ select {
   font-weight: 600;
   white-space: nowrap;
   box-shadow: var(--shadow-md);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   pointer-events: none;
   z-index: 300;
   font-family: var(--font-body);
@@ -3712,7 +3758,7 @@ select {
   line-height: 1.35;
   white-space: normal;
   box-shadow: var(--shadow-md);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -3769,7 +3815,7 @@ select {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--orange), var(--info));
+  background: linear-gradient(90deg, hsl(var(--primary)), var(--orange), var(--info));
 }
 
 .dashboard-welcome h2 {
@@ -3815,7 +3861,7 @@ select {
   background: linear-gradient(
     90deg,
     var(--bg-hover) 25%,
-    var(--border) 50%,
+    hsl(var(--border)) 50%,
     var(--bg-hover) 75%
   );
   background-size: 200% 100%;
@@ -3831,7 +3877,7 @@ select {
 .notif-bell-btn {
   position: relative;
   background: var(--bg-primary);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   width: 38px;
   height: 38px;
@@ -3920,7 +3966,7 @@ select {
   max-width: calc(100vw - 32px);
   max-height: 480px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
   z-index: 200;
@@ -3933,7 +3979,7 @@ select {
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
   font-size: 0.85rem;
   font-weight: 700;
 }
@@ -3955,7 +4001,7 @@ select {
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   background: var(--bg-subtle, var(--bg-card));
   font-size: 0.75rem;
   line-height: 1.45;
@@ -4000,14 +4046,14 @@ select {
 }
 
 .notif-dropdown-item:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: -2px;
   background: var(--bg-primary);
 }
 
 .notif-dropdown-item.unread {
   background: var(--accent-light);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid hsl(var(--primary));
 }
 
 .notif-dropdown-icon {
@@ -4060,7 +4106,7 @@ select {
 
 .notif-item.unread {
   background: var(--accent-light);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid hsl(var(--primary));
 }
 
 .notif-item .notif-icon {
@@ -4155,7 +4201,7 @@ select {
 .sync-toggle input[type="checkbox"] {
   width: 18px;
   height: 18px;
-  accent-color: var(--accent);
+  accent-color: hsl(var(--primary));
   cursor: pointer;
 }
 
@@ -4395,7 +4441,7 @@ select {
   border-radius: var(--radius-lg);
   overflow: hidden;
   flex-shrink: 0;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   background: var(--bg-hover);
 }
 
@@ -4688,7 +4734,7 @@ select {
   transform: translateY(-1px);
 }
 .badac-page-theme-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -5146,7 +5192,7 @@ select {
   padding: 14px 16px;
   margin-bottom: 20px;
   background: var(--accent-light);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
 }
 
@@ -5190,7 +5236,7 @@ select {
   background: var(--bg-hover);
 }
 .table-row-clickable:focus-visible {
-  outline: 2px solid var(--accent, #2f8f4e);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: -2px;
 }
 
@@ -5317,7 +5363,7 @@ select {
 }
 
 .row-menu-dropdown button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid hsl(var(--primary));
   outline-offset: -2px;
 }
 
@@ -5334,7 +5380,7 @@ select {
 .row-menu-separator {
   height: 1px;
   margin: 4px 2px;
-  background: var(--border-light, var(--border));
+  background: var(--border-light, hsl(var(--border)));
 }
 
 /* ----- User Details modal ----- */
@@ -5343,7 +5389,7 @@ select {
   align-items: center;
   gap: 16px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-light, var(--border));
+  border-bottom: 1px solid var(--border-light, hsl(var(--border)));
 }
 
 .user-details-avatar {
@@ -5355,7 +5401,7 @@ select {
   flex-shrink: 0;
   border-radius: 50%;
   background: var(--accent-light);
-  color: var(--accent-dark, var(--accent));
+  color: var(--accent-dark, hsl(var(--primary)));
   font-size: 1.3rem;
   font-weight: 700;
 }
@@ -5438,7 +5484,7 @@ select {
   display: flex;
   gap: 14px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--border-light, var(--border));
+  border-bottom: 1px solid var(--border-light, hsl(var(--border)));
   font-size: 0.84rem;
 }
 
@@ -5478,7 +5524,7 @@ select {
   flex-direction: column;
   gap: 2px;
   padding: 12px 14px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
   font-size: 0.84rem;
@@ -5517,7 +5563,7 @@ select {
 .checkbox-option input {
   width: auto;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: hsl(var(--primary));
 }
 
 .checkbox-option-disabled {
@@ -5536,13 +5582,13 @@ select {
 .radio-option-described {
   align-items: flex-start;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-card);
 }
 
 .radio-option-described:has(input:checked) {
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
   background: var(--accent-light);
 }
 
@@ -5736,8 +5782,8 @@ select {
 }
 
 .validation-panel {
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
+  border: 1px solid hsl(var(--border));
+  border-left: 4px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
   padding: 14px 16px;
@@ -5786,7 +5832,7 @@ select {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   background: var(--bg-card);
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   font-size: 0.86rem;
   line-height: 1.5;
   color: var(--text-primary);
@@ -5836,7 +5882,7 @@ select {
   gap: 6px 12px;
   padding: 10px 14px;
   margin: 0 0 16px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-card);
   font-size: 0.84rem;
@@ -5871,7 +5917,7 @@ select {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid hsl(var(--border));
 }
 
 .validation-queue-tab {
@@ -5898,7 +5944,7 @@ select {
 
 .validation-queue-tab.active {
   color: var(--accent-text);
-  border-bottom-color: var(--accent);
+  border-bottom-color: hsl(var(--primary));
 }
 
 .validation-queue-tab-count {
@@ -5916,7 +5962,7 @@ select {
 }
 
 .validation-queue-tab.active .validation-queue-tab-count {
-  background: var(--accent);
+  background: hsl(var(--primary));
   color: #fff;
 }
 
@@ -5944,7 +5990,7 @@ select {
   background: var(--login-input-bg);
   border: 1px solid var(--login-input-border);
   border-radius: var(--radius-sm);
-  caret-color: var(--accent);
+  caret-color: hsl(var(--primary));
 }
 
 .login-form .otp-input .otp-box.otp-box-filled {
@@ -5952,7 +5998,7 @@ select {
 }
 
 .login-form .otp-input .otp-box:focus {
-  border-color: var(--accent);
+  border-color: hsl(var(--primary));
   box-shadow: 0 0 0 3px var(--accent-light);
 }
 
@@ -6019,7 +6065,7 @@ select {
   align-items: center;
   gap: 8px;
   padding: 6px 12px 6px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: 99px;
   background: var(--bg-card);
   font-size: 0.86rem;
@@ -6119,7 +6165,7 @@ select {
 
 .schedule-form .schedule-fieldset {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid hsl(var(--border));
   padding: 14px 0 2px;
   margin: 0;
   min-width: 0;
@@ -6210,7 +6256,7 @@ select {
 .one-time-credential {
   margin: 12px 0;
   padding: 12px 14px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
 }
@@ -6229,7 +6275,7 @@ select {
   flex: 1 1 200px;
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   background: var(--bg-card);
   color: var(--text-primary);
@@ -6272,7 +6318,7 @@ select {
 
 .location-picker-basemaps {
   display: inline-flex;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
@@ -6288,7 +6334,7 @@ select {
 }
 
 .location-picker-basemaps button + button {
-  border-left: 1px solid var(--border);
+  border-left: 1px solid hsl(var(--border));
 }
 
 .location-picker-basemaps button:hover {
@@ -6296,7 +6342,7 @@ select {
 }
 
 .location-picker-basemaps button.is-active {
-  background: var(--accent);
+  background: hsl(var(--primary));
   color: var(--color-white);
 }
 
@@ -6304,7 +6350,7 @@ select {
   height: 320px;
   min-height: 240px;
   width: 100%;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   /* The whole point of the control is that a click means something. */
   cursor: crosshair;
@@ -6315,7 +6361,7 @@ select {
    Leaflet icon is deliberately not used here. */
 .location-picker-pin {
   border-radius: 50%;
-  background: var(--accent);
+  background: hsl(var(--primary));
   border: 2.5px solid var(--color-white);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   cursor: grab;
