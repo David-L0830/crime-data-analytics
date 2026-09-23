@@ -487,7 +487,18 @@ export default function Mapping() {
 
     mapInstance.current = map;
 
+    // The map's height now follows the sidebar beside it (see #crime-map in
+    // global.css), so it can change after mount — e.g. when the legend fills
+    // in. Leaflet only measures its container when told to; without this the
+    // newly exposed strip stays grey and untiled.
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => map.invalidateSize());
+    resizeObserver?.observe(mapRef.current);
+
     return () => {
+      resizeObserver?.disconnect();
       mapInstance.current?.remove();
       mapInstance.current = null;
     };

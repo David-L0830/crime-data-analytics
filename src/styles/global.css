@@ -2592,14 +2592,21 @@ select {
   gap: 20px;
 }
 
+/* The grid stretches this card to the height of the filter sidebar beside it,
+   which is usually taller than the map. A flex column lets the map take all of
+   that height instead of stopping at a fixed 600px and leaving the rest of the
+   card empty; min-height keeps the old size as the floor. */
 .map-container {
   padding: 0;
   overflow: hidden;
   min-height: 500px;
+  display: flex;
+  flex-direction: column;
 }
 
 #crime-map {
-  height: 600px;
+  flex: 1 1 auto;
+  min-height: 600px;
   width: 100%;
   border-radius: var(--radius);
 }
@@ -4367,7 +4374,7 @@ select {
     grid-template-columns: repeat(2, 1fr);
   }
   #crime-map {
-    height: 400px;
+    min-height: 400px;
   }
   .login-card-wrapper {
     max-width: 100%;

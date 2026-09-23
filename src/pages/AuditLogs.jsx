@@ -47,11 +47,22 @@ import { Icons } from '../components/icons';
 // This does not hide historical rows. The filter is opt-in — an unset filter
 // matches everything — so any row already in the database keeps rendering, and
 // ACTION_COLORS still colours both values below.
+//
+// CREATE is offered again, reversing Checkpoint 29 at the owner's request:
+// five controllers still write it (incident, criminal, victim, crime type,
+// user), so it is a real, non-empty filter. VALIDATE and RETURN (the
+// validation workflow in IncidentController) and VIEW (UserController) are
+// also written today and simply had no filter. DELETE stays retired: nothing
+// writes it, because records are archived rather than deleted.
 const ACTIONS = [
   'LOGIN',
   'LOGOUT',
-  'REPORT_EXPORTED',
+  'CREATE',
   'UPDATE',
+  'VALIDATE',
+  'RETURN',
+  'VIEW',
+  'REPORT_EXPORTED',
   'ARCHIVE',
   'RESTORE',
 ];
@@ -70,9 +81,13 @@ const ACTIONS = [
 // in the database keeps rendering in the table, and ACTION_COLORS still colours
 // its action. Same treatment DELETE and CREATE already get above: retired as a
 // filter choice, never erased from the record.
+//
+// 'report_schedule' is written by ReportScheduleController, so it gets a
+// filter choice like the other written target types.
 const TARGET_TYPES = [
   'auth',
   'report',
+  'report_schedule',
   'user',
   'incident',
   'criminal',
@@ -103,6 +118,12 @@ const ACTION_COLORS = {
   // action — same token CREATE uses, and deliberately distinct from ARCHIVE's
   // warning tone so the two sides of the pair are easy to tell apart.
   RESTORE: 'var(--success-text)',
+  // Validation workflow: approving a record reads as success, sending it back
+  // to the encoder as a caution. VIEW is read-only, so it takes the muted text
+  // colour rather than UPDATE's blue, keeping the two distinguishable.
+  VALIDATE: 'var(--success-text)',
+  RETURN: 'var(--warning-text)',
+  VIEW: 'var(--text-muted)',
   // DELETE kept so any historical DELETE audit entries still render with a
   // color instead of falling back to plain text — it's just no longer a
   // filter option (removed from ACTIONS above) or something new code emits.
@@ -250,26 +271,28 @@ export default function AuditLogs() {
         <h2 className="module-toolbar-title">
           <Icons.Report size={18} strokeWidth={2} /> Audit Logs
         </h2>
-        <Button
-          variant="secondary"
-          onClick={handleExportLogs}
-          disabled={exporting}
-          aria-busy={exporting}
-        >
-          {exporting ? (
-            <>
-              <span className="spinner spinner-inline" aria-hidden="true" />{' '}
-              Exporting…
-            </>
-          ) : (
-            <>
-              <Icons.Download size={15} strokeWidth={2} /> Export Logs
-            </>
-          )}
-        </Button>
-        <Button variant="secondary" onClick={handleExportLogsCsv}>
-          <Icons.Download size={15} strokeWidth={2} /> Export CSV
-        </Button>
+        <div className="toolbar-actions">
+          <Button
+            variant="secondary"
+            onClick={handleExportLogs}
+            disabled={exporting}
+            aria-busy={exporting}
+          >
+            {exporting ? (
+              <>
+                <span className="spinner spinner-inline" aria-hidden="true" />{' '}
+                Exporting…
+              </>
+            ) : (
+              <>
+                <Icons.Download size={15} strokeWidth={2} /> Export Logs
+              </>
+            )}
+          </Button>
+          <Button variant="secondary" onClick={handleExportLogsCsv}>
+            <Icons.Download size={15} strokeWidth={2} /> Export CSV
+          </Button>
+        </div>
       </div>
 
       <FilterBar
