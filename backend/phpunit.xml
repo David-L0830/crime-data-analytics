@@ -26,6 +26,8 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- The suite runs against audit_logs; service-audit tests opt in per test. -->
+        <env name="AUDIT_DRIVER" value="database"/>
         <env name="SESSION_DRIVER" value="array"/>
         <!-- Checkpoint 6 — Supabase MFA coexistence. HS256 shared-secret
              values only, so SupabaseTokenValidator's fallback verification

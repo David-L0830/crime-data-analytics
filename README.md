@@ -43,7 +43,7 @@ A crime data analytics and reporting platform for **Barangay 178, North Caloocan
 
 ## Overview
 
-The system gives barangay staff (BADAC administrators, encoders, and BADAC Validators) a single place to record incidents, review statistics, and analyse crime trends.
+The system gives barangay staff (a Super Administrator, BADAC administrators, encoders, and BADAC Validators) a single place to record incidents, review statistics, and analyse crime trends.
 
 Analytics are produced in two complementary ways, and the distinction matters when reading this document:
 
@@ -60,7 +60,7 @@ Both layers are driven by the **same React FilterBar**. The React filter state i
 
 - Incident recording, mapping, and audit logging
 - Automatic street detection from the map pin (reverse geocoding), with safeguards against wrong-barangay and non-street results
-- Role-based access control (Administrator / Encoder / BADAC Validator), including a record validate / return-for-correction workflow for the Validator role
+- Role-based access control in two governance tiers: **Super Administrator** (System Governance: System Settings, the audit trail, Administrator accounts; read-only on operational data) and **Administrator / Encoder / BADAC Validator** (Operational Governance), including a record validate / return-for-correction workflow for the Validator role. Roles differ by capability, not data scope; see [Roles](backend/README.md#roles)
 - Adaptive multi-factor authentication — Supabase TOTP (self-service enrollment for any account) or an administrator-assigned Email OTP method — plus administrator-imposed MFA requirements independent of enrollment
 - Archive and restore for incidents, criminal, and victim records
 - Crime Reporting Dashboard with 8 KPI cards and 4 tables computed in React
@@ -508,7 +508,9 @@ Laravel 12, served by **nginx + php-fpm** inside a single Docker image.
 
 - All API routes are prefixed `/api` and protected by the `auth:supabase` guard, with role middleware (`role:…`) on top.
 - `GET /up` is Laravel's built-in health route, used by Render's health check. It is **not** under `/api`, so it is not subject to CORS.
-- `GET /api/embed/metabase/{key}` returns `{ "url": "…" }` — the signed Metabase embed URL. Restricted to BADAC administrator and Validator roles.
+- `GET /api/embed/metabase/{key}` returns `{ "url": "…" }` — the signed Metabase embed URL. Restricted to the Super Administrator, BADAC administrator and Validator roles.
+- **System Governance routes are Super Administrator only:** `PUT /api/settings`, crime-type writes, `GET /api/settings/metabase-status` (embedding status; never the secret), `GET /api/audit-logs` and per-account activity. The Administrator keeps read-only `GET /api/settings` and `GET /api/sync-logs` for its analytics.
+- **User Management is split by the `manage-account` Gate:** the Super Administrator manages Administrator accounts, the Administrator manages Encoder and Validator accounts, and no one can create or manage a Super Administrator through the app.
 - `PUT /api/incidents/{id}/validate` and `PUT /api/incidents/{id}/return` let an Administrator or BADAC Validator approve a record or return it to its Encoder for correction. An Encoder cannot reach either route, even for their own records.
 - **Automated report-schedule endpoints still exist on the backend** (`/api/report-schedules`, `/api/report-email-logs`) even though the frontend Reports/Scheduled Reports page has been removed. Administrators and BADAC Validators may read schedules and delivery status through the API; there is currently no frontend page that surfaces them. See the [backend README](backend/README.md#8-api-endpoints) for the full endpoint list.
 
@@ -689,8 +691,18 @@ Useful commands:
 php artisan route:list --path=up   # confirm the health route
 php artisan config:clear           # after editing .env
 php artisan view:clear             # clear compiled Blade caches
-php artisan test                   # 781 passed, 4 skipped, in-memory SQLite
+php artisan test                   # in-memory SQLite
 ```
+
+**Provisioning the Super Administrator.** It can never be created from the UI or the API. Set `SUPER_ADMIN_NAME`, `SUPER_ADMIN_USERNAME` and `SUPER_ADMIN_EMAIL` in `backend/.env`, then run:
+
+```bash
+php artisan db:seed --class=SuperAdminSeeder
+# or, in the Docker Compose stack:
+docker compose exec backend php artisan db:seed --class=SuperAdminSeeder
+```
+
+Then create a Supabase Auth user with the same email. The account uses Email OTP MFA, so SMTP must be configured before it can sign in. The seeder writes to whatever database `DB_*` points at, so check that first. Details: [backend README](backend/README.md#provisioning-the-super-administrator).
 
 > If `.env` changes seem to have no effect, a stale configuration cache is the usual cause. Run `php artisan config:clear`.
 
@@ -713,7 +725,7 @@ Metabase must be stopped during the copy — H2 database files can be corrupted 
 
 ### Docker Compose (optional)
 
-`docker-compose.yml` builds the frontend and backend containers for local use. It is **not** used for production deployment; Vercel and Render build from the repository directly.
+`docker-compose.yml` runs the local stack: the core API (`backend`), `redis`, the `service-notifications` queue worker (MFA e-mails and audit delivery), the `scheduler`, the isolated audit microservice `service-audit` with its own append-only `audit-db`, and the `frontend`. Set `AUDIT_SERVICE_SECRET`, `AUDIT_DB_ADMIN_PASSWORD` and `AUDIT_DB_APP_PASSWORD` in the root `.env` first (see `.env.example`). It is **not** used for production deployment; Vercel and Render build from the repository directly, and Render keeps `QUEUE_CONNECTION=sync`. See the [backend README](backend/README.md#local-docker) for how the services fit together.
 
 ### Supabase
 

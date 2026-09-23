@@ -9,8 +9,14 @@ use Illuminate\Validation\Rule;
 
 // Account Administration — administrator-created accounts (POST /api/users).
 //
-// Authorization is enforced at the route level (role:badac_admin — see
-// routes/api.php); this request only validates the shape of the input.
+// Who may create accounts at all is enforced at the route level
+// (role:badac_admin,super_admin — see routes/api.php). WHICH role the new
+// account may have is decided here, from the caller's own
+// User::manageableRoles(): an Administrator may create Encoders and
+// Validators, a Super Administrator may create Administrators, and no caller
+// may create a Super Administrator — that role is in nobody's list, so it can
+// only ever come from SuperAdminSeeder. A refused role fails validation before
+// Supabase Auth is contacted, so nothing is provisioned anywhere.
 //
 // 'email' IS accepted here, unlike UpdateUserRequest (see its Checkpoint 31
 // comment). The reason those two differ is not inconsistency: on CREATE the
@@ -50,7 +56,7 @@ class StoreUserRequest extends FormRequest
             'fullName' => ['required', 'string', 'max:150'],
             'username' => ['required', 'string', 'max:50', Rule::unique('users', 'username')],
             'email' => ['required', 'string', 'email', 'max:190', Rule::unique('users', 'email')],
-            'role' => ['required', Rule::in(array_keys(User::ROLE_LABELS))],
+            'role' => ['required', Rule::in($this->user()?->manageableRoles() ?? [])],
             'isActive' => ['sometimes', 'boolean'],
             // REQUIRED, and limited to the supported methods. Every account an
             // administrator creates gets a second factor; there is no "none",

@@ -12,16 +12,30 @@
 // authority on whether an address works is whether mail to it arrives —
 // Supabase will find out, and the form should not pre-emptively refuse a real
 // address.
+import { MANAGEABLE_ROLES } from '../../utils/constants';
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Mirrors User::ROLE_LABELS on the backend. Ordered least- to
 // most-privileged so the default selection in a new-account form is never the
-// most powerful role by accident.
+// most powerful role by accident. Every role is listed so the account table
+// can FILTER by any of them; what a form may ASSIGN is assignableRoleOptions()
+// below.
 export const ROLE_OPTIONS = [
   { value: 'badac_validator', label: 'BADAC Validator' },
   { value: 'encoder', label: 'Encoder' },
   { value: 'badac_admin', label: 'Administrator' },
+  { value: 'super_admin', label: 'Super Administrator' },
 ];
+
+// The roles a viewer may give a new account: an Administrator creates Encoders
+// and Validators, a Super Administrator creates Administrators, and nobody
+// creates a Super Administrator. The backend (StoreUserRequest) refuses
+// anything else regardless of what this offers.
+export function assignableRoleOptions(viewerRole) {
+  const allowed = MANAGEABLE_ROLES[viewerRole] || [];
+  return ROLE_OPTIONS.filter((option) => allowed.includes(option.value));
+}
 
 export function validateAccountFields(form, { requireEmail = false } = {}) {
   const errors = {};

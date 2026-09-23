@@ -2,9 +2,16 @@ import { useState } from 'react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import TemporaryPasswordInput from './TemporaryPasswordInput';
-import { ROLE_OPTIONS, validateAccountFields } from './userValidation';
+import { validateAccountFields } from './userValidation';
 import { validateTemporaryPassword } from '../../utils/temporaryPassword';
 import { MFA_METHOD_OPTIONS } from '../../utils/mfaStatus';
+
+// Encoder stays the default wherever the viewer may create one (the most
+// common account); otherwise the least-privileged role on offer.
+const defaultRole = (roleOptions) =>
+  roleOptions.some((option) => option.value === 'encoder')
+    ? 'encoder'
+    : (roleOptions[0]?.value ?? '');
 
 // Create New User.
 //
@@ -28,18 +35,24 @@ import { MFA_METHOD_OPTIONS } from '../../utils/mfaStatus';
 //     stores it — this form is not the control. Choosing Authenticator App
 //     does NOT enrol anything: the person scans their own QR code at first
 //     sign-in, so no administrator ever sees their secret.
+//
+//  3. Role. Only the roles the viewer may assign (`roleOptions`, from
+//     assignableRoleOptions): Encoder or Validator for an Administrator,
+//     Administrator for a Super Administrator. Super Administrator is never
+//     offered — that account is created by a database seeder only.
 export default function CreateUserModal({
   open,
   onClose,
   onCreate,
   saving,
   onNotice,
+  roleOptions = [],
 }) {
   const [form, setForm] = useState({
     fullName: '',
     username: '',
     email: '',
-    role: 'encoder',
+    role: defaultRole(roleOptions),
     isActive: true,
     mfaMethod: '',
   });
@@ -52,7 +65,7 @@ export default function CreateUserModal({
       fullName: '',
       username: '',
       email: '',
-      role: 'encoder',
+      role: defaultRole(roleOptions),
       isActive: true,
       mfaMethod: '',
     });
@@ -201,7 +214,7 @@ export default function CreateUserModal({
           value={form.role}
           onChange={(e) => set('role', e.target.value)}
         >
-          {ROLE_OPTIONS.map((role) => (
+          {roleOptions.map((role) => (
             <option key={role.value} value={role.value}>
               {role.label}
             </option>

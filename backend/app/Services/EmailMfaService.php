@@ -2,16 +2,16 @@
 
 namespace App\Services;
 
-use App\Mail\EmailMfaCodeMail;
+use App\Jobs\SendEmailMfaCode;
 use App\Models\EmailMfaChallenge;
 use App\Models\EmailMfaFailureWindow;
 use App\Models\EmailMfaVerifiedSession;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use RuntimeException;
 
 // Email one-time-code MFA — an application-level second factor for accounts
@@ -142,14 +142,22 @@ class EmailMfaService
     }
 
     /**
-     * Issues a fresh code for this user + session and emails it.
+     * Issues a fresh code for this user + session and queues it for delivery.
      *
      * Replaces any earlier challenge for the same session (one active code per
      * session), and prunes this user's expired or consumed rows.
      *
-     * @throws RuntimeException when mail is not safely deliverable or sending
-     *                          fails — the challenge is removed in that case,
-     *                          so no un-sent code is left enterable
+     * Delivery is a SendEmailMfaCode job on the 'notifications' queue, so with
+     * QUEUE_CONNECTION=redis this returns as soon as the job is queued and the
+     * notifications worker sends the mail; a job that finally fails removes
+     * its own challenge (SendEmailMfaCode::failed). On the `sync` connection
+     * the job runs right here, and a send failure is thrown back into this
+     * method exactly as the inline send used to be.
+     *
+     * @throws RuntimeException when mail is not safely deliverable, or the job
+     *                          could not be queued or (on `sync`) sent — the
+     *                          challenge is removed in that case, so no un-sent
+     *                          code is left enterable
      */
     public function sendCode(User $user, string $sessionId): void
     {
@@ -171,7 +179,9 @@ class EmailMfaService
         );
 
         try {
-            Mail::to($user->email)->send(new EmailMfaCodeMail($code, intdiv($ttl, 60), $expiresAt));
+            // Bus::dispatch, not the dispatch() helper: the helper queues from
+            // a destructor, after this try block has already been left.
+            Bus::dispatch(new SendEmailMfaCode($challenge->id, $code, intdiv($ttl, 60), $expiresAt));
         } catch (\Throwable $e) {
             $challenge->delete();
 
@@ -336,6 +346,24 @@ class EmailMfaService
         EmailMfaVerifiedSession::where('user_id', $user->id)
             ->where('expires_at', '<=', now())
             ->delete();
+    }
+
+    /**
+     * Is $code still the live code of this challenge — unconsumed, unexpired,
+     * and not replaced by a resend? SendEmailMfaCode asks this before sending
+     * and before removing a challenge, so a delayed or retried job can neither
+     * mail a dead code nor delete a newer one.
+     */
+    public function isCurrentCode(EmailMfaChallenge $challenge, string $code): bool
+    {
+        if ($challenge->consumed_at !== null || $challenge->expires_at->isPast()) {
+            return false;
+        }
+
+        $user = User::find($challenge->user_id);
+
+        return $user !== null
+            && hash_equals($challenge->code_hash, $this->hashCode($user, $challenge->supabase_session_id, $code));
     }
 
     protected function hashCode(User $user, string $sessionId, string $code): string

@@ -8,26 +8,33 @@ use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Http\Resources\AuditLogResource;
 use App\Http\Resources\UserResource;
-use App\Models\AuditLog;
 use App\Models\User;
 use App\Rules\AcceptablePassword;
 use App\Services\SupabaseAdminService;
+use App\Support\Audit;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 // Phase 4 — Admin User Management.
 //
-// Every action here is reachable only through the `role:badac_admin`
-// middleware group in routes/api.php — an Encoder hitting these endpoints
-// directly gets a 403 from EnsureRole before this controller ever runs.
-// That is the real security boundary; the frontend hiding the "User
-// Management" nav item for Encoder is a UX nicety on top of it, same
-// pattern as IncidentController's ownership checks.
+// Every action here is reachable only through the `role:` middleware in
+// routes/api.php — an Encoder or Validator hitting these endpoints directly
+// gets a 403 from EnsureRole before this controller ever runs. That is the
+// real security boundary; the frontend hiding the "User Management" nav item
+// for Encoder is a UX nicety on top of it, same pattern as
+// IncidentController's ownership checks.
+//
+// Two governance tiers share this controller. Every action on an EXISTING
+// account first passes the 'manage-account' Gate (AppServiceProvider): a
+// Super Administrator acts only on Administrator accounts, an Administrator
+// only on Encoder and Validator accounts, and nobody on a Super
+// Administrator. New accounts are held to the same lists by StoreUserRequest.
 //
 // Scope decisions (documented here rather than silently assumed):
 //  - Role is NOT editable through this endpoint. With exactly two role
@@ -59,9 +66,37 @@ class UserController extends Controller
         );
     }
 
+    // When the trail lives in service-audit there are no LOGIN rows here to
+    // aggregate, so the same `last_login_at` attribute is filled from ONE
+    // batched service call for the whole list instead. If the service cannot
+    // answer, the list still loads — Last Login is a label, not a control —
+    // and the failure is logged.
+    private function withRemoteLastLogins(iterable $users): void
+    {
+        $users = collect($users);
+
+        try {
+            $logins = Audit::lastLogins($users->pluck('id')->all());
+        } catch (\Throwable $e) {
+            Log::warning('Last sign-in times could not be read from the audit service.', ['exception' => $e::class]);
+            $logins = [];
+        }
+
+        foreach ($users as $user) {
+            $user->setAttribute('last_login_at', isset($logins[$user->id]) ? $logins[$user->id]->toIso8601String() : null);
+        }
+    }
+
     // GET /api/users
     public function index()
     {
+        if (Audit::isRemote()) {
+            $users = User::query()->orderBy('name')->get();
+            $this->withRemoteLastLogins($users);
+
+            return UserResource::collection($users);
+        }
+
         return UserResource::collection(
             $this->withLastLogin(User::query())->orderBy('name')->get()
         );
@@ -70,6 +105,12 @@ class UserController extends Controller
     // GET /api/users/{user}
     public function show(User $user)
     {
+        if (Audit::isRemote()) {
+            $this->withRemoteLastLogins([$user]);
+
+            return new UserResource($user);
+        }
+
         return new UserResource(
             $this->withLastLogin(User::query())->findOrFail($user->id)
         );
@@ -252,7 +293,7 @@ class UserController extends Controller
             throw $e;
         }
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'CREATE',
             'module' => 'users',
@@ -282,17 +323,20 @@ class UserController extends Controller
     // Scoped by user_id at the query level, not filtered in the browser, so
     // a user's older activity cannot be hidden by the global 200-row cap on
     // GET /audit-logs.
+    //
+    // Read through the audit store, so with AUDIT_DRIVER=service this proxies
+    // to service-audit (filtered there by actor) in the same response shape.
     public function activity(Request $request, User $user)
     {
-        $logs = $user->auditLogs()
-            ->with('user')
-            ->orderByDesc('created_at')
-            ->limit(50)
-            ->get();
+        try {
+            $logs = Audit::forUser($user, 50);
+        } catch (\Throwable $e) {
+            return AuditLogController::auditServiceUnavailable($e);
+        }
 
         // Reading one account's activity is itself an administrative act on
         // another person's record, so it is auditable in its own right.
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'VIEW',
             'module' => 'users',
@@ -301,7 +345,7 @@ class UserController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-        return AuditLogResource::collection($logs);
+        return response()->json(['data' => $logs]);
     }
 
     // POST /api/users/{user}/password-reset-audit
@@ -318,7 +362,9 @@ class UserController extends Controller
     // was not. No token, link, or password ever passes through here.
     public function passwordResetAudit(Request $request, User $user)
     {
-        AuditLog::create([
+        Gate::authorize('manage-account', $user);
+
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'users',
@@ -340,6 +386,8 @@ class UserController extends Controller
     // and UpdateUserRequest's Checkpoint 31 comment for the full rationale).
     public function update(UpdateUserRequest $request, User $user)
     {
+        Gate::authorize('manage-account', $user);
+
         $data = $request->validated();
 
         $user->update([
@@ -347,7 +395,7 @@ class UserController extends Controller
             ...(array_key_exists('username', $data) ? ['username' => $data['username']] : []),
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'users',
@@ -362,6 +410,8 @@ class UserController extends Controller
     // PUT /api/users/{user}/status
     public function updateStatus(Request $request, User $user)
     {
+        Gate::authorize('manage-account', $user);
+
         $request->validate(['isActive' => ['required', 'boolean']]);
 
         if ($user->id === $request->user()?->id && ! $request->boolean('isActive')) {
@@ -370,7 +420,7 @@ class UserController extends Controller
 
         $user->update(['is_active' => $request->boolean('isActive')]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'users',
@@ -407,6 +457,8 @@ class UserController extends Controller
      */
     public function requireTwoFactor(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
     {
+        Gate::authorize('manage-account', $user);
+
         $validated = $request->validate([
             'required' => ['required', 'boolean'],
         ]);
@@ -440,7 +492,7 @@ class UserController extends Controller
             return response()->json(['message' => $e->getMessage()], 502);
         }
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'users',
@@ -492,6 +544,8 @@ class UserController extends Controller
      */
     public function issueTemporaryPassword(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
     {
+        Gate::authorize('manage-account', $user);
+
         if ($user->id === $request->user()?->id) {
             return response()->json([
                 'message' => 'You cannot issue a temporary password to your own account.',
@@ -603,7 +657,7 @@ class UserController extends Controller
                 'temporary_password_issued_by' => $issuedBy,
             ])->save();
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $issuedBy,
                 'action' => 'UPDATE',
                 'module' => 'users',
@@ -716,6 +770,8 @@ class UserController extends Controller
     // nothing to remove.
     public function disableTwoFactor(Request $request, User $user, SupabaseAdminService $supabaseAdmin)
     {
+        Gate::authorize('manage-account', $user);
+
         if (! $user->supabase_user_id) {
             return response()->json(['message' => 'This account has not signed in with Supabase yet — there is no MFA factor to remove.'], 422);
         }
@@ -769,7 +825,7 @@ class UserController extends Controller
         // so it is dropped; the next request reads the current state.
         $supabaseAdmin->forgetFactorStatus($user->supabase_user_id);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'users',

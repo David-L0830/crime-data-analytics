@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailMfaController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\MetabaseEmbedController;
+use App\Http\Controllers\Api\MetabaseStatusController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PasswordController;
 use App\Http\Controllers\Api\ProfileController;
@@ -66,9 +67,15 @@ use Illuminate\Support\Facades\Route;
 // session sign out would strand it.
 //
 // 'role:' (EnsureRole) is unchanged — it is Authorization, a separate
-// concern from Authentication, and continues to enforce the existing
+// concern from Authentication, and enforces the Super Administrator /
 // BADAC Administrator / Encoder / BADAC Validator boundaries. MFA is
 // layered on top of it and replaces none of it.
+//
+// Super Administrator (System Governance) is listed on the read routes of the
+// operational and analytics modules, on Settings, crime-type writes, the audit
+// trail and User Management, and on NO operational mutation route: it can
+// never create, edit, archive, restore or validate a record. Which accounts it
+// may manage is decided by the 'manage-account' Gate, not by this file.
 // GET /user — NO 'supabase.mfa'. See the exemption note above: this is the
 // endpoint the login flow reads to discover that a second factor is still
 // owed, so it must answer at aal1.
@@ -108,10 +115,10 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->group(
     Route::post('/me/avatar', [ProfileController::class, 'avatar']);
 });
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR.','.User::ROLE_SUPER_ADMIN])
     ->get('/dashboard', [DashboardController::class, 'index']);
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR.','.User::ROLE_SUPER_ADMIN])->group(function () {
     Route::get('/analytics', [AnalyticsController::class, 'index']);
     Route::get('/analytics/crime-types', [AnalyticsController::class, 'crimeTypes']);
     Route::get('/analytics/monthly', [AnalyticsController::class, 'monthly']);
@@ -122,10 +129,14 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
     Route::get('/embed/metabase/{dashboardKey}', [MetabaseEmbedController::class, 'show']);
 });
 
-// GET /settings — read-only, admin-only business configuration. BADAC
-// Validator is intentionally excluded — see GET /sync-logs below for the
-// same "BADAC has no Settings access" note.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])
+// GET /settings — read-only business configuration. Super Administrator owns
+// it; the Administrator keeps READ access only because its Dashboard, Trends
+// and Statistical Analysis compute crime rates and alerts from these values,
+// and without them would silently fall back to built-in defaults. Changing
+// settings (PUT /settings below) and the System Settings page are Super
+// Administrator only. BADAC Validator is intentionally excluded — see GET
+// /sync-logs below for the same "BADAC has no Settings access" note.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_SUPER_ADMIN])
     ->get('/settings', [SettingController::class, 'show']);
 
 // GET /notifications — shared by every role (Encoder still needs to see
@@ -139,10 +150,11 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->get('/
 // with the name because the map legend is meaningless without it.
 Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->get('/crime-types', [CrimeTypeController::class, 'index']);
 
-// POST/PUT /crime-types — Administrator only, and enforced HERE rather than by
-// hiding System Settings in the UI. A non-admin who calls this endpoint
-// directly gets a 403 from the role: middleware before the controller runs.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+// POST/PUT /crime-types — Super Administrator only (managing crime types is a
+// System Settings capability), and enforced HERE rather than by hiding System
+// Settings in the UI. Anyone else who calls this endpoint directly gets a 403
+// from the role: middleware before the controller runs.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])->group(function () {
     Route::post('/crime-types', [CrimeTypeController::class, 'store']);
     Route::put('/crime-types/{crimeType}', [CrimeTypeController::class, 'update']);
 });
@@ -159,14 +171,15 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed'])->group(
     Route::get('/incidents/{incident}', [IncidentController::class, 'show']);
 });
 
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_BADAC_VALIDATOR.','.User::ROLE_SUPER_ADMIN])->group(function () {
     Route::get('/criminals', [CriminalController::class, 'index']);
     Route::get('/criminals/{criminal}', [CriminalController::class, 'show']);
 
     // Victim Information — only ever reached through a case; same
     // PII-bearing-business-data treatment as criminals above. Read-only for
-    // the BADAC Validator, which receives no contact number or address — see
-    // CriminalResource / VictimResource.
+    // the BADAC Validator and the Super Administrator, neither of which
+    // receives a contact number or address — see CriminalResource /
+    // VictimResource.
     Route::get('/victims', [VictimController::class, 'index']);
     Route::get('/victims/{victim}', [VictimController::class, 'show']);
 });
@@ -176,7 +189,11 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
 // intentionally revoked per the "BADAC users must not have Audit Logs
 // access" requirement. Audit-log records/logging themselves are untouched —
 // this only narrows who may call GET /audit-logs.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])
+//
+// System Governance: the raw audit trail now belongs to the Super
+// Administrator alone. The Administrator is the operational actor the trail
+// records, and no longer reads it.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])
     ->get('/audit-logs', [AuditLogController::class, 'index']);
 
 // POST /report-export-audit — records that a report was exported, the way
@@ -227,30 +244,37 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
     Route::post('/report-schedules/{reportSchedule}/run', [ReportScheduleController::class, 'run']);
 });
 
-// GET /sync-logs, GET /users, GET /users/{user} — admin-only. BADAC
-// Validator has no User Management, Settings, or Audit Logs access.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+// GET /sync-logs, GET /users, GET /users/{user} — Administrator and Super
+// Administrator. Both tiers use User Management (for different accounts,
+// decided per account by the 'manage-account' Gate), and the Administrator's
+// Dashboard import KPIs are built on /sync-logs. BADAC Validator has no User
+// Management, Settings, or Audit Logs access.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_SUPER_ADMIN])->group(function () {
     Route::get('/sync-logs', [SyncLogController::class, 'index']);
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/{user}', [UserController::class, 'show']);
 });
 
 // PUT /users/{user}, PUT /users/{user}/status, POST /users/{user}/two-factor/disable
-// — admin-only mutation routes on another account. The existing
-// self-lockout guard on updateStatus() and the mass-assignment exclusion
-// of `role` on update() are unchanged (see UserController).
+// — mutation routes on another account, for both governance tiers. The route
+// admits the two roles; UserController then puts every action through the
+// 'manage-account' Gate, so a Super Administrator reaches only Administrator
+// accounts, an Administrator only Encoder and Validator accounts, and nobody a
+// Super Administrator. The existing self-lockout guard on updateStatus() and
+// the mass-assignment exclusion of `role` on update() are unchanged (see
+// UserController).
 // two-factor/disable still calls Supabase's Admin API to remove any
 // factor(s) a target account enrolled before this app removed MFA — see
 // UserController::disableTwoFactor() and App\Services\SupabaseAdminService.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])->group(function () {
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN.','.User::ROLE_SUPER_ADMIN])->group(function () {
     Route::put('/users/{user}', [UserController::class, 'update']);
     Route::put('/users/{user}/status', [UserController::class, 'updateStatus']);
     Route::post('/users/{user}/two-factor/disable', [UserController::class, 'disableTwoFactor']);
 
     // POST /users/{user}/two-factor/require - administrator control over
     // whether an account MUST use a second factor, independent of whether it
-    // has enrolled one yet. Same admin-only group as every other action on
-    // someone else's account, so RBAC is unchanged. It writes a boolean and
+    // has enrolled one yet. Same group, and same 'manage-account' Gate, as
+    // every other action on someone else's account. It writes a boolean and
     // nothing else: enrolment stays self-service, and no administrator ever
     // sees another account's TOTP secret or QR code. See
     // UserController::requireTwoFactor().
@@ -258,26 +282,23 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
 
     // POST /users/{user}/temporary-password — issue a NEW temporary password
     // to an existing account and require it to be changed at next sign-in.
-    // Same admin-only group as every other action on someone else's account.
+    // Same group, and same 'manage-account' Gate, as every other action on
+    // someone else's account.
     // The target comes from {user} alone; the password is supplied by the
     // administrator's browser and is never stored or returned. See
     // UserController::issueTemporaryPassword().
     Route::post('/users/{user}/temporary-password', [UserController::class, 'issueTemporaryPassword']);
 
     // POST /users — Account Administration. Administrator-provisioned
-    // account creation, in the same admin-only group as every other
-    // mutation on an account. Creating an account writes to BOTH Supabase
-    // Auth (via the service-role key, server-side only) and this database,
-    // which is exactly why it can only live on the backend: the frontend
-    // must never hold a credential capable of provisioning an identity.
-    // See UserController::store() and StoreUserRequest.
+    // account creation, in the same group as every other mutation on an
+    // account. Which role the new account may have is limited to the
+    // caller's own manageable roles by StoreUserRequest, so neither tier can
+    // create a Super Administrator. Creating an account writes to BOTH
+    // Supabase Auth (via the service-role key, server-side only) and this
+    // database, which is exactly why it can only live on the backend: the
+    // frontend must never hold a credential capable of provisioning an
+    // identity. See UserController::store() and StoreUserRequest.
     Route::post('/users', [UserController::class, 'store']);
-
-    // GET /users/{user}/activity — one account's own audit trail, for the
-    // User Activity view. Reuses audit_logs and AuditLogResource; no second
-    // activity store exists. Admin-only for the same reason GET
-    // /audit-logs is (Checkpoint 38).
-    Route::get('/users/{user}/activity', [UserController::class, 'activity']);
 
     // POST /users/{user}/password-reset-audit — records that an admin sent
     // a password-reset email. Named for exactly what it does: it does NOT
@@ -289,15 +310,31 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
     // GET /role-permissions — reads the `role:` middleware off this very
     // file's routes and reports which roles each module actually admits.
     // It defines nothing and grants nothing; backend authorization stays
-    // authoritative. Admin-only, since a precise map of who may reach what
-    // is reconnaissance. See RolePermissionController.
+    // authoritative. Limited to the two account-managing roles, since a
+    // precise map of who may reach what is reconnaissance. See
+    // RolePermissionController.
     Route::get('/role-permissions', [RolePermissionController::class, 'index']);
 });
 
-// PUT /settings — admin-only business configuration mutation, same
-// treatment as GET /settings.
-Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_BADAC_ADMIN])
+// GET /users/{user}/activity — one account's own audit trail, for the User
+// Activity view. Reuses audit_logs and AuditLogResource; no second activity
+// store exists. Super Administrator only, for the same reason GET /audit-logs
+// is: these ARE raw audit-log rows, just filtered to one account.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])
+    ->get('/users/{user}/activity', [UserController::class, 'activity']);
+
+// PUT /settings — Super Administrator only. Changing the configuration every
+// analytics page computes with is System Governance; the Administrator keeps
+// read access only (see GET /settings above).
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])
     ->put('/settings', [SettingController::class, 'update']);
+
+// GET /settings/metabase-status — Super Administrator only. Read-only view of
+// the Metabase embedding configuration: site URL, dashboard IDs, and whether
+// the embedding secret is SET. The secret itself stays in the environment and
+// is never returned — see MetabaseStatusController.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])
+    ->get('/settings/metabase-status', [MetabaseStatusController::class, 'show']);
 
 // Incidents — write side. Not role-restricted at the route level for
 // create/update (Encoder is a legitimate caller of both); IncidentController

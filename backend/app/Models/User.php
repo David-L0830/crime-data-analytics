@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Audit\AuditStore;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -11,11 +12,19 @@ class User extends Authenticatable
 {
     use HasFactory, Notifiable;
 
-    // Three account types: Administrator (full access), Encoder (restricted
-    // to the Crime Data Collection Module — see routes/api.php for the role
-    // middleware and IncidentController for per-record ownership checks on
-    // Encoder updates), and BADAC Validator (see the ROLE_BADAC_VALIDATOR
-    // comment below).
+    // Four account types, split into two tiers of governance:
+    //
+    //   System Governance    — Super Administrator (see ROLE_SUPER_ADMIN).
+    //   Operational Governance — Administrator (operational data, validation
+    //     and the Encoder/Validator accounts), Encoder (restricted to the Crime
+    //     Data Collection Module — see routes/api.php for the role middleware
+    //     and IncidentController for per-record ownership checks on Encoder
+    //     updates), and BADAC Validator (see the ROLE_BADAC_VALIDATOR comment
+    //     below).
+    //
+    // The tiers differ by capability, never by data scope: this is a
+    // single-tenant system for Barangay 178, and no role is filtered to a
+    // subset of its records.
     public const ROLE_BADAC_ADMIN = 'badac_admin';
 
     public const ROLE_ENCODER = 'encoder';
@@ -31,10 +40,34 @@ class User extends Authenticatable
     // addresses are withheld from it by the resources (canViewContactDetails).
     public const ROLE_BADAC_VALIDATOR = 'badac_validator';
 
+    // Super Administrator — System Governance. Owns System Settings, the full
+    // audit trail and the Administrator accounts. Read-only everywhere else:
+    // it views the operational and analytics modules but creates, edits,
+    // archives and validates nothing, because routes/api.php lists it on no
+    // operational mutation route. Contact numbers and addresses are withheld
+    // from it exactly as from the Validator (canViewContactDetails is an
+    // allow-list and does not name it).
+    //
+    // No API path can create or manage one: it is in no role's
+    // manageableRoles(), so StoreUserRequest refuses it and the
+    // 'manage-account' Gate refuses every action on one. The only way an
+    // account gets this role is database/seeders/SuperAdminSeeder.php.
+    public const ROLE_SUPER_ADMIN = 'super_admin';
+
     public const ROLE_LABELS = [
         self::ROLE_BADAC_ADMIN => 'Administrator',
         self::ROLE_ENCODER => 'Encoder',
         self::ROLE_BADAC_VALIDATOR => 'BADAC Validator',
+        self::ROLE_SUPER_ADMIN => 'Super Administrator',
+    ];
+
+    // Which accounts each role may create and manage through User Management:
+    // each governance tier manages the tier below it. A role missing here
+    // manages nothing. ROLE_SUPER_ADMIN appears in no list, deliberately —
+    // see its comment above.
+    private const MANAGEABLE_ROLES = [
+        self::ROLE_SUPER_ADMIN => [self::ROLE_BADAC_ADMIN],
+        self::ROLE_BADAC_ADMIN => [self::ROLE_ENCODER, self::ROLE_BADAC_VALIDATOR],
     ];
 
     // users.mfa_method — the one alternative to Supabase TOTP an account can
@@ -196,6 +229,17 @@ class User extends Authenticatable
      */
     public function lastLoginAt(): ?Carbon
     {
+        // With the trail in service-audit (AUDIT_DRIVER=service) there are no
+        // LOGIN rows in this database; ask the audit store instead, failing
+        // soft to "unknown" exactly like the other badges on this resource.
+        if (! array_key_exists('last_login_at', $this->getAttributes()) && app(AuditStore::class)->isRemote()) {
+            try {
+                return app(AuditStore::class)->lastLogins([$this->id])[$this->id] ?? null;
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
         $value = array_key_exists('last_login_at', $this->getAttributes())
             ? $this->getAttributes()['last_login_at']
             : $this->auditLogs()->where('action', 'LOGIN')->max('created_at');
@@ -228,6 +272,30 @@ class User extends Authenticatable
     public function isValidator(): bool
     {
         return $this->role === self::ROLE_BADAC_VALIDATOR;
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === self::ROLE_SUPER_ADMIN;
+    }
+
+    /**
+     * The roles this account may assign when creating an account, and may
+     * act on through User Management. See MANAGEABLE_ROLES.
+     *
+     * @return array<int, string>
+     */
+    public function manageableRoles(): array
+    {
+        return self::MANAGEABLE_ROLES[$this->role] ?? [];
+    }
+
+    // Behind the 'manage-account' Gate (AppServiceProvider). Never true for
+    // the caller's own account, whose role is never in its own list; that is
+    // what /me is for.
+    public function canManageAccount(User $target): bool
+    {
+        return in_array($target->role, $this->manageableRoles(), true);
     }
 
     // Record validation (validate / return for correction). The route

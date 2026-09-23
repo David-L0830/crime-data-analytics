@@ -2268,6 +2268,32 @@ tbody tr:last-child td {
   background: rgba(148, 163, 184, 0.15);
   color: var(--text-muted);
 }
+/* Metabase status panel (System Settings, Super Administrator). */
+.status-Configured {
+  background: var(--accent-light);
+  color: var(--success-text);
+}
+.status-Not-configured {
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger-text);
+}
+
+.metabase-status-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+.metabase-status-list dt {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.metabase-status-list dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 
 /* ===== Buttons ===== */
 .btn {

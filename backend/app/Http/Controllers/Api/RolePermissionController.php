@@ -23,10 +23,10 @@ use Illuminate\Support\Str;
 // tomorrow, this matrix changes with it on the next request, with no code
 // here to update.
 //
-// It grants nothing and is read-only. It is itself admin-only (see the
-// role:badac_admin group in routes/api.php), because an exact map of which
-// roles may reach which endpoints is reconnaissance for anyone who should
-// not have it.
+// It grants nothing and is read-only. It is itself limited to the two
+// account-managing roles (see the User Management group in routes/api.php),
+// because an exact map of which roles may reach which endpoints is
+// reconnaissance for anyone who should not have it.
 class RolePermissionController extends Controller
 {
     /**
@@ -52,8 +52,13 @@ class RolePermissionController extends Controller
      *     Counting it would report Encoder and BADAC as having "view" access
      *     to System Settings, a module neither can open — the matrix would be
      *     technically derived and still say something false. The
-     *     administrator-only POST/PUT on the same URI stay in, because
+     *     Super-Administrator-only POST/PUT on the same URI stay in, because
      *     managing crime types IS a System Settings capability.
+     *   - GET /settings and GET /sync-logs, for the same reason. The
+     *     Administrator reads both because its Dashboard, Trends and
+     *     Statistical Analysis compute with them, but it cannot open System
+     *     Settings; counting those reads would report it "view" access to a
+     *     module it is refused. PUT /settings stays in.
      *
      * A URI may legitimately belong to more than one module: Statistical
      * Analysis and Trend and Pattern Detection are two views over the same
@@ -101,8 +106,8 @@ class RolePermissionController extends Controller
         ],
         'settings' => [
             'label' => 'System Settings',
-            'patterns' => ['api/settings', 'api/crime-types', 'api/crime-types/*', 'api/sync-logs'],
-            'except' => ['GET api/crime-types'],
+            'patterns' => ['api/settings', 'api/settings/*', 'api/crime-types', 'api/crime-types/*', 'api/sync-logs'],
+            'except' => ['GET api/crime-types', 'GET api/settings', 'api/sync-logs'],
         ],
     ];
 

@@ -982,7 +982,7 @@ class EmailMfaTest extends TestCase
     public function test_clear_2fa_recovery_removes_the_attackers_authenticator_but_never_email_mfa(): void
     {
         $owner = $this->emailMfaAdmin();
-        $admin = $this->plainAdmin();
+        $admin = $this->superAdmin();
 
         // 1-3. An attacker holding the password enrols their own authenticator
         // and reaches genuine aal2 in their session; C1 still refuses them.
@@ -1019,7 +1019,7 @@ class EmailMfaTest extends TestCase
     public function test_cancelling_the_2fa_requirement_does_not_remove_email_mfa(): void
     {
         $owner = $this->emailMfaAdmin();
-        $admin = $this->plainAdmin();
+        $admin = $this->superAdmin();
 
         $this->as($admin, self::SESSION_B, 'aal2')
             ->postJson("/api/users/{$owner->id}/two-factor/require", ['required' => false])
@@ -1126,6 +1126,17 @@ class EmailMfaTest extends TestCase
             'email' => 'plain-admin@example.com',
             'role' => User::ROLE_BADAC_ADMIN,
             'supabase_user_id' => 'supabase-plain-admin',
+        ]);
+    }
+
+    // The account that manages an Administrator's MFA ('manage-account' Gate).
+    private function superAdmin(): User
+    {
+        return User::factory()->create([
+            'username' => 'super-admin',
+            'email' => 'super-admin@example.com',
+            'role' => User::ROLE_SUPER_ADMIN,
+            'supabase_user_id' => 'supabase-super-admin',
         ]);
     }
 

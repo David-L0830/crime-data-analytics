@@ -1,30 +1,29 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
-// Automated report generation (Reporting System checklist, "Scheduled
-// Reports"). One entry, running hourly, serves every schedule an
-// administrator creates: the command asks each active schedule whether its
-// slot has arrived rather than each schedule owning a cron expression, so
-// nothing here changes when schedules are added, edited or removed.
+// Laravel's scheduler. In the local Docker Compose stack the `scheduler`
+// service runs `php artisan schedule:work`, which evaluates this file every
+// minute. No hosted environment runs a scheduler.
 //
-// withoutOverlapping() because a run sends real e-mail. If one invocation is
-// still working when the next hour arrives — a slow SMTP host, a large report
-// — the second must not start and send the same schedule again. The schedule's
-// own last_run_at check is the second line of defence behind this one.
+// SCHEDULED REPORT E-MAILS ARE DISABLED, DELIBERATELY. This file used to
+// register `reports:send-scheduled` hourly. It was removed, not merely left
+// unrun, so that adding a scheduler process can never start e-mailing reports
+// again. The command itself still exists for manual use; do not re-register it
+// here.
+
+// Failed NOTIFICATION jobs are kept for one day, long enough to diagnose a
+// mail outage, then removed. Their payloads are encrypted (see
+// App\Jobs\SendEmailMfaCode), but an undeliverable, long-expired sign-in code
+// has no reason to be kept at all.
 //
-// runInBackground() is deliberately NOT used: these runs are short, and
-// keeping them in the foreground means the process exit code reflects whether
-// the send succeeded, which is what a cron runner reports on.
-//
-// THIS LINE ALONE SENDS NOTHING. Laravel's scheduler needs a process to invoke
-// it every minute (`php artisan schedule:run`), and the API container does not
-// run one — it serves HTTP. See the deployment note in README/docs: on Render
-// this requires a separate Cron Job service running `php artisan
-// schedule:run`, or an equivalent external scheduler. Until that exists,
-// schedules are created and stored correctly and are run on demand from
-// Settings > Scheduled Reports ("Run now"), which uses the identical code
-// path.
-Schedule::command('reports:send-scheduled')
-    ->hourly()
-    ->withoutOverlapping();
+// Only the `notifications` queue. `queue:prune-failed` would also delete
+// failed audit deliveries (ShipAuditEvent on the `audit` queue) — audit events
+// that have not reached service-audit yet and must be retried, never discarded.
+Schedule::call(function () {
+    DB::table('failed_jobs')
+        ->where('queue', 'notifications')
+        ->where('failed_at', '<', now()->subDay())
+        ->delete();
+})->name('prune-failed-notification-jobs')->daily();

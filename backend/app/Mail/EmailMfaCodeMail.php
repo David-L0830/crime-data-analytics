@@ -21,8 +21,10 @@ use Illuminate\Mail\Mailables\Envelope;
  * also kept out of the subject line, which notification previews and
  * lock screens show to anyone looking.
  *
- * Not queued, and must never be: a queued mailable is serialised — code
- * included — into the jobs table or a queue backend.
+ * Never queued ITSELF: a queued mailable is serialised — code included — in
+ * plaintext into the jobs table or a queue backend. Delivery is queued through
+ * App\Jobs\SendEmailMfaCode instead, which implements ShouldBeEncrypted and
+ * sends this mailable synchronously from inside the job.
  */
 class EmailMfaCodeMail extends Mailable
 {

@@ -2,10 +2,16 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use App\Services\Audit\AuditStore;
+use App\Services\Audit\DatabaseAuditStore;
+use App\Services\Audit\ServiceAuditStore;
 use App\Services\SupabaseTokenValidator;
+use Illuminate\Auth\Access\Response;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -14,7 +20,12 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        // Where the audit trail lives: audit_logs here (the default, and every
+        // hosted environment), or the isolated service-audit microservice in
+        // the local compose stack. See config/audit.php.
+        $this->app->singleton(AuditStore::class, fn ($app) => config('audit.driver') === 'service'
+            ? $app->make(ServiceAuditStore::class)
+            : $app->make(DatabaseAuditStore::class));
     }
 
     public function boot(): void
@@ -35,6 +46,19 @@ class AppServiceProvider extends ServiceProvider
         // and no fallback.
         Auth::viaRequest('supabase', function (Request $request) {
             return app(SupabaseTokenValidator::class)->resolveUser($request);
+        });
+
+        // Account governance: may this caller act on that account through
+        // User Management? The `role:` middleware on the /users routes decides
+        // who may use User Management at all; this decides WHICH accounts,
+        // which a role list on a route cannot express. Super Administrator
+        // manages Administrators, Administrator manages Encoders and
+        // Validators, and nobody manages a Super Administrator. See
+        // User::manageableRoles().
+        Gate::define('manage-account', function (User $actor, User $target) {
+            return $actor->canManageAccount($target)
+                ? Response::allow()
+                : Response::deny('You do not have permission to manage this account.');
         });
 
         // Email MFA throttles (routes/api.php, EmailMfaController). Keyed on

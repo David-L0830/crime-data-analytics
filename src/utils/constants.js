@@ -225,18 +225,20 @@ export const COLORS = {
   statusPalette: ['#2E8B47', '#FF8A3D', '#C0392B', '#94A3B8', '#0EA5E9'],
 };
 
-// Three account types: Administrator (full access), Encoder (restricted to
-// the Crime Data Collection Module), and BADAC Validator. Kept as a map
-// (rather than a single hardcoded object) so ProtectedRoute/hasAccess/can
-// keep working unchanged against whatever role string the backend returns —
-// see backend app/Models/User.php for the matching server-side role constants.
+// Four account types in two governance tiers: Super Administrator (System
+// Governance) and Administrator, Encoder and BADAC Validator (Operational
+// Governance). Kept as a map (rather than a single hardcoded object) so
+// ProtectedRoute/hasAccess/can keep working unchanged against whatever role
+// string the backend returns — see backend app/Models/User.php for the
+// matching server-side role constants.
 export const ROLES = {
-  badac_admin: {
-    label: 'Administrator',
-    // Checkpoint 28 — 'residents' removed (Resident Registry module
-    // removed) and 'security' removed (Security sidebar section removed;
-    // its Two-Factor Authentication content now lives under
-    // 'user-management', which badac_admin already had).
+  // Super Administrator — System Settings, the audit trail and the
+  // Administrator accounts, plus a read-only view of every other module (no
+  // entry in PERMISSIONS below grants it a create/edit/archive/validate
+  // action). Never assignable from the UI: it is in no MANAGEABLE_ROLES list,
+  // and the backend refuses it the same way.
+  super_admin: {
+    label: 'Super Administrator',
     modules: [
       'dashboard',
       'incident-feed',
@@ -247,6 +249,23 @@ export const ROLES = {
       'audit-logs',
       'user-management',
       'settings',
+    ],
+  },
+  badac_admin: {
+    label: 'Administrator',
+    // Checkpoint 28 — 'residents' removed (Resident Registry module
+    // removed) and 'security' removed (Security sidebar section removed;
+    // its Two-Factor Authentication content now lives under
+    // 'user-management', which badac_admin already had).
+    // 'audit-logs' and 'settings' moved to super_admin (System Governance).
+    modules: [
+      'dashboard',
+      'incident-feed',
+      'mapping',
+      'analytics',
+      'trends',
+      'criminal-records',
+      'user-management',
     ],
   },
   encoder: {
@@ -295,11 +314,12 @@ export const ROLES = {
 // needed. Real enforcement is unchanged: IncidentController::archive()'s
 // server-side ownership check and the role: middleware in routes/api.php.
 export const PERMISSIONS = {
+  // System Governance only. No record action of any kind, which is what
+  // makes every operational page read-only for this role.
+  super_admin: ['view_audit_logs', 'manage_settings'],
   badac_admin: [
     'edit_any_record',
     'archive_record',
-    'view_audit_logs',
-    'manage_settings',
     // Record validation (approve / return for correction). UI gating only —
     // the real control is role:badac_admin,badac_validator on
     // PUT /incidents/{id}/validate and /return in backend/routes/api.php.
@@ -327,6 +347,20 @@ export const PERMISSIONS = {
   // that the route itself is administrator-only.
   encoder: ['create_incident', 'edit_own_incident'],
 };
+
+// Which accounts each role may create and manage in User Management — each
+// governance tier manages the tier below it, and nobody manages a Super
+// Administrator. Mirrors User::MANAGEABLE_ROLES on the backend, which is the
+// real control (StoreUserRequest and the 'manage-account' Gate); this only
+// decides which actions and role choices the page offers.
+export const MANAGEABLE_ROLES = {
+  super_admin: ['badac_admin'],
+  badac_admin: ['encoder', 'badac_validator'],
+};
+
+export function canManageAccount(viewerRole, targetRole) {
+  return (MANAGEABLE_ROLES[viewerRole] || []).includes(targetRole);
+}
 
 // icon keys map to lucide-react components — see ICONS in components/icons.jsx
 // `section` groups items under a header in the sidebar (see Sidebar.jsx) —
@@ -398,11 +432,11 @@ export const NAV_ITEMS = [
   // Administrator it was built for.
   //
   // This entry alone grants nothing. The sidebar renders an item only when
-  // hasAccess(item.id) passes, and 'settings' appears in ROLES.badac_admin
-  // .modules and in no other role's, so Encoder and BADAC never see it;
+  // hasAccess(item.id) passes, and 'settings' appears in ROLES.super_admin
+  // .modules and in no other role's, so no operational role sees it;
   // ProtectedRoute enforces the same on the route. Both are conveniences on
   // top of the real control, which is server-side: every /settings and
-  // /crime-types write is behind role:badac_admin in backend/routes/api.php
+  // /crime-types write is behind role:super_admin in backend/routes/api.php
   // and returns 403 to anyone else regardless of what the UI shows.
   {
     id: 'settings',

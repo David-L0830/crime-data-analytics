@@ -3,18 +3,177 @@
 # NOTE: Supabase is used as a hosted Postgres instance (Supabase Cloud) —
 # it is intentionally NOT containerized here. Point DB_HOST/DB_* and
 # SUPABASE_* env vars in backend/.env and .env at your Supabase project.
+#
+# LOCAL ONLY. Redis, the notifications worker, the scheduler, service-audit and
+# audit-db exist only in this file, for the local stack. No hosted environment
+# runs them: Render keeps QUEUE_CONNECTION=sync (a queued job runs inside the
+# request that dispatched it) and AUDIT_DRIVER=database (audit_logs in
+# Supabase, as before). Nothing here copies the existing audit history into
+# service-audit; its trail starts empty.
+#
+# Services
+#   backend                — the core Laravel API (app-core). Dispatches MFA
+#                            e-mails and audit events to Redis instead of
+#                            handling them inline.
+#   redis                  — the queue broker between the API and the worker.
+#   service-notifications  — queue worker: consumes the `notifications` queue
+#                            (MFA e-mails) and the `audit` queue (signed
+#                            delivery of audit events to service-audit).
+#   scheduler              — Laravel's scheduler (routes/console.php).
+#   service-audit          — the isolated audit logging microservice
+#                            (services/audit): its own code, its own database.
+#   audit-db               — service-audit's Postgres, append-only by trigger.
+#                            Reachable ONLY from service-audit (audit network).
+#   frontend               — the React SPA.
+#
+# The three PHP services are built from the same ./backend image and share
+# backend/.env — in particular APP_KEY, which the worker needs to decrypt the
+# encrypted job payloads the API queues. The `environment:` block below
+# overrides the queue and audit settings from that file, because Laravel never
+# lets a .env value replace a variable the container already has.
+#
+# REQUIRED before `docker compose up` — set in the repository-root .env (see
+# .env.example); compose refuses to start without them:
+#   AUDIT_SERVICE_SECRET      shared HMAC key between the core app and service-audit
+#   AUDIT_DB_ADMIN_PASSWORD   audit-db owner (initialisation only)
+#   AUDIT_DB_APP_PASSWORD     audit_writer, the INSERT/SELECT-only role service-audit uses
+x-laravel-queue-env: &laravel-queue-env
+  QUEUE_CONNECTION: redis
+  REDIS_CLIENT: predis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  AUDIT_DRIVER: service
+  AUDIT_SERVICE_URL: http://service-audit:8080
+  AUDIT_SERVICE_SECRET: ${AUDIT_SERVICE_SECRET:?Set AUDIT_SERVICE_SECRET in the repository-root .env}
+
 services:
   backend:
     build:
       context: ./backend
     env_file:
       - ./backend/.env
+    environment:
+      <<: *laravel-queue-env
     ports:
       - "9000:9000"
     volumes:
       - ./backend:/var/www/html
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - cdars
+
+  # Queue broker. Deliberately:
+  #   - no published port: only containers on the `cdars` network reach it;
+  #   - no persistence (--save "" --appendonly no): a queued sign-in code is
+  #     worthless after its 5-minute expiry, so nothing is written to disk.
+  # Job payloads are encrypted with APP_KEY before they get here anyway.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - cdars
+
+  # Notification & Dispatch Service. Same image as the API, different process:
+  # `command` replaces the image's nginx/php-fpm entrypoint with a queue worker
+  # bound to the `notifications` queue (MFA e-mails, listed first so sign-in
+  # codes are never stuck behind a backlog) and the `audit` queue (signed,
+  # retried delivery to service-audit). --max-time restarts it hourly so a
+  # long-lived process picks up code changes from the bind mount.
+  service-notifications:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      <<: *laravel-queue-env
+    command:
+      - php
+      - artisan
+      - queue:work
+      - redis
+      - --queue=notifications,audit
+      - --sleep=1
+      - --max-time=3600
+    volumes:
+      - ./backend:/var/www/html
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - cdars
+
+  # Runs routes/console.php every minute. Scheduled report e-mails are NOT
+  # registered there (they were removed so this service can never send them);
+  # today it only prunes failed notification jobs daily.
+  scheduler:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      <<: *laravel-queue-env
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - ./backend:/var/www/html
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - cdars
+
+  # Audit Logging Service — the isolated microservice. Its own code
+  # (services/audit, no shared code with the core app), its own database, and
+  # an HTTP interface on the cdars network that accepts only requests signed
+  # with AUDIT_SERVICE_SECRET. No published port: only the core app and its
+  # worker call it. It has no update or delete route.
+  service-audit:
+    build:
+      context: ./services/audit
+    environment:
+      AUDIT_DB_DSN: pgsql:host=audit-db;port=5432;dbname=audit
+      AUDIT_DB_USER: audit_writer
+      AUDIT_DB_PASSWORD: ${AUDIT_DB_APP_PASSWORD:?Set AUDIT_DB_APP_PASSWORD in the repository-root .env}
+      AUDIT_SERVICE_SECRET: ${AUDIT_SERVICE_SECRET:?Set AUDIT_SERVICE_SECRET in the repository-root .env}
+    depends_on:
+      audit-db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - cdars
+      - audit
+
+  # service-audit's own Postgres. On first start (empty volume) it runs
+  # services/audit/database: the audit_events table, the triggers that reject
+  # every UPDATE, DELETE and TRUNCATE, and the audit_writer role
+  # (INSERT + SELECT only). Only on the internal `audit` network, so nothing
+  # but service-audit — not the core app, not the host — can connect to it.
+  audit-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: audit
+      POSTGRES_USER: audit_admin
+      POSTGRES_PASSWORD: ${AUDIT_DB_ADMIN_PASSWORD:?Set AUDIT_DB_ADMIN_PASSWORD in the repository-root .env}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD:?Set AUDIT_DB_APP_PASSWORD in the repository-root .env}
+    volumes:
+      - audit-db-data:/var/lib/postgresql/data
+      - ./services/audit/database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit_admin -d audit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - audit
 
   frontend:
     build:
@@ -34,3 +193,10 @@ services:
 networks:
   cdars:
     driver: bridge
+  # service-audit <-> audit-db only. `internal` also cuts it off from outside.
+  audit:
+    driver: bridge
+    internal: true
+
+volumes:
+  audit-db-data:

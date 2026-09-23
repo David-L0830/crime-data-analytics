@@ -7,10 +7,10 @@ use App\Http\Requests\StoreIncidentRequest;
 use App\Http\Requests\UpdateIncidentRequest;
 use App\Http\Resources\IncidentResource;
 use App\Models\AppNotification;
-use App\Models\AuditLog;
 use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -173,7 +173,7 @@ class IncidentController extends Controller
             // the caller sent the field at all - see syncEvidence().
             $this->syncEvidence($request, $incident, $validated);
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $request->user()?->id,
                 'action' => 'CREATE',
                 'module' => 'incidents',
@@ -331,7 +331,7 @@ class IncidentController extends Controller
 
             $this->syncEvidence($request, $locked, $request->validated());
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $request->user()?->id,
                 'action' => 'UPDATE',
                 'module' => 'incidents',
@@ -618,7 +618,7 @@ class IncidentController extends Controller
             'status' => 'Archived',
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'ARCHIVE',
             'module' => 'incidents',
@@ -663,7 +663,7 @@ class IncidentController extends Controller
             'previous_status' => null,
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'RESTORE',
             'module' => 'incidents',
@@ -793,7 +793,7 @@ class IncidentController extends Controller
                 return false;
             }
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $user->id,
                 'action' => 'VALIDATE',
                 'module' => 'incidents',
@@ -868,7 +868,7 @@ class IncidentController extends Controller
                 return false;
             }
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $user->id,
                 'action' => 'RETURN',
                 'module' => 'incidents',
@@ -1123,7 +1123,7 @@ class IncidentController extends Controller
             return;
         }
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'incidents',

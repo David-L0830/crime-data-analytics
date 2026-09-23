@@ -61,6 +61,19 @@ class UserManagementTest extends TestCase
         return $admin;
     }
 
+    // Per-user activity is raw audit-log rows, which only the Super
+    // Administrator reads.
+    private function actingSuperAdmin(): User
+    {
+        $superAdmin = User::factory()->create([
+            'username' => 'superadmin',
+            'role' => User::ROLE_SUPER_ADMIN,
+        ]);
+        $this->actingAsSupabase($superAdmin);
+
+        return $superAdmin;
+    }
+
     public function test_admin_can_list_users(): void
     {
         $this->actingAdmin();
@@ -168,8 +181,11 @@ class UserManagementTest extends TestCase
     {
         $admin = $this->actingAdmin();
 
+        // 403 from the 'manage-account' Gate, which never admits your own
+        // account; the older self-lockout 422 inside updateStatus() stays
+        // behind it as a second line of defence.
         $this->putJson("/api/users/{$admin->id}/status", ['isActive' => false])
-            ->assertStatus(422);
+            ->assertForbidden();
 
         $this->assertTrue($admin->fresh()->is_active);
     }
@@ -577,9 +593,9 @@ class UserManagementTest extends TestCase
     // Per-user activity — the existing audit trail, scoped server-side
     // ===================================================================
 
-    public function test_admin_sees_only_the_selected_users_activity(): void
+    public function test_super_admin_sees_only_the_selected_users_activity(): void
     {
-        $admin = $this->actingAdmin();
+        $admin = $this->actingSuperAdmin();
         $target = User::factory()->create(['username' => 'target', 'role' => User::ROLE_ENCODER]);
 
         AuditLog::create([
@@ -604,7 +620,7 @@ class UserManagementTest extends TestCase
 
     public function test_viewing_a_users_activity_is_itself_audited(): void
     {
-        $admin = $this->actingAdmin();
+        $admin = $this->actingSuperAdmin();
         $target = User::factory()->create(['username' => 'target', 'role' => User::ROLE_ENCODER]);
 
         $this->getJson("/api/users/{$target->id}/activity")->assertOk();
@@ -626,7 +642,7 @@ class UserManagementTest extends TestCase
 
     public function test_activity_is_capped_so_it_can_never_return_an_unbounded_history(): void
     {
-        $this->actingAdmin();
+        $this->actingSuperAdmin();
         $target = User::factory()->create(['username' => 'busy', 'role' => User::ROLE_ENCODER]);
 
         for ($i = 0; $i < 60; $i++) {
@@ -809,12 +825,14 @@ class UserManagementTest extends TestCase
         // Encoder writes incidents.
         $this->assertSame('full', $modules['incident-feed']['access'][User::ROLE_ENCODER]);
 
-        // System Settings is administrator-only, even though GET
-        // /crime-types (which shares a URI prefix with the admin-only
-        // crime-type writes) is deliberately open to every role. Counting
-        // that read would report Encoder and BADAC as having "view" access to
-        // a module neither can open.
-        $this->assertSame('full', $modules['settings']['access'][User::ROLE_BADAC_ADMIN]);
+        // System Settings is Super-Administrator-only, even though GET
+        // /crime-types (which shares a URI prefix with the crime-type writes)
+        // is deliberately open to every role, and GET /settings and GET
+        // /sync-logs stay readable by the Administrator for its analytics.
+        // Counting those reads would report "view" access to a module those
+        // roles cannot open.
+        $this->assertSame('full', $modules['settings']['access'][User::ROLE_SUPER_ADMIN]);
+        $this->assertSame('none', $modules['settings']['access'][User::ROLE_BADAC_ADMIN]);
         $this->assertSame('none', $modules['settings']['access'][User::ROLE_ENCODER]);
         $this->assertSame('none', $modules['settings']['access'][User::ROLE_BADAC_VALIDATOR]);
 

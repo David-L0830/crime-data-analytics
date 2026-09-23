@@ -50,7 +50,7 @@ Generated from the current source code and verified against `php artisan route:l
 
 ## Endpoint Summary Table
 
-Populated from `php artisan route:list`. **49 API routes**, plus two application routes.
+Populated from `php artisan route:list`. **64 API routes**, plus two application routes. This summary is an index and does not list every route.
 
 | Method | Endpoint | Authentication | Purpose |
 |---|---|---|---|
@@ -66,20 +66,20 @@ Populated from `php artisan route:list`. **49 API routes**, plus two application
 | POST | `/api/incidents` | admin, encoder | Create an incident |
 | PUT | `/api/incidents/{incident}` | admin, encoder | Update an incident |
 | PUT | `/api/incidents/{incident}/archive` | admin, encoder | Archive an incident |
-| GET | `/api/dashboard` | admin, readonly | Dashboard summary statistics |
-| GET | `/api/analytics` | admin, readonly | Totals by category / status / sitio |
-| GET | `/api/analytics/crime-types` | admin, readonly | Counts per crime type |
-| GET | `/api/analytics/monthly` | admin, readonly | Counts per month |
-| GET | `/api/analytics/locations` | admin, readonly | Counts per sitio |
-| GET | `/api/embed/metabase/{dashboardKey}` | admin, readonly | Signed Metabase embed URL |
-| GET | `/api/criminals` | admin, readonly | List criminal records |
-| GET | `/api/criminals/{criminal}` | admin, readonly | Single criminal record |
+| GET | `/api/dashboard` | super, admin, validator | Dashboard summary statistics |
+| GET | `/api/analytics` | super, admin, validator | Totals by category / status / sitio |
+| GET | `/api/analytics/crime-types` | super, admin, validator | Counts per crime type |
+| GET | `/api/analytics/monthly` | super, admin, validator | Counts per month |
+| GET | `/api/analytics/locations` | super, admin, validator | Counts per sitio |
+| GET | `/api/embed/metabase/{dashboardKey}` | super, admin, validator | Signed Metabase embed URL |
+| GET | `/api/criminals` | super, admin, validator | List criminal records |
+| GET | `/api/criminals/{criminal}` | super, admin, validator | Single criminal record |
 | POST | `/api/criminals` | admin | Create a criminal record |
 | PUT | `/api/criminals/{criminal}` | admin | Update a criminal record |
 | PUT | `/api/criminals/{criminal}/archive` | admin | Archive a criminal record |
 | PUT | `/api/criminals/{criminal}/restore` | admin | Restore an archived criminal record |
-| GET | `/api/victims` | admin, readonly | List victims |
-| GET | `/api/victims/{victim}` | admin, readonly | Single victim |
+| GET | `/api/victims` | super, admin, validator | List victims |
+| GET | `/api/victims/{victim}` | super, admin, validator | Single victim |
 | POST | `/api/victims` | admin | Create a victim |
 | PUT | `/api/victims/{victim}` | admin | Update a victim |
 | PUT | `/api/victims/{victim}/archive` | admin | Archive a victim |
@@ -87,24 +87,27 @@ Populated from `php artisan route:list`. **49 API routes**, plus two application
 | GET | `/api/notifications` | Authenticated | List notifications |
 | PUT | `/api/notifications/read-all` | Authenticated | Mark all as read |
 | PUT | `/api/notifications/{notification}/read` | Authenticated | Mark one as read |
-| GET | `/api/settings` | admin | Read barangay settings |
-| PUT | `/api/settings` | admin | Update barangay settings |
+| GET | `/api/settings` | super, admin | Read barangay settings |
+| PUT | `/api/settings` | super | Update barangay settings |
+| GET | `/api/settings/metabase-status` | super | Metabase embedding status (never the secret) |
 | GET | `/api/crime-types` | Authenticated | List crime types and their map colours |
-| POST | `/api/crime-types` | admin | Add a crime type (colour assigned automatically) |
-| PUT | `/api/crime-types/{crimeType}` | admin | Rename, recolour or enable/disable a crime type |
-| GET | `/api/users` | admin | List user accounts |
-| GET | `/api/users/{user}` | admin | Single user account |
-| PUT | `/api/users/{user}` | admin | Update account details |
-| PUT | `/api/users/{user}/status` | admin | Activate / deactivate an account |
-| POST | `/api/users` | admin | Create an account (Supabase Auth + local row) |
-| GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
-| POST | `/api/users/{user}/password-reset-audit` | admin | Record that a reset email was sent |
-| POST | `/api/users/{user}/two-factor/disable` | admin | Remove another user's MFA factors |
-| POST | `/api/users/{user}/two-factor/require` | admin | Require (or stop requiring) MFA of another account |
-| GET | `/api/role-permissions` | admin | Role/module access, read from route middleware |
-| GET | `/api/audit-logs` | admin | Recent audit trail (max 200) |
+| POST | `/api/crime-types` | super | Add a crime type (colour assigned automatically) |
+| PUT | `/api/crime-types/{crimeType}` | super | Rename, recolour or enable/disable a crime type |
+| GET | `/api/users` | super, admin | List user accounts |
+| GET | `/api/users/{user}` | super, admin | Single user account |
+| PUT | `/api/users/{user}` | super, admin¹ | Update account details |
+| PUT | `/api/users/{user}/status` | super, admin¹ | Activate / deactivate an account |
+| POST | `/api/users` | super, admin¹ | Create an account (Supabase Auth + local row) |
+| GET | `/api/users/{user}/activity` | super | One account's own audit trail |
+| POST | `/api/users/{user}/password-reset-audit` | super, admin¹ | Record that a reset email was sent |
+| POST | `/api/users/{user}/two-factor/disable` | super, admin¹ | Remove another user's MFA factors |
+| POST | `/api/users/{user}/two-factor/require` | super, admin¹ | Require (or stop requiring) MFA of another account |
+| GET | `/api/role-permissions` | super, admin | Role/module access, read from route middleware |
+| GET | `/api/audit-logs` | super | Recent audit trail (max 200) |
 | POST | `/api/report-export-audit` | Authenticated | Record that a report was exported |
-| GET | `/api/sync-logs` | admin | Data import history |
+| GET | `/api/sync-logs` | super, admin | Data import history |
+
+¹ Only on accounts the caller manages (the `manage-account` Gate; `StoreUserRequest` for new accounts): **super** → Administrators, **admin** → Encoders and Validators. No route can create or act on a Super Administrator.
 
 > `storage/{path}` also appears in the route list. It is Laravel's built-in symlinked file server for uploaded avatars, not an API endpoint.
 >
@@ -157,15 +160,26 @@ Accept: application/json
 
 ## Roles
 
-Enforced by the `role:` middleware (`App\Http\Middleware\EnsureRole`).
+Four roles in two governance tiers, stored in `users.role` and defined on `App\Models\User`. The roles differ by **capability, not data scope**: CDARS is single-tenant for Barangay 178, and no role is filtered to a subset of records.
 
-| Constant | Value | Typical access |
-|---|---|---|
-| `ROLE_BADAC_ADMIN` | `badac_admin` | Full access, including administration |
-| `ROLE_BADAC_READONLY` | `badac_readonly` | Read access to analytics, records, dashboards |
-| `ROLE_ENCODER` | `encoder` | Creates and edits incidents |
+| Constant | Value | Tier | Typical access |
+|---|---|---|---|
+| `ROLE_SUPER_ADMIN` | `super_admin` | System Governance | System Settings (incl. crime types and the Metabase status panel), the full audit trail, and the **Administrator** accounts. **Read-only** on every operational and analytics module, and receives no contact numbers or addresses. |
+| `ROLE_BADAC_ADMIN` | `badac_admin` | Operational Governance | Create, edit, archive and validate operational data; manages **Encoder and Validator** accounts. Reads settings (its analytics compute with them) but cannot change them; no audit trail. |
+| `ROLE_BADAC_VALIDATOR` | `badac_validator` | Operational Governance | Read access to analytics and records; validates or returns incidents. No contact numbers or addresses. |
+| `ROLE_ENCODER` | `encoder` | Operational Governance | Creates and edits their own incidents |
 
-Throughout this document, "admin" = `badac_admin`, "readonly" = `badac_readonly`, "encoder" = `encoder`.
+Throughout this document, "super" = `super_admin`, "admin" = `badac_admin`, "validator" = `badac_validator`, "encoder" = `encoder`. (`badac_readonly`, still shown in a few older examples below, was renamed `badac_validator`.)
+
+**Two authorization layers.** The `role:` middleware (`App\Http\Middleware\EnsureRole`) decides who may reach a route. In User Management the `manage-account` **Gate** then decides *which* accounts the caller may act on (`User::manageableRoles()`): super → Administrators, admin → Encoders and Validators, and nobody → a Super Administrator.
+
+**Super Administrator accounts are never created through the API.** No role may assign `super_admin`. The only way to create one is the seeder, run from the command line with `SUPER_ADMIN_NAME`, `SUPER_ADMIN_USERNAME` and `SUPER_ADMIN_EMAIL` set:
+
+```bash
+php artisan db:seed --class=SuperAdminSeeder
+```
+
+See the backend README, *Provisioning the Super Administrator*, for what it does and refuses to do.
 
 **Additional record-level rule.** On `PUT /api/incidents/{incident}` and `PUT /api/incidents/{incident}/archive`, an **encoder may only modify incidents they personally created** (`reported_by`). Administrators are unrestricted.
 
@@ -817,11 +831,13 @@ Two scoping rules apply, both relative to the authenticated caller:
 
 ## Administration
 
-All routes in this group require the **admin** role.
+Roles are given per route below. In short: settings writes, crime-type writes, the Metabase status and the audit trail are **super** only; `GET /api/settings` is **super** and **admin**; User Management is **super** and **admin**, each limited to the accounts it manages.
 
 ### GET `/api/settings` · PUT `/api/settings`
 
 **Purpose** — read or update the single barangay settings row.
+
+**Authentication** — `GET`: **super**, **admin** (the Administrator's analytics compute with these values). `PUT`: **super** only.
 
 **Request body for `PUT`** — every field optional (`sometimes`):
 
@@ -858,7 +874,7 @@ All routes in this group require the **admin** role.
 
 **Purpose** — add a crime type. **`color` is optional**: when omitted the server assigns one from a curated palette, skipping every colour already in use, and falling back to a colour derived deterministically from the name once the palette is exhausted. The assigned colour is stored on the row and never recomputed, so it stays stable across refreshes, sessions, users and machines. Adding a crime type never alters an existing one's colour.
 
-**Authentication** — **admin**.
+**Authentication** — **super**.
 
 | Field | Type | Rules |
 |---|---|---|
@@ -874,15 +890,44 @@ All routes in this group require the **admin** role.
 
 **Purpose** — rename, recolour, or enable/disable a crime type. Disabling removes it from the pickers for new records; incidents that already use it keep their crime type and its colour on the map.
 
-**Authentication** — **admin**.
+**Authentication** — **super**.
 
 **Response** — `200 OK`, the crime type. Writes an `audit_logs` row naming the before/after colour when the colour changed.
 
 **Status codes** — `200`, `401`, `403`, `422`
 
+### GET `/api/settings/metabase-status`
+
+**Purpose** — the Super Administrator's read-only view of the Metabase embedding configuration. Reads `config/metabase.php` only; it contacts nothing, so `ready` means "the embed endpoint has what it needs", not "the Metabase server is up".
+
+**Authentication** — **super** only.
+
+The embedding secret is **never** returned — not the value, a prefix, its length or a hash. It stays in `METABASE_EMBEDDING_SECRET_KEY` on the backend host and is changed there.
+
+**Response** — `200 OK`
+
+```json
+{
+  "data": {
+    "siteUrl": "https://metabase.example.org",
+    "siteUrlConfigured": true,
+    "embeddingSecretConfigured": true,
+    "tokenTtlSeconds": 600,
+    "dashboards": [
+      { "key": "crime", "label": "Crime Reporting Dashboard", "id": "2", "configured": true }
+    ],
+    "ready": true
+  }
+}
+```
+
+**Status codes** — `200`, `401`, `403`
+
 ### GET `/api/users` · GET `/api/users/{user}`
 
 **Purpose** — list or read user accounts. Returns `UserResource` objects.
+
+**Authentication** — **super**, **admin**. Both see every account. `temporaryCredentialStatus` / `temporaryCredentialExpiresAt` are included only on the accounts the caller manages.
 
 `UserResource` includes `createdAt` and `lastLoginAt`, both ISO-8601 or `null`.
 `lastLoginAt` is **derived from the audit trail** — the newest `LOGIN` row for
@@ -919,7 +964,7 @@ Validated by `StoreUserRequest`.
 | `fullName` | string, max 150 | **yes** |
 | `username` | string, max 50, unique | **yes** |
 | `email` | string, valid email, unique | **yes** |
-| `role` | `badac_admin` \| `encoder` \| `badac_readonly` | **yes** |
+| `role` | one of the caller's manageable roles: **admin** → `encoder` \| `badac_validator`; **super** → `badac_admin`. `super_admin` is refused for everyone (`422`, before Supabase is contacted). | **yes** |
 | `isActive` | boolean (default `true`) | no |
 
 **No password field exists, and none can.** Supabase Auth owns every
@@ -939,7 +984,7 @@ live account is privilege escalation, and remains unsupported.
 |---|---|
 | `201` | Created in both systems |
 | `401` | No valid Supabase access token |
-| `403` | Caller is authenticated but is not an administrator |
+| `403` | Caller is authenticated but is neither **admin** nor **super** |
 | `422` | Validation failed, the email already exists in Supabase Auth, the Admin API refused, or `SUPABASE_SERVICE_ROLE_KEY` is not configured |
 | `500` | A genuine server fault (e.g. the database). Deliberately **not** flattened into a `422`, so it is logged and reported as the fault it is rather than as bad input from the administrator. Any Supabase account created during the attempt is removed first. |
 
@@ -947,6 +992,8 @@ live account is privilege escalation, and remains unsupported.
 
 **Purpose** — the selected account's own audit trail, for the User Activity
 view. Returns `AuditLogResource` objects.
+
+**Authentication** — **super** only: these are raw audit-log rows, just filtered to one account.
 
 **Bounded by design** — hard-capped at the **50 most recent** rows, newest
 first. The cap is in the query, not the UI, so the endpoint can never return an
@@ -980,6 +1027,10 @@ link, or password passes through this backend.
 
 **Response** — `200 OK`, `{ "message": "Password reset recorded." }`
 
+### Actions on an existing account
+
+Every `PUT`/`POST` on `/api/users/{user}…` below (and `password-reset-audit` above) first passes the `manage-account` Gate. A caller acting on an account outside its manageable roles — including its **own** account and any Super Administrator — gets `403` *"You do not have permission to manage this account."* before anything else runs.
+
 ### PUT `/api/users/{user}`
 
 **Purpose** — updates another account's details. Validated by `UpdateUserRequest`; accepts `fullName` and `username`.
@@ -996,13 +1047,13 @@ link, or password passes through this backend.
 |---|---|---|
 | `isActive` | boolean | **yes** |
 
-**Guard rail** — deactivating your own account returns `422`: *"You cannot deactivate your own account."*
+**Guard rail** — your own account is refused with `403` by the `manage-account` Gate; the older self-lockout check (`422`: *"You cannot deactivate your own account."*) remains behind it as a second line of defence.
 
 ### POST `/api/users/{user}/two-factor/disable`
 
 **Purpose** — the break-glass action removing another user's Supabase MFA factors ("lost my phone"). Requires `SUPABASE_SERVICE_ROLE_KEY` on the backend.
 
-**Authentication** — **admin**.
+**Authentication** — **super**, **admin**, on accounts they manage.
 
 **Status codes**
 
@@ -1018,7 +1069,7 @@ Also clears any administrator-imposed MFA requirement on the target account (see
 
 **Purpose** — an administrator requires (or stops requiring) a second factor of a target account, independent of whether that account has enrolled one yet. This sets an obligation only: it never enrolls a factor on the account's behalf, and no administrator ever sees another account's TOTP secret or QR code. Turning the requirement off does **not** remove an already-enrolled factor — that is `POST /api/users/{user}/two-factor/disable` above.
 
-**Authentication** — **admin**.
+**Authentication** — **super**, **admin**, on accounts they manage.
 
 **Request body**
 
@@ -1054,12 +1105,17 @@ Per role, per module: `full` (may read and write), `view` (read only), `none`.
 ```json
 {
   "data": {
-    "roles": [{ "key": "badac_admin", "label": "Administrator" }],
+    "roles": [
+      { "key": "badac_admin", "label": "Administrator" },
+      { "key": "encoder", "label": "Encoder" },
+      { "key": "badac_validator", "label": "BADAC Validator" },
+      { "key": "super_admin", "label": "Super Administrator" }
+    ],
     "modules": [
       {
         "id": "user-management",
         "label": "User Management",
-        "access": { "badac_admin": "full", "encoder": "none", "badac_readonly": "none" },
+        "access": { "badac_admin": "full", "encoder": "none", "badac_validator": "none", "super_admin": "full" },
         "endpoints": ["GET /api/users", "POST /api/users"]
       }
     ]
@@ -1067,13 +1123,17 @@ Per role, per module: `full` (may read and write), `view` (read only), `none`.
 }
 ```
 
-Admin-only, deliberately: a precise map of who may reach what is reconnaissance
+Limited to **super** and **admin**, deliberately: a precise map of who may reach what is reconnaissance
 for anyone who should not have it. The UI that renders this grants nothing —
 server-side authorization decides every request independently.
 
 ### GET `/api/audit-logs`
 
 **Purpose** — the **200 most recent** audit entries, newest first.
+
+**Authentication** — **super** only (System Governance). The Administrator is the operational actor the trail records and does not read it.
+
+**Where the rows come from.** With `AUDIT_DRIVER=database` (the default, and every hosted environment), from the `audit_logs` table. With `AUDIT_DRIVER=service` (the local Docker Compose stack), this endpoint is a **proxy**. The role check stays here; the request is forwarded, signed, to the isolated service-audit microservice (`services/audit`), and its rows are returned in the identical shape below. If the service cannot be reached, the endpoint answers `502` *"The audit trail is temporarily unavailable. Please try again."* `GET /api/users/{user}/activity` behaves the same way.
 
 **Response** — `200 OK`
 
@@ -1093,7 +1153,7 @@ server-side authorization decides every request independently.
 }
 ```
 
-**Status codes** — `200`, `401`, `403`
+**Status codes** — `200`, `401`, `403`, `502` (service mode only)
 
 ### POST `/api/report-export-audit`
 
@@ -1106,9 +1166,9 @@ trail never records an export that did not happen — the same discipline as
 
 **Authenticated, but not admin-only.** Every role exports something it is
 entitled to see — Encoder from Crime Data Collection, Badac (read-only) from
-Records and the analytics pages — so restricting the write to administrators
-would drop exactly the events an administrator reviews the trail for. Reading
-the trail is unchanged: `GET /api/audit-logs` remains admin-only.
+Records and the analytics pages — so restricting the write would drop exactly
+the events the trail exists to record. Reading the trail is separate:
+`GET /api/audit-logs` is Super Administrator only.
 
 **Request body**
 
@@ -1139,7 +1199,7 @@ completed download is never presented as failed)
 
 **Purpose** — the history of data-import runs, newest first. Feeds the "Today Imported" / "Month Imported" KPI cards.
 
-**Authentication** — **admin** only.
+**Authentication** — **super**, **admin** (the Administrator's Dashboard KPIs are built on it).
 
 **Response** — `200 OK`, a plain array:
 

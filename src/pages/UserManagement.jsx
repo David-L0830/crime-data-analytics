@@ -31,9 +31,11 @@ import SecuritySummary from '../components/users/SecuritySummary';
 import RolePermissionsCard from '../components/users/RolePermissionsCard';
 import {
   ROLE_OPTIONS,
+  assignableRoleOptions,
   describeApiFailure,
 } from '../components/users/userValidation';
 import { formatDateTime } from '../utils/helpers';
+import { MANAGEABLE_ROLES, canManageAccount } from '../utils/constants';
 
 // Account Administration & Security Center (formerly the plain User
 // Management table).
@@ -42,21 +44,30 @@ import { formatDateTime } from '../utils/helpers';
 // here. This page is route-gated to roles that have the 'user-management'
 // module (see ROLES in constants.js and ProtectedRoute), and the backend
 // enforces the real boundary independently: every /users* endpoint and
-// /role-permissions sits behind `role:badac_admin` middleware, so an Encoder
-// or BADAC account calling them directly gets a 403 before any controller
-// runs. Nothing below is a security control — the admin-only sections simply
-// are not rendered for a non-admin, and no admin-only request is even
-// attempted for them.
+// /role-permissions sits behind `role:badac_admin,super_admin` middleware, so
+// an Encoder or BADAC account calling them directly gets a 403 before any
+// controller runs, and the 'manage-account' Gate decides which accounts each
+// of the two may act on. Nothing below is a security control — the account
+// administration sections simply are not rendered for a role that manages no
+// accounts, and no such request is even attempted for them.
+//
+// Two governance tiers use this page: the Super Administrator manages
+// Administrator accounts, the Administrator manages Encoder and Validator
+// accounts (MANAGEABLE_ROLES). Both see the whole table; a row's actions are
+// offered only on the accounts the viewer manages.
 //
 // Encoder reaches this route only for the self-service 2FA panel that moved
 // here from the old Security page (Checkpoint 28); that branch is untouched.
 export default function UserManagement() {
-  const { currentUser } = useAuth();
+  const { currentUser, can } = useAuth();
   const { showToast } = useToast();
-  const isAdmin = currentUser?.role === 'badac_admin';
+  const managesAccounts = Boolean(MANAGEABLE_ROLES[currentUser?.role]);
+  // Per-account activity is raw audit-log rows, which only the Super
+  // Administrator reads (GET /users/{id}/activity is role:super_admin).
+  const canViewActivity = can('view_audit_logs');
 
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(isAdmin);
+  const [loading, setLoading] = useState(managesAccounts);
   const [loadError, setLoadError] = useState('');
 
   const [search, setSearch] = useState('');
@@ -85,7 +96,7 @@ export default function UserManagement() {
   const [oneTimeCredential, setOneTimeCredential] = useState(null);
 
   const load = () => {
-    if (!isAdmin) return;
+    if (!managesAccounts) return;
     setLoading(true);
     setLoadError('');
     userService
@@ -323,9 +334,9 @@ export default function UserManagement() {
     }
   };
 
-  // Non-admin (Encoder): the self-service 2FA section only — no account
-  // table, no admin-only request attempted.
-  if (!isAdmin) {
+  // A role that manages no accounts (Encoder): the self-service 2FA section
+  // only — no account table, no account-administration request attempted.
+  if (!managesAccounts) {
     return (
       <section className="module">
         <div className="module-toolbar">
@@ -340,12 +351,28 @@ export default function UserManagement() {
     );
   }
 
+  // A row's actions are offered only on accounts this viewer manages; the
+  // backend's 'manage-account' Gate refuses the rest regardless. Any other row
+  // (a fellow Administrator, a Super Administrator, your own) can be viewed
+  // but not changed. View Activity reads raw audit-log rows, so it follows the
+  // audit-log permission instead.
+  const offeredActions = (user, items) => {
+    const manageable = canManageAccount(currentUser?.role, user.role);
+    return items.filter((item) =>
+      item.key === 'view'
+        ? true
+        : item.key === 'activity'
+          ? canViewActivity
+          : manageable,
+    );
+  };
+
   const rowMenu = (user) => {
     const isSelf = user.id === currentUser?.id;
     return (
       <UserRowMenu
         label={`Actions for ${user.fullName}`}
-        items={[
+        items={offeredActions(user, [
           {
             key: 'view',
             label: 'View Details',
@@ -443,7 +470,7 @@ export default function UserManagement() {
                 : undefined,
             onSelect: () => openConfirm('status', user),
           },
-        ]}
+        ])}
       />
     );
   };
@@ -636,6 +663,7 @@ export default function UserManagement() {
         onClose={() => setCreating(false)}
         onCreate={handleCreate}
         onNotice={showToast}
+        roleOptions={assignableRoleOptions(currentUser?.role)}
       />
 
       <ReissueTemporaryPasswordModal

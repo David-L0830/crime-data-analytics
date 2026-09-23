@@ -98,10 +98,12 @@ class BadacValidatorTest extends TestCase
 
     // --- Role model ----------------------------------------------------------
 
-    public function test_exactly_three_roles_exist_and_the_readonly_role_is_gone(): void
+    // Three operational roles plus the Super Administrator (System
+    // Governance), added deliberately as the one fourth role.
+    public function test_exactly_four_roles_exist_and_the_readonly_role_is_gone(): void
     {
         $this->assertSame(
-            [User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR],
+            [User::ROLE_BADAC_ADMIN, User::ROLE_ENCODER, User::ROLE_BADAC_VALIDATOR, User::ROLE_SUPER_ADMIN],
             array_keys(User::ROLE_LABELS)
         );
         $this->assertSame('badac_validator', User::ROLE_BADAC_VALIDATOR);

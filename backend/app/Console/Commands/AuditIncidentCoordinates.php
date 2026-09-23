@@ -2,9 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\AuditLog;
 use App\Models\Incident;
 use App\Services\Barangay178Boundary;
+use App\Support\Audit;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -228,7 +228,7 @@ class AuditIncidentCoordinates extends Command
 
                 $incident->forceFill(['latitude' => $lat, 'longitude' => $lng])->save();
 
-                AuditLog::create([
+                Audit::record([
                     // No user_id: this was run by an operator at a console, not
                     // by a signed-in account, and attributing it to a person who
                     // did not do it would be worse than leaving it null.

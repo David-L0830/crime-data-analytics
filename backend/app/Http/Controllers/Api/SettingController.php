@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\AuditLog;
 use App\Models\Setting;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 
 class SettingController extends Controller
@@ -35,7 +35,7 @@ class SettingController extends Controller
             'categories' => $data['categories'] ?? $settings->categories,
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'settings',

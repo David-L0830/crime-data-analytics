@@ -82,8 +82,9 @@ Two consequences of this split are worth stating explicitly:
 | Code style | Laravel Pint `^1.13` | `./vendor/bin/pint --test` in CI |
 
 Cache, session and queue all default to non-Redis drivers: `cache = database`,
-`session = database`, `queue = sync`, `mail = log`. There is no Redis, no
-queue worker and no scheduler in this deployment.
+`session = database`, `queue = sync`, `mail = log`. The hosted deployment
+(Render) has no Redis, no queue worker and no scheduler. The local Docker
+Compose stack adds all three — see §11, *Local Docker*.
 
 ---
 
@@ -144,17 +145,22 @@ from environment variables (`FRONTEND_URL` plus a comma-separated
 
 ### 3.5 Role-based authorization
 
-Authorization is applied at two levels:
+Authorization is applied at three levels:
 
 1. **Route middleware** — `role:` (`App\Http\Middleware\EnsureRole`) returns
    `403 Forbidden — insufficient role.` when the authenticated user's role is
    not in the allowed list.
-2. **Per-record ownership inside controllers** — an Encoder may only update or
+2. **The `manage-account` Gate** (`AppServiceProvider`) — in User Management,
+   decides *which* accounts a caller may act on: a Super Administrator acts on
+   Administrators, an Administrator on Encoders and Validators, and nobody on
+   a Super Administrator (see §7, *Roles*).
+3. **Per-record ownership inside controllers** — an Encoder may only update or
    archive an incident they personally encoded (`incidents.reported_by`).
 
 FormRequest classes deliberately return `true` from `authorize()`; they handle
-validation only. Authorization lives in the middleware and the controller
-ownership checks described above.
+validation only. `StoreUserRequest` does validate the new account's `role`
+against the caller's manageable roles, which is what stops anyone creating a
+Super Administrator through the API.
 
 ---
 
@@ -281,6 +287,47 @@ true:
 On first sign-in the backend links the two by writing `supabase_user_id` onto
 the local row.
 
+### Provisioning the Super Administrator
+
+A Super Administrator can **never** be created from the UI or the API — no
+role can assign `super_admin` (`StoreUserRequest`), and no account can manage
+one (`manage-account` Gate). The only way to create one is
+`SuperAdminSeeder`:
+
+```bash
+# 1. In backend/.env
+SUPER_ADMIN_NAME="Full Name"
+SUPER_ADMIN_USERNAME=superadmin
+SUPER_ADMIN_EMAIL=owner@example.com
+
+# 2. Run the seeder (locally)
+php artisan db:seed --class=SuperAdminSeeder
+
+#    or inside the Docker Compose stack
+docker compose exec backend php artisan db:seed --class=SuperAdminSeeder
+```
+
+3. In the Supabase Dashboard → **Authentication → Users**, create a user with
+   exactly the same email. The seeder never contacts Supabase.
+
+What the seeder does:
+
+- Creates an **active** `super_admin` account configured for **Email OTP** MFA
+  (`users.mfa_method = email_otp`), so it owes an emailed code at every
+  sign-in. Email OTP needs working SMTP (`MAIL_MAILER=log` is refused), so set
+  `MAIL_*` before the first sign-in.
+- Writes a `CREATE` audit row with no acting user (shown as `system`).
+- Can be re-run: it updates the same Super Administrator's name and username
+  (an `UPDATE` audit row).
+- **Refuses and changes nothing** when any `SUPER_ADMIN_*` value is blank, or
+  when the email or username already belongs to an account with any other
+  role. Existing accounts are never promoted.
+- Is **not** part of `DatabaseSeeder`, so `php artisan db:seed` never creates
+  one as a side effect.
+
+> The seeder writes to whatever database `DB_*` points at. Check that before
+> running it against anything other than a local database.
+
 ### Cache / config commands
 
 Local development runs **without** a config cache, which is deliberate — see
@@ -347,7 +394,7 @@ returns **503**.
 | `SUPABASE_SERVICE_ROLE_KEY` | Required **only** for `POST /api/users/{user}/two-factor/disable`. Highly privileged — see §15. |
 | `APP_NAME`, `APP_TIMEZONE` | Display name and timezone (`Asia/Manila`). |
 | `LOG_CHANNEL`, `LOG_LEVEL` | Logging configuration. |
-| `SESSION_*`, `CACHE_STORE`, `QUEUE_CONNECTION` | Framework defaults; no Redis or queue worker is used. |
+| `SESSION_*`, `CACHE_STORE`, `QUEUE_CONNECTION` | Framework defaults. Hosted environments keep `QUEUE_CONNECTION=sync`; the local Docker Compose stack overrides it to `redis` (§11). |
 | `MAIL_*` | Unused in practice — this backend sends no email (Supabase owns password resets). |
 
 ### Supplied automatically by Render
@@ -427,8 +474,12 @@ deliberately not an option (`StoreUserRequest`).
 
 | Endpoint | Role | Purpose |
 |---|---|---|
-| `POST /users/{user}/two-factor/require` | admin | Set (`required: true`) or clear (`required: false`) an administrator-imposed MFA obligation. Does not enroll a factor — the account holder still scans their own QR code. |
-| `POST /users/{user}/two-factor/disable` | admin | Break-glass: remove a target account's enrolled Supabase MFA factor(s) (lost device/recovery codes) and clear any admin-imposed requirement on it. |
+| `POST /users/{user}/two-factor/require` | admin, super admin² | Set (`required: true`) or clear (`required: false`) an administrator-imposed MFA obligation. Does not enroll a factor — the account holder still scans their own QR code. |
+| `POST /users/{user}/two-factor/disable` | admin, super admin² | Break-glass: remove a target account's enrolled Supabase MFA factor(s) (lost device/recovery codes) and clear any admin-imposed requirement on it. |
+
+² Only on accounts the caller manages (`manage-account` Gate): an
+Administrator acts on Encoders and Validators, a Super Administrator on
+Administrators. Nobody can act on a Super Administrator through the API.
 
 `GET /user` (and the `data` row for the caller's own account in
 `GET /users`) exposes `twoFactorEnabled` (verified factor enrolled),
@@ -447,34 +498,65 @@ coverage.
 
 Defined as constants on `App\Models\User`:
 
-| Constant | Value | Label |
-|---|---|---|
-| `ROLE_BADAC_ADMIN` | `badac_admin` | Administrator |
-| `ROLE_ENCODER` | `encoder` | Encoder |
-| `ROLE_BADAC_VALIDATOR` | `badac_validator` | BADAC Validator |
+Defined as constants on `App\Models\User`, in two governance tiers:
+
+| Constant | Value | Label | Tier |
+|---|---|---|---|
+| `ROLE_SUPER_ADMIN` | `super_admin` | Super Administrator | System Governance |
+| `ROLE_BADAC_ADMIN` | `badac_admin` | Administrator | Operational Governance |
+| `ROLE_ENCODER` | `encoder` | Encoder | Operational Governance |
+| `ROLE_BADAC_VALIDATOR` | `badac_validator` | BADAC Validator | Operational Governance |
+
+- **Super Administrator (System Governance)** owns System Settings (including
+  crime types and the read-only Metabase status panel), the full audit trail
+  and the Administrator accounts. Everywhere else it is **read-only**: it is
+  listed on no create, edit, archive, restore or validate route, and like the
+  Validator it receives no contact numbers or addresses. Created only by
+  `SuperAdminSeeder` (see *Provisioning the Super Administrator* above).
+- **Administrator (Operational Governance)** keeps full create, edit, archive
+  and validation rights on operational data and manages the Encoder and BADAC
+  Validator accounts. It can no longer change settings, read the raw audit
+  trail, or manage other Administrator accounts. It keeps **read** access to
+  `GET /settings` and `GET /sync-logs`, because its Dashboard, Trends and
+  Statistical Analysis compute from them.
+
+The roles differ by **capability, not data scope**: CDARS is a single-tenant
+system for Barangay 178, and no role is filtered to a subset of records.
+
+Two layers enforce this, both on the existing `users.role` column (no
+permissions tables):
+
+1. The `role:` route middleware (`EnsureRole`) decides who may reach a route.
+2. The `manage-account` **Gate** (`AppServiceProvider`) decides *which*
+   accounts a caller may act on in User Management, from
+   `User::manageableRoles()`: Super Administrator → Administrators;
+   Administrator → Encoders and Validators; nobody → Super Administrators.
+   `StoreUserRequest` limits the role of a **new** account to the same list.
 
 `ROLE_BADAC_VALIDATOR` replaced the former `ROLE_BADAC_READONLY` /
 `badac_readonly` (migration
-`2026_09_18_000001_rename_badac_readonly_role_to_badac_validator.php`). It is
-a rename plus one added capability — record validate/return — not a fourth
-role; the seeded account for it is username `Badac` ("Gilbert Franco", see
-`database/seeders/UserSeeder.php`).
+`2026_09_18_000001_rename_badac_readonly_role_to_badac_validator.php`); the
+seeded account for it is username `Badac` ("Gilbert Franco", see
+`database/seeders/UserSeeder.php`). `ROLE_SUPER_ADMIN` needs no migration:
+`users.role` is a plain string column.
 
 ### Which roles can do what
 
-| Capability | Administrator | Encoder | BADAC Validator |
-|---|:---:|:---:|:---:|
-| Current user, profile, avatar, notifications, logout | ✅ | ✅ | ✅ |
-| Read incidents (list, detail, map) | ✅ | ✅ | ✅ *(no complainant contact/address — see `IncidentResource`)* |
-| Create / update / archive incidents | ✅ | ✅ *(own records only)* | ❌ |
-| Validate or return an incident for correction | ✅ | ❌ | ✅ |
-| Dashboard, analytics, Metabase embed URLs | ✅ | ❌ | ✅ |
-| Read criminals and victims | ✅ | ❌ | ✅ *(no contact number/address — see `CriminalResource` / `VictimResource`)* |
-| Create / update / archive / restore criminals and victims | ✅ | ❌ | ❌ |
-| Read report schedules and delivery logs | ✅ | ❌ | ✅ *(no recipient addresses or raw delivery errors)* |
-| Create / update / archive / restore / run report schedules | ✅ | ❌ | ❌ |
-| Settings (read and write) | ✅ | ❌ | ❌ |
-| User management, audit logs, sync logs, role-permission matrix | ✅ | ❌ | ❌ |
+| Capability | Super Administrator | Administrator | Encoder | BADAC Validator |
+|---|:---:|:---:|:---:|:---:|
+| Current user, profile, avatar, notifications, logout | ✅ | ✅ | ✅ | ✅ |
+| Read incidents (list, detail, map) | ✅ *(no complainant contact/address)* | ✅ | ✅ | ✅ *(no complainant contact/address — see `IncidentResource`)* |
+| Create / update / archive incidents | ❌ | ✅ | ✅ *(own records only)* | ❌ |
+| Validate or return an incident for correction | ❌ | ✅ | ❌ | ✅ |
+| Dashboard, analytics, Metabase embed URLs | ✅ | ✅ | ❌ | ✅ |
+| Read criminals and victims | ✅ *(no contact number/address)* | ✅ | ❌ | ✅ *(no contact number/address — see `CriminalResource` / `VictimResource`)* |
+| Create / update / archive / restore criminals and victims | ❌ | ✅ | ❌ | ❌ |
+| Read report schedules and delivery logs | ❌ | ✅ | ❌ | ✅ *(no recipient addresses or raw delivery errors)* |
+| Create / update / archive / restore / run report schedules | ❌ | ✅ | ❌ | ❌ |
+| Read settings and sync logs | ✅ | ✅ | ❌ | ❌ |
+| Change settings, manage crime types, Metabase status | ✅ | ❌ | ❌ | ❌ |
+| Audit trail and per-account activity | ✅ | ❌ | ❌ | ❌ |
+| User management and role-permission matrix | ✅ *(Administrator accounts)* | ✅ *(Encoder and Validator accounts)* | ❌ | ❌ |
 
 ### Ownership restriction
 
@@ -512,15 +594,15 @@ guessed.
 bodies, response shapes, status codes and worked examples. The summary below
 is a routing index; it is not a substitute for that document.
 
-The application exposes **49 API routes**, plus `GET /` and `GET /up`. This
+The application exposes **64 API routes**, plus `GET /` and `GET /up`. This
 table was generated from `php artisan route:list` and cross-checked against
 `docs/API_ENDPOINTS.md`. It is a routing index, not an exhaustive list of
 every route — see the full reference linked above for anything not shown
 here.
 
 Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
-**Role**: `admin` = `badac_admin`, `encoder` = `encoder`, `validator` =
-`badac_validator`; "any" means any authenticated role.
+**Role**: `super` = `super_admin`, `admin` = `badac_admin`, `encoder` = `encoder`,
+`validator` = `badac_validator`; "any" means any authenticated role.
 
 | Method | Path | Role | Purpose |
 |---|---|---|---|
@@ -533,12 +615,12 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | POST | `/api/me/password` | any | Change own password (clears `must_change_password`) |
 | POST | `/api/mfa/email/send` | any (aal1, owed) | Send an Email OTP code for the current session |
 | POST | `/api/mfa/email/verify` | any (aal1, owed) | Verify an Email OTP code |
-| GET | `/api/dashboard` | admin, validator | Dashboard KPIs and summary data |
-| GET | `/api/analytics` | admin, validator | Analytics aggregate payload |
-| GET | `/api/analytics/crime-types` | admin, validator | Counts by crime type |
-| GET | `/api/analytics/monthly` | admin, validator | Monthly totals |
-| GET | `/api/analytics/locations` | admin, validator | Counts by location |
-| GET | `/api/embed/metabase/{dashboardKey}` | admin, validator | Signed Metabase embed URL (§9) |
+| GET | `/api/dashboard` | super, admin, validator | Dashboard KPIs and summary data |
+| GET | `/api/analytics` | super, admin, validator | Analytics aggregate payload |
+| GET | `/api/analytics/crime-types` | super, admin, validator | Counts by crime type |
+| GET | `/api/analytics/monthly` | super, admin, validator | Monthly totals |
+| GET | `/api/analytics/locations` | super, admin, validator | Counts by location |
+| GET | `/api/embed/metabase/{dashboardKey}` | super, admin, validator | Signed Metabase embed URL (§9) |
 | GET | `/api/incidents` | any | List/filter incidents |
 | GET | `/api/incidents/map` | any | Map payload for Leaflet |
 | GET | `/api/incidents/{incident}` | any | Incident detail |
@@ -548,14 +630,14 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | PUT | `/api/incidents/{incident}/restore` | admin, encoder¹ | Restore an archived incident to its pre-archive status |
 | PUT | `/api/incidents/{incident}/validate` | admin, validator | Approve/validate an incident record |
 | PUT | `/api/incidents/{incident}/return` | admin, validator | Return an incident to its Encoder for correction |
-| GET | `/api/criminals` | admin, validator | List criminal records |
-| GET | `/api/criminals/{criminal}` | admin, validator | Criminal profile |
+| GET | `/api/criminals` | super, admin, validator | List criminal records |
+| GET | `/api/criminals/{criminal}` | super, admin, validator | Criminal profile |
 | POST | `/api/criminals` | admin | Create a criminal record |
 | PUT | `/api/criminals/{criminal}` | admin | Update a criminal record |
 | PUT | `/api/criminals/{criminal}/archive` | admin | Archive a criminal record |
 | PUT | `/api/criminals/{criminal}/restore` | admin | Restore an archived criminal record to its pre-archive status |
-| GET | `/api/victims` | admin, validator | List victims |
-| GET | `/api/victims/{victim}` | admin, validator | Victim profile |
+| GET | `/api/victims` | super, admin, validator | List victims |
+| GET | `/api/victims/{victim}` | super, admin, validator | Victim profile |
 | POST | `/api/victims` | admin | Create a victim record |
 | PUT | `/api/victims/{victim}` | admin | Update a victim record |
 | PUT | `/api/victims/{victim}/archive` | admin | Archive a victim record |
@@ -563,20 +645,23 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | GET | `/api/notifications` | any | Notification list |
 | PUT | `/api/notifications/{notification}/read` | any | Mark one as read |
 | PUT | `/api/notifications/read-all` | any | Mark all as read |
-| GET | `/api/settings` | admin | Read business configuration |
-| PUT | `/api/settings` | admin | Update business configuration |
-| GET | `/api/users` | admin | List accounts |
-| GET | `/api/users/{user}` | admin | Account detail |
-| POST | `/api/users` | admin | Create an account |
-| PUT | `/api/users/{user}` | admin | Update an account (`role` is not mass-assignable) |
-| PUT | `/api/users/{user}/status` | admin | Activate/deactivate (self-lockout guarded) |
-| POST | `/api/users/{user}/two-factor/disable` | admin | Force-remove the target's Supabase MFA factors |
-| POST | `/api/users/{user}/two-factor/require` | admin | Require (or stop requiring) MFA of the target account |
-| POST | `/api/users/{user}/temporary-password` | admin | Issue a new temporary password (forces a change at next sign-in) |
-| GET | `/api/users/{user}/activity` | admin | One account's own audit trail |
-| GET | `/api/role-permissions` | admin | Role-permission matrix, read from the live route table |
-| GET | `/api/audit-logs` | admin | Audit trail |
-| GET | `/api/sync-logs` | admin | Synchronization log |
+| GET | `/api/settings` | super, admin | Read business configuration |
+| PUT | `/api/settings` | super | Update business configuration |
+| GET | `/api/settings/metabase-status` | super | Metabase embedding status (site URL, dashboard IDs, whether the secret is set — never the secret) |
+| POST | `/api/crime-types` | super | Add a crime type |
+| PUT | `/api/crime-types/{crimeType}` | super | Rename, recolour or enable/disable a crime type |
+| GET | `/api/users` | super, admin | List accounts |
+| GET | `/api/users/{user}` | super, admin | Account detail |
+| POST | `/api/users` | super, admin² | Create an account (role limited to the caller's manageable roles) |
+| PUT | `/api/users/{user}` | super, admin² | Update an account (`role` is not mass-assignable) |
+| PUT | `/api/users/{user}/status` | super, admin² | Activate/deactivate (self-lockout guarded) |
+| POST | `/api/users/{user}/two-factor/disable` | super, admin² | Force-remove the target's Supabase MFA factors |
+| POST | `/api/users/{user}/two-factor/require` | super, admin² | Require (or stop requiring) MFA of the target account |
+| POST | `/api/users/{user}/temporary-password` | super, admin² | Issue a new temporary password (forces a change at next sign-in) |
+| GET | `/api/users/{user}/activity` | super | One account's own audit trail |
+| GET | `/api/role-permissions` | super, admin | Role-permission matrix, read from the live route table |
+| GET | `/api/audit-logs` | super | Audit trail |
+| GET | `/api/sync-logs` | super, admin | Synchronization log |
 | GET | `/api/report-schedules` | admin, validator | List automated report schedules (backend remnant — see §9 note below and the [root README](../README.md#backend--api)) |
 | GET | `/api/report-email-logs` | admin, validator | Report delivery log |
 | POST | `/api/report-schedules` | admin | Create a report schedule |
@@ -587,6 +672,10 @@ Legend — **Auth**: all `/api/*` routes require a valid Supabase Bearer token.
 | POST | `/api/report-export-audit` | any | Record that an on-demand export happened |
 
 ¹ Encoders may only update/archive/restore incidents they personally encoded.
+
+² Only on accounts the caller manages (`manage-account` Gate / `StoreUserRequest`):
+Super Administrator → Administrators; Administrator → Encoders and Validators.
+No route can create or act on a Super Administrator.
 
 > **No frontend Reports page.** The `report-schedules` / `report-email-logs`
 > routes above remain fully functional — they back `ReportScheduleController`,
@@ -849,10 +938,95 @@ detect this condition.
 
 ### Local Docker
 
-`docker-compose.yml` at the repository root builds this image, bind-mounts
-`./backend`, reads `backend/.env`, and maps port `9000`. Supabase is *not*
-containerized — it is a hosted database, so point `DB_*` at your Supabase
-project.
+`docker-compose.yml` at the repository root runs the backend as separate
+services, all built from this image and all reading `backend/.env`. Supabase is
+*not* containerized — it is a hosted database, so point `DB_*` at your
+Supabase project.
+
+| Service | What it runs | Role |
+|---|---|---|
+| `backend` | nginx + php-fpm (the image's entrypoint), port `9000` | The core API (app-core). Queues MFA e-mails instead of sending them. |
+| `redis` | `redis:7-alpine`, no persistence, no published port | Queue broker between the API and the worker |
+| `service-notifications` | `php artisan queue:work redis --queue=notifications,audit` | Notification & Dispatch worker: sends the queued MFA e-mails and delivers audit events to service-audit |
+| `scheduler` | `php artisan schedule:work` | Laravel's scheduler (`routes/console.php`) |
+| `service-audit` | `services/audit` (its own image and code) | The isolated audit microservice: signed HTTP API, append-only store |
+| `audit-db` | `postgres:16-alpine`, internal network only | service-audit's own database |
+| `frontend` | the React build, port `8080` | SPA |
+
+The three PHP services set `QUEUE_CONNECTION=redis`, `REDIS_CLIENT=predis` and
+`REDIS_HOST=redis` in `docker-compose.yml`, which override `backend/.env`. They
+also share `APP_KEY`, which the worker needs to decrypt job payloads.
+
+**How an MFA code is delivered.** `POST /api/mfa/email/send` stores the
+challenge (as a keyed hash) and queues an `App\Jobs\SendEmailMfaCode` job on
+the `notifications` queue, then answers immediately; the worker sends the
+e-mail. The job implements `ShouldBeEncrypted`, so the code never reaches Redis,
+`jobs` or `failed_jobs` in plaintext. Before sending, the job re-checks that its
+code is still the live code (not replaced by a resend, used or expired). It is
+tried 3 times (backoff 5s, 15s); if every attempt fails, it deletes its own
+challenge so no undelivered code stays enterable.
+
+**Scheduler.** Scheduled report e-mails are disabled: the
+`reports:send-scheduled` registration was removed from `routes/console.php`, so
+this service cannot send them. It currently runs one task: daily, it deletes
+failed jobs from the `notifications` queue that are older than 24 hours.
+Failed audit deliveries are never pruned, so they can be retried with
+`php artisan queue:retry`.
+
+**Audit trail in the stack: service-audit.** The compose stack also sets
+`AUDIT_DRIVER=service`, which moves the audit trail out of this application
+into the isolated microservice in [`services/audit`](../services/audit/README.md):
+
+- **Writes.** Every audit write goes through `App\Support\Audit::record()`,
+  the one entry point for all 35 former `AuditLog::create()` call sites. Once
+  the surrounding transaction commits, it queues an encrypted
+  `App\Jobs\ShipAuditEvent` on the `audit` queue. The worker POSTs it to
+  service-audit, signed with HMAC-SHA256 (`AUDIT_SERVICE_SECRET`), and retries
+  with backoff for up to a day. Every event carries its own `event_id`, so a
+  retry is never stored twice. If Redis itself is down, the action still
+  succeeds, and the complete event is written to the log at `critical` level.
+- **Reads.** `GET /api/audit-logs` and `GET /api/users/{user}/activity` keep
+  their role checks here, then forward a signed request to service-audit and
+  return its rows in the unchanged `AuditLogResource` shape, so the frontend
+  did not change. *Last Login* in User Management comes from one batched
+  service call per list. If the service is unreachable, the two audit reads
+  answer `502`.
+- **Sign-in de-duplication.** Instead of querying for an earlier `LOGIN` row,
+  each sign-in gets an event id derived from the account and its
+  authentication instant, and service-audit stores it once.
+- **Storage.** `audit-db` (Postgres) is reachable only by service-audit.
+  Triggers refuse every `UPDATE`, `DELETE` and `TRUNCATE`, even from the table
+  owner, and the service's own account can only `INSERT` and `SELECT`.
+- **Not migrated.** The existing `audit_logs` history stays where it is. The
+  service's trail starts empty.
+
+With the default `AUDIT_DRIVER=database` (every hosted environment and the
+test suite), all of the above is inactive and audit_logs is used exactly as
+before.
+
+The stack needs three values in the repository-root `.env` (see
+`.env.example`) and refuses to start without them: `AUDIT_SERVICE_SECRET`,
+`AUDIT_DB_ADMIN_PASSWORD` and `AUDIT_DB_APP_PASSWORD`.
+
+
+**Hosted environments are unchanged.** Render has no Redis, worker or
+scheduler and keeps `QUEUE_CONNECTION=sync`, where the job runs inside the
+request exactly as the old inline send did (including reporting a send failure
+to the caller).
+
+Useful commands:
+
+```bash
+docker compose up -d --build
+docker compose logs -f service-notifications     # watch e-mails being sent
+docker compose exec backend php artisan queue:failed
+docker compose logs -f service-audit
+```
+
+For a local mailbox, point `MAIL_*` in `backend/.env` at an SMTP catcher such
+as Mailpit (`MAIL_MAILER=smtp`, `MAIL_SCHEME=smtp`, `MAIL_HOST`, `MAIL_PORT`).
+The `log` mailer is refused by Email MFA, because it would write the code into
+the log.
 
 ---
 
@@ -862,13 +1036,17 @@ project.
 php artisan test          # or: ./vendor/bin/phpunit
 ```
 
-**Current result: 781 passed, 4 skipped (5067 assertions).**
+**Current result: 830 passed, 4 skipped (5276 assertions).** The audit microservice has its own suite: `php services/audit/tests/run.php`.
 
 Feature test classes under `tests/Feature/`, including:
 
 | Test class | Covers |
 |---|---|
 | `BadacValidatorTest` | `badac_validator` role boundaries (replaced the former read-only role's test) and the resources' contact-detail allow-list |
+| `AuditServiceTest` | service-audit integration: queued, encrypted, after-commit delivery; request signing (shared test vector); retries and idempotency; the proxied `GET /audit-logs` and account activity; batched last logins |
+| `EmailMfaQueueTest` | MFA codes queued as encrypted jobs on `notifications`; stale jobs send nothing; a failed job removes only its own challenge |
+| `GovernanceRolesTest` | Super Administrator vs Administrator: settings, crime types and the audit trail; read-only operations; the `manage-account` Gate and assignable roles; `SuperAdminSeeder` |
+| `MetabaseStatusTest` | `GET /settings/metabase-status` — Super Administrator only, reports configuration, never the secret |
 | `CriminalRecordTest` | Criminal CRUD and archiving |
 | `IncidentTest` | Incident CRUD, ownership, map payload |
 | `MfaEnforcementTest` | Adaptive `supabase.mfa` enforcement, the two route exemptions, fail-closed lookups |

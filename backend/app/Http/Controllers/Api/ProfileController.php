@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
-use App\Models\AuditLog;
 use App\Services\SupabaseStorageService;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -82,7 +82,7 @@ class ProfileController extends Controller
         // is about to do.
         $user->refresh();
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $user->id,
             'action' => 'UPDATE',
             'module' => 'users',
@@ -153,7 +153,7 @@ class ProfileController extends Controller
             $this->forgetPreviousAvatar($storage, $previous);
         }
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $user->id,
             'action' => 'UPDATE',
             'module' => 'users',

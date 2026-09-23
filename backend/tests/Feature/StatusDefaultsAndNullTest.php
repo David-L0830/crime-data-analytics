@@ -319,7 +319,8 @@ class StatusDefaultsAndNullTest extends TestCase
 
     public function test_audit_log_with_null_created_at_does_not_break_the_endpoint(): void
     {
-        $admin = $this->admin();
+        // GET /audit-logs is Super Administrator only.
+        $admin = User::factory()->create(['role' => User::ROLE_SUPER_ADMIN]);
         $this->actingAsSupabase($admin);
 
         $log = AuditLog::create([

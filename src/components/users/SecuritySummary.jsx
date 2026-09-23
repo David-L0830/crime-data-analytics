@@ -19,14 +19,15 @@ export default function SecuritySummary({ users }) {
   // for an emailed code at every sign-in, so warning that it "has no second
   // factor enrolled" would be a false alarm about a protected account.
   const withoutFactor = users.filter((u) => !hasSecondFactor(u));
-  const adminsWithoutFactor = withoutFactor.filter(
-    (u) => u.role === 'badac_admin',
+  const adminsWithoutFactor = withoutFactor.filter((u) =>
+    ['super_admin', 'badac_admin'].includes(u.role),
   );
   const inactive = users.filter((u) => !u.isActive);
 
-  // Administrator accounts are called out separately from the rest: an
-  // Administrator without a second factor is the account that can reach User
-  // Management, System Settings and the full audit trail.
+  // Administrator and Super Administrator accounts are called out separately
+  // from the rest: without a second factor, they are the accounts that can
+  // reach User Management and, for the Super Administrator, System Settings
+  // and the full audit trail.
   if (adminsWithoutFactor.length > 0) {
     alerts.push({
       key: 'admin-2fa',

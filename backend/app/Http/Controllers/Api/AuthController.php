@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\AuditLog;
 use App\Services\EmailMfaService;
+use App\Support\Audit;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Ramsey\Uuid\Uuid;
 
 // Final auth migration — Supabase Auth is the only credential system this
 // application has. AuthController no longer authenticates anyone itself
@@ -32,7 +34,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         if ($user) {
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $user->id,
                 'action' => 'LOGOUT',
                 'module' => 'auth',
@@ -103,23 +105,30 @@ class AuthController extends Controller
             return;
         }
 
-        $alreadyRecorded = AuditLog::query()
-            ->where('user_id', $user->id)
-            ->where('action', 'LOGIN')
-            ->where('created_at', '>=', Carbon::createFromTimestamp($authTime))
-            ->exists();
+        // Condition 2 against service-audit is not a query: the sign-in is
+        // given an event id DERIVED from the account and its authentication
+        // instant, so every /api/user call in one session produces the same
+        // id, and the service stores it once (it ignores a repeated event_id).
+        // That keeps a read of the audit service off this hot path entirely.
+        if (! Audit::isRemote()) {
+            $alreadyRecorded = AuditLog::query()
+                ->where('user_id', $user->id)
+                ->where('action', 'LOGIN')
+                ->where('created_at', '>=', Carbon::createFromTimestamp($authTime))
+                ->exists();
 
-        if ($alreadyRecorded) {
-            return;
+            if ($alreadyRecorded) {
+                return;
+            }
         }
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $user->id,
             'action' => 'LOGIN',
             'module' => 'auth',
             'target_type' => 'auth',
             'description' => 'User signed in',
             'ip_address' => $request->ip(),
-        ]);
+        ], Uuid::uuid5(Uuid::NAMESPACE_URL, "cdars:login:{$user->id}:{$authTime}")->toString());
     }
 }

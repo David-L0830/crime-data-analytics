@@ -290,9 +290,10 @@ class TemporaryPasswordReissueTest extends TestCase
     {
         $admin = $this->admin();
 
-        // Your own account.
+        // Your own account: refused by the 'manage-account' Gate (403), which
+        // never admits it, ahead of the controller's own self-check (422).
         $this->postJson("/api/users/{$admin->id}/temporary-password", ['temporaryPassword' => self::TEMP])
-            ->assertStatus(422);
+            ->assertForbidden();
 
         // A deactivated account.
         $inactive = $this->target(['username' => 'inactive01', 'email' => 'inactive01@example.com', 'is_active' => false]);

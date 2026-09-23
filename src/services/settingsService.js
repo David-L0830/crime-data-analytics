@@ -15,4 +15,8 @@ export const settingsService = {
   get: (token) => api.get('/settings', token ? { token } : undefined),
   update: (data, token) =>
     api.put('/settings', data, token ? { token } : undefined),
+  // Super Administrator only. Whether Metabase embedding is configured — site
+  // URL, dashboard IDs, and whether the secret is SET. The secret itself is
+  // never returned (see MetabaseStatusController).
+  metabaseStatus: () => api.get('/settings/metabase-status'),
 };

@@ -3,11 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\AuditLog;
 use App\Models\ReportEmailLog;
 use App\Models\ReportSchedule;
 use App\Services\ReportGenerator;
 use App\Services\ScheduledReportDispatcher;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -354,7 +354,7 @@ class ReportScheduleController extends Controller
      */
     private function audit(Request $request, string $action, string $description): void
     {
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => $action,
             'module' => 'reports',

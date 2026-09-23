@@ -7,9 +7,9 @@ use App\Http\Requests\StoreVictimRequest;
 use App\Http\Requests\UpdateVictimRequest;
 use App\Http\Resources\VictimResource;
 use App\Models\AppNotification;
-use App\Models\AuditLog;
 use App\Models\User;
 use App\Models\Victim;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -66,7 +66,7 @@ class VictimController extends Controller
 
             $this->syncCases($victim, $validated);
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $request->user()?->id,
                 'action' => 'CREATE',
                 'module' => 'criminal-records',
@@ -143,7 +143,7 @@ class VictimController extends Controller
         $victim->update($this->mapToColumns($validated));
         $this->syncCases($victim, $validated);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'criminal-records',
@@ -182,7 +182,7 @@ class VictimController extends Controller
             'status' => 'Archived',
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'ARCHIVE',
             'module' => 'criminal-records',
@@ -214,7 +214,7 @@ class VictimController extends Controller
             'previous_status' => null,
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'RESTORE',
             'module' => 'criminal-records',

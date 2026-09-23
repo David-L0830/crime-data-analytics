@@ -15,6 +15,23 @@ return [
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
             'after_commit' => false,
         ],
+
+        // The notifications worker (service-notifications in
+        // docker-compose.yml) consumes this. Only used when
+        // QUEUE_CONNECTION=redis; every hosted environment stays on `sync`,
+        // where a queued job simply runs inside the request that dispatched it.
+        //
+        // retry_after must exceed the longest a job may run (an SMTP send, well
+        // under a minute), or Redis would hand the same MFA email to a second
+        // worker while the first is still sending it.
+        'redis' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => env('REDIS_QUEUE', 'default'),
+            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            'block_for' => null,
+            'after_commit' => false,
+        ],
     ],
 
     'batching' => [

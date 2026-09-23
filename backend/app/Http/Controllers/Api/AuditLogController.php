@@ -4,8 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AuditLogResource;
-use App\Models\AuditLog;
 use App\Models\ReportRun;
+use App\Support\Audit;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -26,11 +27,31 @@ class AuditLogController extends Controller
     // this file and BadacValidatorTest::test_badac_validator_cannot_view_audit_logs,
     // which used to assert the opposite). See ROLES.badac_validator in
     // src/utils/constants.js for the matching frontend change.
+    //
+    // A PROXY when the trail lives in service-audit (AUDIT_DRIVER=service): the
+    // request is forwarded, signed, to the microservice and its rows are
+    // returned in the same AuditLogResource shape, so the frontend is
+    // unchanged. Role enforcement stays HERE, on this route; the service trusts
+    // only this app's signature, never the browser.
     public function index()
     {
-        $logs = AuditLog::with('user')->orderByDesc('created_at')->limit(200)->get();
+        try {
+            return response()->json(['data' => Audit::recent(200)]);
+        } catch (\Throwable $e) {
+            return $this->auditServiceUnavailable($e);
+        }
+    }
 
-        return AuditLogResource::collection($logs);
+    /**
+     * The audit trail could not be read (service-audit down, misconfigured, or
+     * refusing the signature). A 502 names the failing dependency without
+     * passing on anything it said.
+     */
+    public static function auditServiceUnavailable(\Throwable $e): JsonResponse
+    {
+        Log::warning('The audit trail could not be read.', ['exception' => $e::class]);
+
+        return response()->json(['message' => 'The audit trail is temporarily unavailable. Please try again.'], 502);
     }
 
     /**
@@ -108,7 +129,7 @@ class AuditLogController extends Controller
             // histories disagreeing about the same export, so either both land
             // or neither does and the caller is told (see the catch below).
             DB::transaction(function () use ($request, $data) {
-                AuditLog::create([
+                Audit::record([
                     'user_id' => $request->user()?->id,
                     'action' => 'REPORT_EXPORTED',
                     'module' => 'reports',

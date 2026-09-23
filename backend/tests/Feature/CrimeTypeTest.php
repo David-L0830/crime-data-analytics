@@ -13,8 +13,9 @@ use Tests\TestCase;
 /**
  * Crime types and their map colours.
  *
- * The behaviour these lock down is the requirement that an Administrator can
- * add a crime type through System Settings and it just gets a colour — no
+ * The behaviour these lock down is the requirement that the Super
+ * Administrator can add a crime type through System Settings and it just gets
+ * a colour — no
  * developer edits JavaScript — AND that doing so never disturbs a colour
  * already in use, because the map legend has to mean the same thing tomorrow
  * as it does today.
@@ -29,9 +30,12 @@ class CrimeTypeTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function admin(): User
+    // Managing crime types is a System Settings capability, which belongs to
+    // the Super Administrator (see GovernanceRolesTest for the Administrator
+    // being refused).
+    private function superAdmin(): User
     {
-        $user = User::factory()->create(['role' => User::ROLE_BADAC_ADMIN]);
+        $user = User::factory()->create(['role' => User::ROLE_SUPER_ADMIN]);
         $this->actingAsSupabase($user);
 
         return $user;
@@ -81,7 +85,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_a_new_crime_type_is_assigned_a_colour_automatically(): void
     {
-        $this->admin();
+        $this->superAdmin();
 
         $response = $this->postJson('/api/crime-types', ['name' => 'Rape'])
             ->assertCreated();
@@ -93,7 +97,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_an_assigned_colour_is_never_reused_by_a_later_crime_type(): void
     {
-        $this->admin();
+        $this->superAdmin();
 
         // Deliberately more additions than the palette has spare entries, so
         // this also exercises the deterministic generator past exhaustion.
@@ -107,7 +111,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_adding_a_crime_type_does_not_change_an_existing_ones_colour(): void
     {
-        $this->admin();
+        $this->superAdmin();
         $before = CrimeType::pluck('color', 'name')->all();
 
         $this->postJson('/api/crime-types', ['name' => 'Arson'])->assertCreated();
@@ -119,7 +123,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_a_colour_may_be_supplied_explicitly(): void
     {
-        $this->admin();
+        $this->superAdmin();
 
         $this->postJson('/api/crime-types', ['name' => 'Arson', 'color' => '#123abc'])
             ->assertCreated()
@@ -129,7 +133,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_an_invalid_colour_is_rejected(): void
     {
-        $this->admin();
+        $this->superAdmin();
 
         $this->postJson('/api/crime-types', ['name' => 'Arson', 'color' => 'red'])
             ->assertStatus(422);
@@ -137,14 +141,14 @@ class CrimeTypeTest extends TestCase
 
     public function test_duplicate_crime_type_names_are_rejected(): void
     {
-        $this->admin();
+        $this->superAdmin();
 
         $this->postJson('/api/crime-types', ['name' => 'Theft'])->assertStatus(422);
     }
 
     public function test_an_administrator_can_rename_recolour_and_disable_a_crime_type(): void
     {
-        $this->admin();
+        $this->superAdmin();
         $type = CrimeType::where('name', 'Theft')->firstOrFail();
 
         $this->putJson("/api/crime-types/{$type->id}", [
@@ -168,7 +172,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_renaming_a_crime_type_relabels_existing_incidents(): void
     {
-        $this->admin();
+        $this->superAdmin();
         $type = CrimeType::where('name', 'Theft')->firstOrFail();
 
         $matching = Incident::factory()->count(2)->create(['crime_type' => 'Theft']);
@@ -186,7 +190,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_renaming_a_crime_type_records_the_relabelled_count_in_the_audit_log(): void
     {
-        $this->admin();
+        $this->superAdmin();
         $type = CrimeType::where('name', 'Theft')->firstOrFail();
         Incident::factory()->count(3)->create(['crime_type' => 'Theft']);
 
@@ -200,7 +204,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_changing_only_the_colour_does_not_touch_incidents(): void
     {
-        $this->admin();
+        $this->superAdmin();
         $type = CrimeType::where('name', 'Theft')->firstOrFail();
         $incident = Incident::factory()->create(['crime_type' => 'Theft']);
 
@@ -211,7 +215,7 @@ class CrimeTypeTest extends TestCase
 
     public function test_a_colour_change_is_written_to_the_audit_log(): void
     {
-        $this->admin();
+        $this->superAdmin();
         $type = CrimeType::where('name', 'Theft')->firstOrFail();
 
         $this->putJson("/api/crime-types/{$type->id}", ['color' => '#00AA55'])->assertOk();

@@ -14,8 +14,8 @@ import { Icons } from '../icons';
 //
 // WHY IT LIVES IN THE PROFILE MODAL AND NOT IN SYSTEM SETTINGS
 //
-// System Settings is Administrator-only (route guard plus role:badac_admin
-// middleware on every endpoint it calls) and holds business configuration for
+// System Settings is Super-Administrator-only (route guard plus role:super_admin
+// middleware on every change it makes) and holds business configuration for
 // the whole barangay. Browser permissions are neither: they are per-person and
 // per-browser — the same account signing in from a different machine has a
 // different answer — and every role has them. Profile Settings is the one

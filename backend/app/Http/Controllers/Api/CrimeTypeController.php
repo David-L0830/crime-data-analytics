@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CrimeTypeResource;
-use App\Models\AuditLog;
 use App\Models\CrimeType;
 use App\Models\Incident;
+use App\Support\Audit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -57,7 +57,7 @@ class CrimeTypeController extends Controller
             'is_active' => $data['isActive'] ?? true,
         ]);
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'CREATE',
             'module' => 'settings',
@@ -120,7 +120,7 @@ class CrimeTypeController extends Controller
             $changes[] = $crimeType->is_active ? 'enabled' : 'disabled';
         }
 
-        AuditLog::create([
+        Audit::record([
             'user_id' => $request->user()?->id,
             'action' => 'UPDATE',
             'module' => 'settings',

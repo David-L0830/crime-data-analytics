@@ -130,15 +130,17 @@ class UserResource extends JsonResource
             // or a newly created account). Informational for the login flow;
             // EnsurePasswordChanged is what actually blocks access. None of
             // these is ever a password or anything derived from one.
-            // Temporary-credential status for User Management — ADMINISTRATORS
-            // ONLY, and never the credential itself (it is not stored anywhere
-            // to return). Derived from must_change_password and
+            // Temporary-credential status for User Management — only on the
+            // accounts the viewer manages (the 'manage-account' Gate: an
+            // Administrator's Encoders and Validators, a Super Administrator's
+            // Administrators), and never the credential itself (it is not
+            // stored anywhere to return). Derived from must_change_password and
             // temporary_password_expires_at; no extra column. Named without
             // the word "password" so account payloads stay free of it.
             //   'pending' — issued, not yet replaced, not yet expired
             //   'expired' — issued, not replaced, and past its expiry
             //   null      — nothing outstanding
-            $this->mergeWhen((bool) $request->user()?->isAdmin(), fn () => [
+            $this->mergeWhen((bool) $request->user()?->can('manage-account', $this->resource), fn () => [
                 'temporaryCredentialStatus' => $this->must_change_password
                     ? ($this->resource->temporaryPasswordExpired() ? 'expired' : 'pending')
                     : null,

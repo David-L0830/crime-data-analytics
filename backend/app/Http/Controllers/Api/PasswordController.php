@@ -5,10 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Exceptions\SupabasePasswordUpdateException;
 use App\Http\Controllers\Controller;
 use App\Http\Middleware\EnsurePasswordChanged;
-use App\Models\AuditLog;
 use App\Models\User;
 use App\Rules\AcceptablePassword;
 use App\Services\SupabaseAdminService;
+use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -138,7 +138,7 @@ class PasswordController extends Controller
                 'password_changed_at' => $changedAt,
             ])->save();
 
-            AuditLog::create([
+            Audit::record([
                 'user_id' => $user->id,
                 'action' => 'UPDATE',
                 'module' => 'auth',

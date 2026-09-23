@@ -4,15 +4,17 @@ import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import MetabaseStatusCard from '../components/settings/MetabaseStatusCard';
 
-// System Settings — Administrator only.
+// System Settings — Super Administrator only (System Governance).
 //
 // The route is guarded by ProtectedRoute (moduleId 'settings', which only
-// ROLES.badac_admin lists) and the sidebar only renders the entry for the same
-// role. NEITHER of those is the security boundary: every endpoint this page
-// calls — GET/PUT /settings, POST/PUT /crime-types — carries
-// role:badac_admin middleware server-side, so a non-administrator who calls
-// them directly is refused with a 403 whether or not they ever saw this page.
+// ROLES.super_admin lists) and the sidebar only renders the entry for the same
+// role. NEITHER of those is the security boundary: every change this page
+// makes — PUT /settings, POST/PUT /crime-types — carries role:super_admin
+// middleware server-side, so anyone else who calls them directly is refused
+// with a 403 whether or not they ever saw this page. (GET /settings is also
+// readable by the Administrator, whose analytics compute with it.)
 export default function Settings() {
   const { settings, saveSettings, crimeTypes, addCrimeType, updateCrimeType } =
     useData();
@@ -262,6 +264,10 @@ export default function Settings() {
             <Icons.Save size={15} strokeWidth={2} /> Save Settings
           </Button>
         </Card>
+
+        {/* Read-only: the embedding configuration lives in backend
+            environment variables and is changed on the host. */}
+        <MetabaseStatusCard />
 
         {/* Scheduled Reports moved to its own module (pages/ScheduledReports.jsx,
             /scheduled-reports). The feature and its endpoints are unchanged. */}
