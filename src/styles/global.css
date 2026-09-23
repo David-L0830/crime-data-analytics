@@ -3081,6 +3081,167 @@ select {
   gap: 20px;
 }
 
+/* ===== Tabs (components/ui/Tabs.jsx) ===== */
+.tabs-list {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 20px;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-heading);
+  font-size: 0.84rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition),
+    box-shadow var(--transition);
+}
+
+.tabs-trigger:hover {
+  color: hsl(var(--foreground));
+}
+
+.tabs-trigger.active {
+  background: hsl(var(--card));
+  color: hsl(var(--primary));
+  box-shadow: var(--shadow);
+}
+
+.tabs-trigger:focus-visible,
+.tabs-panel:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* ===== System Settings — External System Integrations ===== */
+.integration-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.integration-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 99px;
+  background: hsl(var(--secondary));
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.integration-node-source {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.integration-arrow {
+  display: inline-flex;
+  color: hsl(var(--muted-foreground));
+}
+
+.integration-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.integration-title svg {
+  color: hsl(var(--primary));
+}
+
+.integration-pill {
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--accent-light);
+  color: var(--accent-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.integration-endpoint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  background: hsl(var(--muted));
+  overflow-x: auto;
+}
+
+.integration-endpoint code {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.integration-method {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.integration-fields {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.integration-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.integration-last-run {
+  margin: 0;
+}
+
+/* ===== System Settings — System Governance ===== */
+.governance-table tbody th {
+  color: hsl(var(--foreground));
+  font-size: 0.84rem;
+  text-transform: none;
+  letter-spacing: normal;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.governance-table td {
+  vertical-align: top;
+  line-height: 1.5;
+}
+
 /* ===== System Settings — crime types & map colours ===== */
 
 .settings-note {

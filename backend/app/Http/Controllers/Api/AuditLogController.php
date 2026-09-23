@@ -77,6 +77,12 @@ class AuditLogController extends Controller
         'victim-records' => 'Victim Records',
         'victim-profile' => 'Victim Profile',
         'incident-record' => 'Incident Record',
+        // The two "Generate JSON Report" downloads in System Settings →
+        // External System Integrations. Not exportWorkbook() call sites, but
+        // the same kind of event: a report built from official data and
+        // handed to the browser.
+        'integration-security-alerts' => 'Security Alert System — Crime Hotspots',
+        'integration-campaign-planning' => 'Campaign Planning — Crime Trends',
     ];
 
     // POST /api/report-export-audit

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\CriminalController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailMfaController;
 use App\Http\Controllers\Api\IncidentController;
+use App\Http\Controllers\Api\IntegrationController;
 use App\Http\Controllers\Api\MetabaseEmbedController;
 use App\Http\Controllers\Api\MetabaseStatusController;
 use App\Http\Controllers\Api\NotificationController;
@@ -335,6 +336,19 @@ Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.
 // is never returned — see MetabaseStatusController.
 Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])
     ->get('/settings/metabase-status', [MetabaseStatusController::class, 'show']);
+
+// GET /v1/integrations/* — BPA Level 2 outputs to the two sub-systems CDARS
+// reports to. Read-only and pull-based: each returns an aggregated snapshot of
+// OFFICIAL incidents with no personal or case-identifying fields (see
+// IntegrationController). Super Administrator only, like the External System
+// Integrations tab in System Settings that presents them; no machine
+// credential for the sub-systems themselves exists yet.
+Route::middleware(['auth:supabase', 'supabase.mfa', 'password.changed', 'role:'.User::ROLE_SUPER_ADMIN])
+    ->prefix('v1/integrations')
+    ->group(function () {
+        Route::get('/security-alerts/hotspots', [IntegrationController::class, 'securityAlertHotspots']);
+        Route::get('/campaign-planning/trends', [IntegrationController::class, 'campaignPlanningTrends']);
+    });
 
 // Incidents — write side. Not role-restricted at the route level for
 // create/update (Encoder is a legitimate caller of both); IncidentController

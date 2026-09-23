@@ -4,7 +4,10 @@ import { useData } from '../hooks/useData';
 import { useToast } from '../hooks/useToast';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
+import Tabs from '../components/ui/Tabs';
 import MetabaseStatusCard from '../components/settings/MetabaseStatusCard';
+import GovernancePanel from '../components/settings/GovernancePanel';
+import IntegrationsPanel from '../components/settings/IntegrationsPanel';
 
 // System Settings — Super Administrator only (System Governance).
 //
@@ -124,154 +127,194 @@ export default function Settings() {
     }
   };
 
+  // Crime Types & Map Colours — the vocabulary the incident form, every
+  // crime-type filter and the Crime Mapping legend are built from.
+  const crimeTypesTab = (
+    <div className="settings-grid">
+      <Card title="Crime Types &amp; Map Colours">
+        <p className="settings-note">
+          Crime types drive the incident form, every crime type filter, and
+          the colours on Crime Mapping. A new crime type is assigned an unused
+          map colour automatically; that colour then stays with it permanently
+          unless changed here.
+        </p>
+
+        <div className="crime-type-list">
+          {crimeTypes.length === 0 && (
+            <div className="settings-empty">No crime types configured.</div>
+          )}
+          {crimeTypes.map((type) => (
+            <div
+              className={`crime-type-row ${type.isActive ? '' : 'disabled'}`}
+              key={type.id}
+            >
+              {/* A real colour input, so the assigned colour is both VIEWED
+                  and adjustable in the same control. onBlur rather than
+                  onChange: a native colour picker fires continuously while
+                  the cursor is dragged, which would be one PUT per pixel. */}
+              <input
+                type="color"
+                className="crime-type-color"
+                defaultValue={type.color}
+                disabled={busyCrimeTypeId === type.id}
+                onBlur={(e) => handleColorChange(type, e.target.value)}
+                aria-label={`Map colour for ${type.name}`}
+                title={`Map colour for ${type.name} (${type.color})`}
+              />
+              <span className="crime-type-name">{type.name}</span>
+              <span className="crime-type-hex">{type.color}</span>
+              <button
+                type="button"
+                className="crime-type-toggle"
+                disabled={busyCrimeTypeId === type.id}
+                onClick={() => handleToggleCrimeType(type)}
+                title={
+                  type.isActive
+                    ? 'Disable — hides it from new records, keeps existing ones'
+                    : 'Enable'
+                }
+              >
+                {type.isActive ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="settings-add">
+          <input
+            type="text"
+            placeholder="New crime type name"
+            value={newCrimeType}
+            onChange={(e) => setNewCrimeType(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAddCrimeType();
+            }}
+          />
+          <Button
+            size="sm"
+            onClick={handleAddCrimeType}
+            disabled={savingCrimeType}
+          >
+            {savingCrimeType ? 'Adding…' : 'Add'}
+          </Button>
+        </div>
+        <p className="settings-note">
+          Disabling a crime type removes it from the pickers for new records.
+          Existing incidents that already use it keep their crime type and
+          their colour on the map.
+        </p>
+      </Card>
+    </div>
+  );
+
+  const generalTab = (
+    <div className="settings-grid">
+      <Card title="Crime Categories">
+        <div id="categories-list">
+          {categories.map((cat) => (
+            <span className="category-tag" key={cat}>
+              {cat}
+              <button onClick={() => removeCategory(cat)}>&times;</button>
+            </span>
+          ))}
+        </div>
+        <div className="settings-add">
+          <input
+            type="text"
+            placeholder="New category name"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addCategory();
+            }}
+          />
+          <Button size="sm" onClick={addCategory}>
+            Add
+          </Button>
+        </div>
+      </Card>
+
+      <Card title="General Settings">
+        <div className="form-group">
+          <label htmlFor="setting-crime-rate-threshold">
+            Crime Rate Threshold (per 1000 pop)
+          </label>
+          <input
+            id="setting-crime-rate-threshold"
+            type="number"
+            value={threshold}
+            onChange={(e) => setThreshold(e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="setting-hotspot-threshold">
+            Hotspot Alert Threshold
+          </label>
+          <input
+            id="setting-hotspot-threshold"
+            type="number"
+            value={hotspotThreshold}
+            onChange={(e) => setHotspotThreshold(e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label htmlFor="setting-population">Barangay Population</label>
+          <input
+            id="setting-population"
+            type="number"
+            value={population}
+            onChange={(e) => setPopulation(e.target.value)}
+          />
+        </div>
+        <Button onClick={handleSaveSettings}>
+          <Icons.Save size={15} strokeWidth={2} /> Save Settings
+        </Button>
+      </Card>
+    </div>
+  );
+
+  const tabs = [
+    {
+      id: 'general',
+      label: 'General',
+      icon: <Icons.Settings size={15} strokeWidth={2} />,
+      content: generalTab,
+    },
+    {
+      id: 'crime-types',
+      label: 'Crime Types',
+      icon: <Icons.Tag size={15} strokeWidth={2} />,
+      content: crimeTypesTab,
+    },
+    {
+      id: 'metabase',
+      label: 'Metabase Embedding',
+      icon: <Icons.BarChart3 size={15} strokeWidth={2} />,
+      // Read-only: the embedding configuration lives in backend environment
+      // variables and is changed on the host.
+      content: (
+        <div className="settings-grid">
+          <MetabaseStatusCard />
+        </div>
+      ),
+    },
+    {
+      id: 'governance',
+      label: 'System Governance',
+      icon: <Icons.ShieldCheck size={15} strokeWidth={2} />,
+      content: <GovernancePanel />,
+    },
+    {
+      id: 'integrations',
+      label: 'External System Integrations',
+      icon: <Icons.Globe size={15} strokeWidth={2} />,
+      content: <IntegrationsPanel />,
+    },
+  ];
+
   return (
     <section className="module">
-      <div className="settings-grid">
-        {/* Crime Types & Map Colours — the vocabulary the incident form, every
-            crime-type filter and the Crime Mapping legend are built from. */}
-        <Card title="Crime Types &amp; Map Colours">
-          <p className="settings-note">
-            Crime types drive the incident form, every crime type filter, and
-            the colours on Crime Mapping. A new crime type is assigned an unused
-            map colour automatically; that colour then stays with it permanently
-            unless changed here.
-          </p>
-
-          <div className="crime-type-list">
-            {crimeTypes.length === 0 && (
-              <div className="settings-empty">No crime types configured.</div>
-            )}
-            {crimeTypes.map((type) => (
-              <div
-                className={`crime-type-row ${type.isActive ? '' : 'disabled'}`}
-                key={type.id}
-              >
-                {/* A real colour input, so the assigned colour is both VIEWED
-                    and adjustable in the same control. onBlur rather than
-                    onChange: a native colour picker fires continuously while
-                    the cursor is dragged, which would be one PUT per pixel. */}
-                <input
-                  type="color"
-                  className="crime-type-color"
-                  defaultValue={type.color}
-                  disabled={busyCrimeTypeId === type.id}
-                  onBlur={(e) => handleColorChange(type, e.target.value)}
-                  aria-label={`Map colour for ${type.name}`}
-                  title={`Map colour for ${type.name} (${type.color})`}
-                />
-                <span className="crime-type-name">{type.name}</span>
-                <span className="crime-type-hex">{type.color}</span>
-                <button
-                  type="button"
-                  className="crime-type-toggle"
-                  disabled={busyCrimeTypeId === type.id}
-                  onClick={() => handleToggleCrimeType(type)}
-                  title={
-                    type.isActive
-                      ? 'Disable — hides it from new records, keeps existing ones'
-                      : 'Enable'
-                  }
-                >
-                  {type.isActive ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <div className="settings-add">
-            <input
-              type="text"
-              placeholder="New crime type name"
-              value={newCrimeType}
-              onChange={(e) => setNewCrimeType(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddCrimeType();
-              }}
-            />
-            <Button
-              size="sm"
-              onClick={handleAddCrimeType}
-              disabled={savingCrimeType}
-            >
-              {savingCrimeType ? 'Adding…' : 'Add'}
-            </Button>
-          </div>
-          <p className="settings-note">
-            Disabling a crime type removes it from the pickers for new records.
-            Existing incidents that already use it keep their crime type and
-            their colour on the map.
-          </p>
-        </Card>
-
-        <Card title="Crime Categories">
-          <div id="categories-list">
-            {categories.map((cat) => (
-              <span className="category-tag" key={cat}>
-                {cat}
-                <button onClick={() => removeCategory(cat)}>&times;</button>
-              </span>
-            ))}
-          </div>
-          <div className="settings-add">
-            <input
-              type="text"
-              placeholder="New category name"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') addCategory();
-              }}
-            />
-            <Button size="sm" onClick={addCategory}>
-              Add
-            </Button>
-          </div>
-        </Card>
-
-        <Card title="General Settings">
-          <div className="form-group">
-            <label htmlFor="setting-crime-rate-threshold">
-              Crime Rate Threshold (per 1000 pop)
-            </label>
-            <input
-              id="setting-crime-rate-threshold"
-              type="number"
-              value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="setting-hotspot-threshold">
-              Hotspot Alert Threshold
-            </label>
-            <input
-              id="setting-hotspot-threshold"
-              type="number"
-              value={hotspotThreshold}
-              onChange={(e) => setHotspotThreshold(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="setting-population">Barangay Population</label>
-            <input
-              id="setting-population"
-              type="number"
-              value={population}
-              onChange={(e) => setPopulation(e.target.value)}
-            />
-          </div>
-          <Button onClick={handleSaveSettings}>
-            <Icons.Save size={15} strokeWidth={2} /> Save Settings
-          </Button>
-        </Card>
-
-        {/* Read-only: the embedding configuration lives in backend
-            environment variables and is changed on the host. */}
-        <MetabaseStatusCard />
-
-        {/* Scheduled Reports moved to its own module (pages/ScheduledReports.jsx,
-            /scheduled-reports). The feature and its endpoints are unchanged. */}
-      </div>
+      <Tabs tabs={tabs} label="System Settings sections" />
     </section>
   );
 }

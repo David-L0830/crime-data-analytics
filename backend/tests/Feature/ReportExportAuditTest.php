@@ -145,6 +145,8 @@ class ReportExportAuditTest extends TestCase
             'dashboard', 'analytics', 'incidents', 'mapping', 'audit-logs',
             'criminal-records', 'criminal-profile',
             'victim-records', 'victim-profile', 'incident-record',
+            // System Settings → External System Integrations.
+            'integration-security-alerts', 'integration-campaign-planning',
         ];
 
         foreach ($keys as $key) {
