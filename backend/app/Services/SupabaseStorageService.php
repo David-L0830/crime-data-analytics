@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\SupabaseEndpoint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -76,6 +77,10 @@ class SupabaseStorageService
         return trim((string) config('supabase.avatar_bucket'), '/');
     }
 
+    // The PUBLIC address: object URLs built from it are handed to the browser
+    // (publicUrl) and recognised again later (objectKeyFromUrl). Uploads and
+    // deletes go to SupabaseEndpoint::serverBase() instead, which differs only
+    // when SUPABASE_INTERNAL_URL is set.
     private function url(): string
     {
         return rtrim((string) config('supabase.url'), '/');
@@ -145,7 +150,7 @@ class SupabaseStorageService
         ])
             ->timeout(20)
             ->withBody($contents, $file->getMimeType() ?: 'application/octet-stream')
-            ->post($this->url().'/storage/v1/object/'.$this->bucket().'/'.$key);
+            ->post(SupabaseEndpoint::serverBase().'/storage/v1/object/'.$this->bucket().'/'.$key);
 
         if ($response->failed()) {
             // The status and Supabase's own message are included because they
@@ -184,7 +189,7 @@ class SupabaseStorageService
                 'Authorization' => 'Bearer '.$this->key(),
             ])
                 ->timeout(10)
-                ->delete($this->url().'/storage/v1/object/'.$this->bucket().'/'.$key)
+                ->delete(SupabaseEndpoint::serverBase().'/storage/v1/object/'.$this->bucket().'/'.$key)
                 ->successful();
         } catch (\Throwable) {
             return false;

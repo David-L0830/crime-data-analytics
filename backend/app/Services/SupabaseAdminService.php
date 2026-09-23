@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\SupabasePasswordUpdateException;
+use App\Support\SupabaseEndpoint;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -50,7 +51,7 @@ class SupabaseAdminService
 
     protected function baseUrl(): string
     {
-        $url = rtrim((string) config('supabase.url'), '/');
+        $url = SupabaseEndpoint::serverBase();
         if ($url === '') {
             throw new RuntimeException('SUPABASE_URL is not configured.');
         }
@@ -305,7 +306,7 @@ class SupabaseAdminService
     {
         $operation = 'verifying the current password';
         $key = $this->serviceRoleKey($operation);
-        $authUrl = rtrim((string) config('supabase.url'), '/').'/auth/v1';
+        $authUrl = SupabaseEndpoint::serverBase().'/auth/v1';
 
         try {
             $response = Http::timeout(10)

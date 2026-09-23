@@ -7,6 +7,7 @@ use App\Models\EmailMfaChallenge;
 use App\Models\EmailMfaFailureWindow;
 use App\Models\EmailMfaVerifiedSession;
 use App\Models\User;
+use App\Support\SupabaseEndpoint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
@@ -116,7 +117,7 @@ class EmailMfaService
     public function sessionIsLive(Request $request, User $user): bool
     {
         $token = $request->bearerToken();
-        $url = rtrim((string) config('supabase.url'), '/');
+        $url = SupabaseEndpoint::serverBase();
 
         if (! $token || $url === '' || ! $user->supabase_user_id) {
             return false;

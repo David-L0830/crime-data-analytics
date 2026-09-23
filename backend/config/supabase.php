@@ -9,10 +9,25 @@
 
 return [
 
-    // Project URL, e.g. https://xxxxxxxxxxxx.supabase.co — used both to
-    // derive the JWKS endpoint (for the current RS256/ES256 "JWT signing
-    // keys" model) and to check the token's `iss` claim.
+    // Project URL, e.g. https://xxxxxxxxxxxx.supabase.co — the PUBLIC address:
+    // the token `iss` claim is checked against it, and browser-facing URLs
+    // (avatar images) are built from it. Also used for this backend's own
+    // requests to Supabase, unless 'internal_url' below is set.
     'url' => env('SUPABASE_URL'),
+
+    // OPTIONAL. Where THIS backend reaches Supabase over the network, when that
+    // differs from the public address. Every server-to-server call (JWKS, the
+    // Admin API, the email-MFA session check, avatar upload/delete) uses it;
+    // the issuer check and browser-facing URLs never do.
+    //
+    // The case it exists for: the local Docker Compose stack against the
+    // Supabase CLI running on the host. Tokens are issued as
+    // http://127.0.0.1:54321/auth/v1, but inside a container 127.0.0.1 is the
+    // container itself, so the containers set this to
+    // http://host.docker.internal:54321 while SUPABASE_URL stays 127.0.0.1.
+    // Leave it unset everywhere else: every call then uses SUPABASE_URL,
+    // exactly as before this setting existed.
+    'internal_url' => env('SUPABASE_INTERNAL_URL'),
 
     'project_id' => env('SUPABASE_PROJECT_ID'),
 

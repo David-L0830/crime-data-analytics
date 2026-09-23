@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Support\SupabaseEndpoint;
 use Firebase\JWT\ExpiredException;
 use Firebase\JWT\JWK;
 use Firebase\JWT\JWT;
@@ -196,12 +197,15 @@ class SupabaseTokenValidator
      */
     protected function verify(string $token): array
     {
-        $projectUrl = rtrim((string) config('supabase.url'), '/');
+        $projectUrl = SupabaseEndpoint::publicBase();
         if ($projectUrl === '') {
             throw new UnexpectedValueException('SUPABASE_URL is not configured.');
         }
 
-        $decoded = $this->verifyViaJwks($token, $projectUrl);
+        // The keys are FETCHED from wherever this backend reaches Supabase
+        // (SUPABASE_INTERNAL_URL when set); the issuer below is still checked
+        // against the public SUPABASE_URL tokens are actually issued under.
+        $decoded = $this->verifyViaJwks($token, SupabaseEndpoint::serverBase());
 
         if ($decoded === null) {
             $decoded = $this->verifyViaSharedSecret($token);
