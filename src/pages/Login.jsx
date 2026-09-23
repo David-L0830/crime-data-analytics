@@ -677,6 +677,7 @@ export default function Login() {
                   aria-busy={verifying}
                   style={{ marginTop: 8 }}
                 >
+                  {verifying && <span className="spinner" aria-hidden="true" />}
                   <span>
                     {verifying ? 'Verifying...' : 'Enable and Sign In'}
                   </span>
@@ -740,6 +741,7 @@ export default function Login() {
                   aria-busy={verifying}
                   style={{ marginTop: 8 }}
                 >
+                  {verifying && <span className="spinner" aria-hidden="true" />}
                   <span>{verifying ? 'Verifying...' : 'Verify'}</span>
                 </button>
                 {/* Same announcement treatment as the password step's error:
@@ -787,6 +789,9 @@ export default function Login() {
                   disabled={emailSending || verifying || resendSeconds > 0}
                   aria-busy={emailSending}
                 >
+                  {emailSending && (
+                    <span className="spinner" aria-hidden="true" />
+                  )}
                   <span>
                     {emailSending
                       ? 'Sending...'
@@ -838,6 +843,7 @@ export default function Login() {
                   aria-busy={verifying}
                   style={{ marginTop: 8 }}
                 >
+                  {verifying && <span className="spinner" aria-hidden="true" />}
                   <span>{verifying ? 'Verifying...' : 'Verify'}</span>
                 </button>
                 {emailError && (
@@ -1088,6 +1094,9 @@ export default function Login() {
                   aria-busy={submitting}
                   style={{ marginTop: 8 }}
                 >
+                  {submitting && (
+                    <span className="spinner" aria-hidden="true" />
+                  )}
                   <span>{submitting ? 'Authenticating...' : 'Sign In'}</span>
                 </button>
                 {/* role="alert" announces a failed sign-in the moment it
