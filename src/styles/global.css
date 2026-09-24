@@ -1906,6 +1906,106 @@ h6 {
   border-color: hsl(var(--border));
 }
 
+/* Loading / unavailable state of a Metabase embed. The box keeps the embed's
+   full reserved height so the page does not jump when the iframe arrives, but
+   its content sits at the top, where it is actually on screen. The base
+   .spinner is white (made for brand-coloured buttons) and was invisible on
+   this white card, so it is recoloured here. */
+.metabase-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding-top: 72px;
+  background:
+    linear-gradient(180deg, hsl(var(--muted)) 0, hsl(var(--card)) 240px),
+    hsl(var(--card));
+}
+
+.metabase-placeholder .spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-color: hsl(var(--primary) / 0.2);
+  border-top-color: hsl(var(--primary));
+}
+
+.metabase-placeholder-text {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* ===== Analytics page header (components/AnalyticsHeader.jsx) ===== */
+.analytics-header {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-left: 4px solid hsl(var(--primary));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+
+.analytics-header-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-light);
+  color: hsl(var(--primary));
+}
+
+.analytics-header-body {
+  min-width: 0;
+}
+
+.analytics-header h2 {
+  margin: 0 0 4px;
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  color: hsl(var(--foreground));
+}
+
+.analytics-header p {
+  margin: 0 0 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.analytics-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analytics-header-meta li {
+  padding: 4px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 99px;
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  font-size: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .analytics-header {
+    flex-direction: column;
+    padding: 18px 16px;
+  }
+}
+
 .card h3 {
   font-size: 0.88rem;
   font-weight: 700;

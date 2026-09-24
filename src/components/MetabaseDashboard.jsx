@@ -143,22 +143,16 @@ export default function MetabaseDashboard({
 
   if (loading) {
     return (
-      <div
-        className="metabase-embed card"
-        style={{
-          height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <div className="metabase-embed card metabase-placeholder" style={{ height }}>
         {/* The spinner is a purely visual signal, so it is hidden from
             assistive technology and the status is carried as real text
             instead. role="status" makes that text a polite live region, so it
             is announced when it appears rather than only when someone happens
-            to navigate onto it. */}
+            to navigate onto it. The text is visible too, and both sit at the
+            top of the reserved height (see .metabase-placeholder) rather than
+            its middle, which on a 2000px box was far below the fold. */}
         <div className="spinner" aria-hidden="true" />
-        <span className="sr-only" role="status">
+        <span className="metabase-placeholder-text" role="status">
           Loading {title || 'analytics dashboard'}…
         </span>
       </div>
@@ -167,15 +161,7 @@ export default function MetabaseDashboard({
 
   if (error || !url) {
     return (
-      <div
-        className="metabase-embed card"
-        style={{
-          height,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <div className="metabase-embed card metabase-placeholder" style={{ height }}>
         <div className="empty-state" style={{ padding: '16px 24px' }}>
           <div className="empty-icon">
             <Icons.BarChart3 size={28} strokeWidth={1.5} />

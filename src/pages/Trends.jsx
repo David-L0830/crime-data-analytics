@@ -10,6 +10,7 @@ import Modal from '../components/ui/Modal';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
 import ChartCard from '../components/charts/ChartCard';
 import MetabaseDashboard from '../components/MetabaseDashboard';
+import AnalyticsHeader from '../components/AnalyticsHeader';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import {
@@ -327,6 +328,13 @@ export default function Trends() {
           filterSummary,
         ]}
       >
+        <AnalyticsHeader
+          icon={<Icons.TrendingUp size={22} strokeWidth={2} />}
+          title="Trend and Pattern Detection"
+          description="How crime in Barangay 178 changes over time: daily, weekly and seasonal trends, peak crime hours, a moving-average forecast, crime hotspots by sitio and high-risk sitios."
+          recordCount={filtered.length}
+        />
+
         <FilterBar
           fields={[
             { id: 'tr-dateFrom', label: 'From', type: 'date' },

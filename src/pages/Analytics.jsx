@@ -9,6 +9,7 @@ import Table from '../components/ui/Table';
 import Button from '../components/ui/Button';
 import ChartCard from '../components/charts/ChartCard';
 import MetabaseDashboard from '../components/MetabaseDashboard';
+import AnalyticsHeader from '../components/AnalyticsHeader';
 import ChartPrintSummary from '../components/charts/ChartPrintSummary';
 import ChartSummaryModal from '../components/charts/ChartSummaryModal';
 import PrintReport, { PrintDocumentEnd } from '../components/ui/PrintReport';
@@ -449,6 +450,13 @@ export default function Analytics() {
           filterSummary,
         ]}
       >
+        <AnalyticsHeader
+          icon={<Icons.BarChart3 size={22} strokeWidth={2} />}
+          title="Statistical Analysis"
+          description="Descriptive statistics for Barangay 178: monthly and yearly distribution, category, gender and age distribution, sitio breakdown, statistical measures and a category × sitio cross-tabulation."
+          recordCount={filtered.length}
+        />
+
         <FilterBar
           fields={[
             { id: 'ana-dateFrom', label: 'From', type: 'date' },
