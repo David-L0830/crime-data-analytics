@@ -18,6 +18,13 @@
      old --accent (brand green) and --border (hex) are gone: their uses read
      hsl(var(--primary)) and hsl(var(--border)) instead.
 
+   Brand colours follow the theme. Light mode leads with ORANGE (--primary)
+   and GREEN as --accent; dark mode keeps GREEN primary and ORANGE accent.
+   Light values chosen for contrast: --primary-foreground on the orange is
+   7.3:1; --ring (#da5e0b) is 3.8:1 against white, since the orange fill
+   itself is only 2.3:1 and cannot carry a focus ring or border; --accent is
+   the brand green darkened to 34% so white text on it reaches 4.8:1.
+
    Declared in a cascade layer, so any unlayered rule still wins over it. */
 @layer base {
   :root {
@@ -27,19 +34,19 @@
     --card-foreground: 102 14% 14%;
     --popover: 0 0% 100%;
     --popover-foreground: 102 14% 14%;
-    --primary: 136 50% 36%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 24 100% 62%;
+    --primary-foreground: 25 68% 10%;
     --secondary: 130 40% 94%;
     --secondary-foreground: 102 14% 14%;
     --muted: 130 40% 94%;
     --muted-foreground: 109 8% 41%;
-    --accent: 24 100% 62%;
-    --accent-foreground: 25 68% 10%;
+    --accent: 136 50% 34%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 6 63% 46%;
     --destructive-foreground: 0 0% 100%;
     --border: 124 27% 89%;
     --input: 124 27% 89%;
-    --ring: 136 50% 36%;
+    --ring: 24 90% 45%;
     --radius: 0.75rem;
     --font-display: 'Manrope', sans-serif;
     --font-body: 'Inter', sans-serif;
@@ -85,17 +92,20 @@
   --bg-card: hsl(var(--card));
   --bg-hover: hsl(var(--secondary));
   --bg-sidebar: hsl(var(--card));
-  --bg-sidebar-hover: rgba(46, 139, 71, 0.08);
+  --bg-sidebar-hover: rgba(255, 138, 61, 0.1);
   --bg-topbar: rgba(255, 255, 255, 0.92);
   --border-light: hsl(var(--muted));
   --text-primary: hsl(var(--foreground));
   --text-secondary: hsl(var(--muted-foreground));
   --text-muted: hsl(var(--muted-foreground));
-  --accent-rgb: 46, 139, 71;
-  --accent-hover: #256f39;
-  --accent-light: rgba(46, 139, 71, 0.12);
-  --accent-dark: #1e5c31;
-  --orange: hsl(var(--accent));
+  /* The legacy --accent-* family is the BRAND family (it predates the shadcn
+     names): it follows --primary, so it is orange in light mode. Success and
+     warning colours have their own values below and never change with it. */
+  --accent-rgb: 255, 138, 61;
+  --accent-hover: #e67530;
+  --accent-light: rgba(255, 138, 61, 0.14);
+  --accent-dark: #7a3a06;
+  --orange: #ff8a3d;
   --orange-rgb: 255, 138, 61;
   --orange-hover: #e67530;
   --orange-light: rgba(255, 138, 61, 0.14);
@@ -103,8 +113,11 @@
   --brand-red-light: rgba(192, 57, 43, 0.12);
   --indigo: var(--color-indigo);
   --indigo-light: rgba(99, 102, 241, 0.12);
-  --success: hsl(var(--primary));
-  --warning: hsl(var(--accent));
+  --success: #2e8b47;
+  --success-rgb: 46, 139, 71;
+  --success-light: rgba(46, 139, 71, 0.12);
+  --success-dark: #1e5c31;
+  --warning: #ff8a3d;
   --danger: hsl(var(--destructive));
   --danger-rgb: 192, 57, 43;
   --info: #0ea5e9;
@@ -129,7 +142,7 @@
      worst one at or above 4.5:1, while staying in the same hue family so the
      green/orange/blue status language is unchanged:
 
-       --accent-text  #20693a  worst 4.70:1  (green tint .18 on hovered row)
+       --accent-text  #9a4a08  worst 4.89:1  (orange brand tint on hovered row)
        --success-text #20693a  worst 4.70:1
        --warning-text #9a4a08  worst 4.87:1  (orange tint on hovered row)
        --orange-text  #9a4a08  worst 4.87:1
@@ -140,7 +153,7 @@
      keeps this safe: --orange also paints the decorative top-edge line and
      --accent paints buttons, borders, focus rings and gradients, and darkening
      those would change the interface's colour identity to fix a text problem. */
-  --accent-text: #20693a;
+  --accent-text: #9a4a08;
   --success-text: #20693a;
   --warning-text: #9a4a08;
   --orange-text: #9a4a08;
@@ -167,10 +180,16 @@
   /* Gradients */
   --gradient-brand: linear-gradient(
     135deg,
-    #2e8b47 0%,
-    #256f39 50%,
-    #1e5c31 100%
+    #ff8a3d 0%,
+    #f27a2a 55%,
+    #e8712a 100%
   );
+  /* Text on brand fills (buttons, the landing CTA band).
+     Dark on the light-mode orange - white on it is only 2.3:1 - and white on
+     the dark-mode green, as before. */
+  --on-brand: hsl(var(--primary-foreground));
+  --brand-ink: #7a3a06;
+  --brand-ink-hover-bg: #fff4ec;
   --gradient-warm: linear-gradient(135deg, #ff8a3d 0%, #c0392b 100%);
   --gradient-sidebar: linear-gradient(180deg, #ffffff 0%, #fafbf7 100%);
   --gradient-login: linear-gradient(
@@ -219,11 +238,28 @@
 
 /* Dark Mode — Barangay Daylight (Dark) */
 [data-theme="dark"] {
-  /* The backgrounds, borders, text colours, --orange, --brand-red, --success,
-     --warning and --danger need no dark values here: their :root aliases
-     read the shadcn tokens, which switch in the token layer. */
+  /* The backgrounds, borders, text colours, --brand-red and --danger need no
+     dark values here: their :root aliases read the shadcn tokens, which
+     switch in the token layer. */
   --bg-sidebar-hover: rgba(76, 175, 107, 0.1);
   --bg-topbar: rgba(18, 22, 15, 0.95);
+  /* Dark mode keeps the green brand, so the :root light-mode (orange) brand
+     family is restated here with its green values. */
+  --success: #4caf6b;
+  --success-rgb: 76, 175, 107;
+  --success-light: rgba(76, 175, 107, 0.15);
+  --success-dark: #3f9a5b;
+  --orange: #ff9955;
+  --warning: #ff9955;
+  --gradient-brand: linear-gradient(
+    135deg,
+    #2e8b47 0%,
+    #256f39 50%,
+    #1e5c31 100%
+  );
+  --on-brand: #fff;
+  --brand-ink: #14431f;
+  --brand-ink-hover-bg: #f1f7f2;
   --accent-rgb: 76, 175, 107;
   --accent-hover: #3f9a5b;
   --accent-light: rgba(76, 175, 107, 0.15);
@@ -311,9 +347,67 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   transition:
-    background var(--transition),
-    color var(--transition);
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease;
   -webkit-font-smoothing: antialiased;
+}
+
+/* ===== Theme switch fade =====
+   Switching Light/Dark changes the token values, and these surfaces and text
+   elements fade to the new colours instead of snapping. Only the three colour
+   properties transition, and only on the listed elements, never on *.
+
+   :where() gives this rule zero specificity, so any component that declares
+   its own `transition` (hover lifts, transforms, focus rings) keeps it. The
+   few surfaces that do and are large enough to matter (.card, .sidebar,
+   .landing-feature-card) add the colour properties to their own lists
+   instead. Skipped for people who ask for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  :where(
+      .app,
+      .content-area,
+      .topbar,
+      .modal-content,
+      .notif-dropdown,
+      .account-menu-dropdown,
+      .filters-bar,
+      .module-toolbar,
+      .table-wrap,
+      .tabs-list,
+      .analytics-header,
+      table,
+      th,
+      td,
+      input,
+      select,
+      textarea,
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      h6,
+      p,
+      label,
+      li,
+      dt,
+      dd,
+      .landing-page,
+      .landing-section,
+      .landing-footer,
+      .landing-preview-panel,
+      .landing-integration-panel,
+      .landing-map-panel,
+      .landing-trust,
+      .landing-security-card,
+      .cdars-login-page
+    ) {
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease,
+      border-color 0.3s ease;
+  }
 }
 
 h1,
@@ -421,6 +515,14 @@ h6 {
    surface and invisible on a secondary button. This variant borrows
    currentColor so it is legible inside whichever button it is placed in, and
    is sized to sit on a line of button text rather than stand alone. */
+/* On brand-filled buttons the white spinner follows the label instead, which
+   is dark on the light-mode orange. */
+.btn-primary .spinner:not(.spinner-inline),
+.login-form .btn-login .spinner {
+  border-color: color-mix(in srgb, var(--on-brand) 30%, transparent);
+  border-top-color: var(--on-brand);
+}
+
 .spinner-inline {
   width: 13px;
   height: 13px;
@@ -464,7 +566,7 @@ h6 {
   padding: 10px 18px;
   background: var(--bg-card);
   color: var(--accent-text);
-  border: 2px solid hsl(var(--primary));
+  border: 2px solid hsl(var(--ring));
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   font-family: var(--font-body);
   font-size: 0.85rem;
@@ -514,7 +616,7 @@ h6 {
 .icon-btn:focus-visible,
 .notif-toast-close:focus-visible,
 .modal-close:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   /* Nothing here is a colour change, so a control that already signals focus
      some other way keeps doing so; this only adds the ring. */
@@ -732,11 +834,11 @@ h6 {
 
 .login-theme-toggle:hover {
   color: var(--login-text-heading);
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
 }
 
 .login-theme-toggle:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
@@ -807,7 +909,7 @@ h6 {
 }
 
 .login-form input:focus {
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
   box-shadow: 0 0 0 3px var(--accent-light);
 }
 
@@ -834,7 +936,7 @@ h6 {
    password input lands here with no indication of it — the input's own focus
    ring belongs to the input, not to this button. */
 .password-toggle:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   border-radius: var(--radius-sm);
   color: var(--login-text-heading);
@@ -860,7 +962,7 @@ h6 {
 .remember-me input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: hsl(var(--primary));
+  accent-color: hsl(var(--ring));
   cursor: pointer;
 }
 
@@ -879,7 +981,7 @@ h6 {
   width: 100%;
   padding: 14px;
   background: var(--gradient-brand);
-  color: var(--color-white);
+  color: var(--on-brand);
   border: none;
   border-radius: var(--radius);
   font-size: 0.95rem;
@@ -903,7 +1005,7 @@ h6 {
    ring behind, but tabbing to it must be obvious. The offset ring reads
    clearly against the button's own green fill. */
 .login-form .btn-login:focus-visible {
-  outline: 3px solid hsl(var(--primary));
+  outline: 3px solid hsl(var(--ring));
   outline-offset: 3px;
 }
 
@@ -962,7 +1064,7 @@ h6 {
 
 .btn-google:hover:not(:disabled) {
   background: var(--login-card-bg);
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
 }
 
 .btn-google:disabled {
@@ -1129,7 +1231,9 @@ h6 {
   height: 100vh;
   transition:
     width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.3s ease;
+    transform 0.3s ease,
+    background-color 0.3s ease,
+    border-color 0.3s ease;
   border-right: 1px solid hsl(var(--border));
   overflow: visible;
 }
@@ -1883,7 +1987,9 @@ h6 {
   box-shadow: var(--shadow-card);
   transition:
     box-shadow var(--transition),
-    border-color var(--transition);
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .card:hover {
@@ -1928,7 +2034,7 @@ h6 {
   height: 28px;
   border-width: 3px;
   border-color: hsl(var(--primary) / 0.2);
-  border-top-color: hsl(var(--primary));
+  border-top-color: hsl(var(--ring));
 }
 
 .metabase-placeholder-text {
@@ -1946,7 +2052,7 @@ h6 {
   margin-bottom: 20px;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-left: 4px solid hsl(var(--primary));
+  border-left: 4px solid hsl(var(--ring));
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
 }
@@ -1960,7 +2066,7 @@ h6 {
   height: 46px;
   border-radius: var(--radius-sm);
   background: var(--accent-light);
-  color: hsl(var(--primary));
+  color: var(--accent-text);
 }
 
 .analytics-header-body {
@@ -2105,7 +2211,7 @@ h6 {
 }
 
 .kpi-card-link:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
@@ -2200,7 +2306,7 @@ h6 {
 }
 
 .chart-card-interactive:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
@@ -2324,7 +2430,7 @@ th {
    row, and removing its outline would make the table unnavigable by keyboard
    without removing the ability to operate it. */
 .th-sort:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -2376,13 +2482,13 @@ tbody tr:last-child td {
 }
 
 .status-Open {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 .status-Solved,
 .status-Closed {
-  background: rgba(var(--accent-rgb), 0.18);
-  color: var(--accent-dark);
+  background: rgba(var(--success-rgb), 0.18);
+  color: var(--success-dark);
 }
 .status-Under-Investigation {
   background: var(--orange-light);
@@ -2393,7 +2499,7 @@ tbody tr:last-child td {
   color: var(--text-muted);
 }
 .status-Active {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 .status-Wanted {
@@ -2416,7 +2522,7 @@ tbody tr:last-child td {
 }
 /* Metabase status panel (System Settings, Super Administrator). */
 .status-Configured {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 .status-Not-configured {
@@ -2461,7 +2567,7 @@ tbody tr:last-child td {
 
 .btn-primary {
   background: var(--gradient-brand);
-  color: #fff;
+  color: var(--on-brand);
   box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.25);
 }
 
@@ -2547,7 +2653,7 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
   box-shadow: 0 0 0 3px var(--accent-light);
   background: var(--bg-card);
 }
@@ -2669,7 +2775,7 @@ select {
 }
 
 .search-box input:focus {
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
 }
 
 .toolbar-actions {
@@ -2744,7 +2850,7 @@ select {
 .map-viz-options input {
   width: auto;
   margin-right: 10px;
-  accent-color: hsl(var(--primary));
+  accent-color: hsl(var(--ring));
 }
 
 .map-stats {
@@ -3137,7 +3243,7 @@ select {
 }
 
 .stat-box[title]:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
@@ -3165,8 +3271,8 @@ select {
 }
 
 .alert-item.success {
-  background: var(--accent-light);
-  border-color: rgba(var(--accent-rgb), 0.25);
+  background: var(--success-light);
+  border-color: rgba(var(--success-rgb), 0.25);
 }
 
 .alert-icon {
@@ -3221,7 +3327,7 @@ select {
 
 .tabs-trigger.active {
   background: hsl(var(--card));
-  color: hsl(var(--primary));
+  color: var(--accent-text);
   box-shadow: var(--shadow);
 }
 
@@ -3270,7 +3376,7 @@ select {
 }
 
 .integration-title svg {
-  color: hsl(var(--primary));
+  color: var(--accent-text);
 }
 
 .integration-pill {
@@ -3428,7 +3534,7 @@ select {
 }
 
 .crime-type-toggle:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;
 }
 
@@ -3590,7 +3696,7 @@ select {
   height: 16px;
   margin: 0;
   flex-shrink: 0;
-  accent-color: hsl(var(--primary));
+  accent-color: hsl(var(--ring));
   cursor: pointer;
 }
 
@@ -3637,7 +3743,7 @@ select {
 }
 
 .evidence-row-remove:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;
 }
 
@@ -3686,7 +3792,7 @@ select {
 
 .toast.success {
   border-left: 4px solid var(--success);
-  color: var(--accent-dark);
+  color: var(--success-dark);
 }
 
 .toast.error {
@@ -3814,7 +3920,7 @@ select {
 }
 
 .notif-toast-close:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;
 }
 
@@ -3826,14 +3932,14 @@ select {
 }
 
 .notif-toast.actionable:hover {
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
   box-shadow:
     var(--shadow-lg),
     0 0 0 1px hsl(var(--primary));
 }
 
 .notif-toast.actionable:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
@@ -4048,61 +4154,115 @@ select {
    own value or label text. */
 
 /* ===== Dashboard Welcome ===== */
+/* A layered gradient rather than a flat fill: a soft sheen in the top-right
+   corner over a three-stop brand gradient. Colours are per theme (below) and
+   were chosen by contrast against EVERY stop, since the text can sit over any
+   part of the gradient:
+
+     light  amber #ffb266 -> --primary #ff8b3d -> coral #f76d3b
+            text #3b1d09       >= 5.28:1   (was near-black #2b1708)
+            subtitle at 90%    >= 4.52:1
+            name #2b1708       >= 5.87:1
+     dark   #277a3e -> #1e5c31 -> #174a27
+            text #fff          >= 5.33:1   (the old #2e8b47 stop gave 4.29:1)
+            subtitle at 90%    >= 4.66:1   (was white at 70%: 2.93:1)
+            name #c9f2d6       >= 4.35:1   (was #5cb87a: 1.75:1)
+
+   The sheen only lightens the light theme and only slightly lightens the
+   dark one, so it never lowers these figures below the stated minimums. */
 .dashboard-welcome {
-  background: var(--gradient-brand);
-  border-radius: var(--radius-lg);
-  padding: 32px 36px;
-  margin-bottom: 28px;
-  color: var(--color-white);
+  --welcome-bg: linear-gradient(
+    120deg,
+    #ffb266 0%,
+    hsl(var(--primary)) 48%,
+    #f76d3b 100%
+  );
+  --welcome-sheen: rgba(255, 255, 255, 0.34);
+  --welcome-text: #3b1d09;
+  --welcome-name: #2b1708;
+  --welcome-subtitle: rgba(59, 29, 9, 0.9);
+  --welcome-border: rgba(255, 255, 255, 0.4);
+  --welcome-shadow: 0 14px 34px -18px rgba(232, 113, 42, 0.65);
+
   position: relative;
   overflow: hidden;
+  margin-bottom: 28px;
+  padding: 34px 40px 36px;
+  border: 1px solid var(--welcome-border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(
+      120% 150% at 100% 0%,
+      var(--welcome-sheen) 0%,
+      transparent 55%
+    ),
+    var(--welcome-bg);
+  box-shadow: var(--welcome-shadow);
+  color: var(--welcome-text);
   animation: fadeIn 0.5s ease;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.dashboard-welcome::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  right: -10%;
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(
-    circle,
-    rgba(var(--accent-rgb), 0.2) 0%,
-    transparent 70%
-  );
-  border-radius: 50%;
-  pointer-events: none;
+[data-theme="dark"] .dashboard-welcome {
+  --welcome-bg: linear-gradient(120deg, #277a3e 0%, #1e5c31 55%, #174a27 100%);
+  --welcome-sheen: rgba(201, 242, 214, 0.1);
+  --welcome-text: #ffffff;
+  --welcome-name: #c9f2d6;
+  --welcome-subtitle: rgba(255, 255, 255, 0.9);
+  --welcome-border: rgba(255, 255, 255, 0.08);
+  --welcome-shadow: 0 14px 34px -18px rgba(0, 0, 0, 0.7);
 }
 
+/* A fine highlight along the top edge, in place of the old three-colour
+   rule along the bottom. */
 .dashboard-welcome::after {
   content: "";
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, hsl(var(--primary)), var(--orange), var(--info));
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.7),
+    transparent
+  );
+  pointer-events: none;
 }
 
 .dashboard-welcome h2 {
-  font-size: 1.55rem;
-  font-weight: 800;
-  margin-bottom: 6px;
-  letter-spacing: -0.03em;
   position: relative;
+  margin: 0 0 8px;
+  font-family: var(--font-heading);
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .dashboard-welcome h2 span {
-  color: #5cb87a;
+  color: var(--welcome-name);
+  font-weight: 800;
 }
 
 .dashboard-welcome p {
-  opacity: 0.7;
-  font-size: 0.88rem;
-  font-weight: 500;
   position: relative;
+  max-width: 62ch;
+  margin: 0;
+  color: var(--welcome-subtitle);
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.55;
+  letter-spacing: 0.005em;
+}
+
+@media (max-width: 640px) {
+  .dashboard-welcome {
+    padding: 26px 22px 28px;
+  }
+  .dashboard-welcome h2 {
+    font-size: 1.35rem;
+  }
 }
 
 /* ===== Empty State ===== */
@@ -4314,14 +4474,14 @@ select {
 }
 
 .notif-dropdown-item:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: -2px;
   background: var(--bg-primary);
 }
 
 .notif-dropdown-item.unread {
   background: var(--accent-light);
-  border-left: 3px solid hsl(var(--primary));
+  border-left: 3px solid hsl(var(--ring));
 }
 
 .notif-dropdown-icon {
@@ -4374,7 +4534,7 @@ select {
 
 .notif-item.unread {
   background: var(--accent-light);
-  border-left: 3px solid hsl(var(--primary));
+  border-left: 3px solid hsl(var(--ring));
 }
 
 .notif-item .notif-icon {
@@ -4469,7 +4629,7 @@ select {
 .sync-toggle input[type="checkbox"] {
   width: 18px;
   height: 18px;
-  accent-color: hsl(var(--primary));
+  accent-color: hsl(var(--ring));
   cursor: pointer;
 }
 
@@ -4556,7 +4716,9 @@ select {
     visibility: hidden;
     transition:
       transform var(--transition),
-      visibility 0s linear 0.25s;
+      visibility 0s linear 0.25s,
+      background-color 0.3s ease,
+      border-color 0.3s ease;
   }
 
   .sidebar.open {
@@ -5245,7 +5407,7 @@ select {
   background: var(--bg-hover);
 }
 .table-row-clickable:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: -2px;
 }
 
@@ -5314,7 +5476,7 @@ select {
    Active/Inactive — only the label differs, because "enrolled" is the honest
    description of what Supabase reports. */
 .status-Enrolled {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 
@@ -5328,13 +5490,13 @@ select {
    and must never read as the muted "no factor" state. See
    src/utils/mfaStatus.js. */
 .status-Email-OTP {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 
 /* An enrolled authenticator: an active second factor, same state as above. */
 .status-Authenticator-App {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 
@@ -5372,7 +5534,7 @@ select {
 }
 
 .row-menu-dropdown button:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: -2px;
 }
 
@@ -5572,7 +5734,7 @@ select {
 .checkbox-option input {
   width: auto;
   margin: 0;
-  accent-color: hsl(var(--primary));
+  accent-color: hsl(var(--ring));
 }
 
 .checkbox-option-disabled {
@@ -5597,7 +5759,7 @@ select {
 }
 
 .radio-option-described:has(input:checked) {
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
   background: var(--accent-light);
 }
 
@@ -5651,7 +5813,7 @@ select {
 }
 
 .security-alert-ok {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 
@@ -5691,7 +5853,7 @@ select {
 }
 
 .perm-full {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 
@@ -5774,7 +5936,7 @@ select {
 
 .validation-validated,
 .schedule-state-active {
-  background: var(--accent-light);
+  background: var(--success-light);
   color: var(--success-text);
 }
 
@@ -5953,7 +6115,7 @@ select {
 
 .validation-queue-tab.active {
   color: var(--accent-text);
-  border-bottom-color: hsl(var(--primary));
+  border-bottom-color: hsl(var(--ring));
 }
 
 .validation-queue-tab-count {
@@ -5972,7 +6134,7 @@ select {
 
 .validation-queue-tab.active .validation-queue-tab-count {
   background: hsl(var(--primary));
-  color: #fff;
+  color: var(--on-brand);
 }
 
 /* =====================================================================
@@ -5999,7 +6161,7 @@ select {
   background: var(--login-input-bg);
   border: 1px solid var(--login-input-border);
   border-radius: var(--radius-sm);
-  caret-color: hsl(var(--primary));
+  caret-color: hsl(var(--ring));
 }
 
 .login-form .otp-input .otp-box.otp-box-filled {
@@ -6007,7 +6169,7 @@ select {
 }
 
 .login-form .otp-input .otp-box:focus {
-  border-color: hsl(var(--primary));
+  border-color: hsl(var(--ring));
   box-shadow: 0 0 0 3px var(--accent-light);
 }
 
@@ -6352,7 +6514,7 @@ select {
 
 .location-picker-basemaps button.is-active {
   background: hsl(var(--primary));
-  color: var(--color-white);
+  color: var(--on-brand);
 }
 
 .location-picker-map {

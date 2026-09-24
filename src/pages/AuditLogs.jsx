@@ -104,13 +104,13 @@ const TARGET_TYPES = [
 // above 4.5:1 on every background this table puts them on. See the token
 // block in global.css.
 const ACTION_COLORS = {
-  LOGIN: 'var(--accent-text)',
+  LOGIN: 'var(--success-text)',
   LOGOUT: 'var(--warning-text)',
   SYNC_STARTED: 'var(--info-text)',
   SYNC_COMPLETED: 'var(--success-text)',
   SYNC_FAILED: 'var(--danger-text)',
-  REPORT_GENERATED: 'var(--accent-text)',
-  REPORT_EXPORTED: 'var(--accent-text)',
+  REPORT_GENERATED: 'var(--success-text)',
+  REPORT_EXPORTED: 'var(--success-text)',
   CREATE: 'var(--success-text)',
   UPDATE: 'var(--info-text)',
   ARCHIVE: 'var(--warning-text)',
