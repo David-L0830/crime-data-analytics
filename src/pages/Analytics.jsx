@@ -217,6 +217,20 @@ export default function Analytics() {
       value: countDistinctValues(filtered, 'sitio'),
       hint: 'Number of distinct sitios with at least one filtered incident. Incidents with no sitio recorded are not counted as a sitio.',
     },
+    // Counted from the names on the incidents themselves, not from the
+    // Criminal / Victim record tables, which the incident form never writes
+    // to. A name is one person, the same identity rule the Dashboard's Repeat
+    // Offenders table groups by, so a name on several incidents counts once.
+    {
+      label: 'Named Suspects',
+      value: countDistinctValues(filtered, 'suspectName'),
+      hint: 'Number of distinct suspect names across the filtered incidents. A name that appears on several incidents is counted once; incidents with no suspect named are not counted.',
+    },
+    {
+      label: 'Named Victims',
+      value: countDistinctValues(filtered, 'victimName'),
+      hint: 'Number of distinct victim names across the filtered incidents. A name that appears on several incidents is counted once; incidents with no victim named are not counted.',
+    },
   ];
 
   // Keyed by YYYY-MM, like Trends and Dashboard.

@@ -38,6 +38,17 @@ import {
 import { COLORS } from '../utils/constants';
 import { Icons } from '../components/icons';
 
+// Distinct names on the incidents in view — the Named Suspects / Named Victims
+// KPIs. Same rule as countDistinctValues() on Statistical Analysis: an exact
+// name is one person, and a record that names nobody is left out. It is also
+// the identity the Repeat Offenders table below groups by. Counted from the
+// incidents rather than the Criminal / Victim tables, which the incident form
+// never writes to. Defined here rather than imported from Analytics.jsx, which
+// is a separately lazy-loaded page; exported so the arithmetic can be tested.
+export function countDistinctNames(records, key) {
+  return new Set(records.map((r) => r[key]).filter(Boolean)).size;
+}
+
 export default function Dashboard() {
   const {
     records,
@@ -149,12 +160,15 @@ export default function Dashboard() {
 
   const monthStart = `${today().slice(0, 7)}-01`;
 
+  const namedSuspects = countDistinctNames(filtered, 'suspectName');
+  const namedVictims = countDistinctNames(filtered, 'victimName');
+
   const allKpis = [
     {
       label: 'Total Incidents',
       value: total,
       cls: 'accent',
-      hint: `All non-archived incidents for ${rangeLabel}.`,
+      hint: `Validated, non-archived incidents for ${rangeLabel}.`,
       to: '/incident-feed',
       state: { filters: baseFilters },
     },
@@ -224,6 +238,18 @@ export default function Dashboard() {
       state: {
         filters: { ...baseFilters, dateFrom: monthStart, dateTo: undefined },
       },
+    },
+    {
+      label: 'Named Suspects',
+      value: namedSuspects,
+      cls: 'danger',
+      hint: `Distinct suspect names on validated, non-archived incidents for ${rangeLabel}. A name on several incidents counts once; incidents with no suspect named are not counted.`,
+    },
+    {
+      label: 'Named Victims',
+      value: namedVictims,
+      cls: 'info',
+      hint: `Distinct victim names on validated, non-archived incidents for ${rangeLabel}. A name on several incidents counts once; incidents with no victim named are not counted.`,
     },
   ];
 
