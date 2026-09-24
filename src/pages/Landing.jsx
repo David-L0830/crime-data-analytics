@@ -7,6 +7,7 @@ import HeroSection from '../components/landing/HeroSection';
 import FeatureSection from '../components/landing/FeatureSection';
 import AnalyticsFlow from '../components/landing/AnalyticsFlow';
 import CrimeMappingPreview from '../components/landing/CrimeMappingPreview';
+import ReportingSection from '../components/landing/ReportingSection';
 import SecuritySection from '../components/landing/SecuritySection';
 import AboutSection from '../components/landing/AboutSection';
 import CtaSection from '../components/landing/CtaSection';
@@ -22,7 +23,7 @@ export default function Landing() {
 
   useEffect(() => {
     document.title =
-      'BADAC Analytics — Crime Data Analytics and Reporting System';
+      'CDARS — Crime Data Analytics and Reporting System | BADAC Analytics';
     // Smooth in-page scrolling for the nav anchors, applied to the document
     // (not just this component) since anchor scrolling happens on the
     // window. Removed on unmount so it never leaks into the authenticated
@@ -53,6 +54,7 @@ export default function Landing() {
         <FeatureSection />
         <AnalyticsFlow />
         <CrimeMappingPreview />
+        <ReportingSection />
         <SecuritySection />
         <AboutSection />
         <CtaSection />

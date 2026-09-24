@@ -5,10 +5,10 @@ export default function CtaSection() {
   return (
     <section className="landing-cta">
       <div className="landing-cta-inner">
-        <h2>Ready to access BADAC Analytics?</h2>
+        <h2>Authorized BADAC personnel</h2>
         <p>
-          Sign in to access the secure crime data management and analytics
-          platform.
+          Sign in with your CDARS account and second factor to reach the
+          modules your role allows.
         </p>
         <Link to="/login" className="btn btn-primary landing-cta-btn">
           Login to BADAC Analytics{' '}

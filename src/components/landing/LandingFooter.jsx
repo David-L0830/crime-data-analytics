@@ -19,7 +19,7 @@ export default function LandingFooter() {
           <img src={logo} alt="Barangay 178 Seal" />
           <div>
             <strong>BADAC Analytics</strong>
-            <p>Crime Data Analytics &amp; Reporting System</p>
+            <p>Crime Data Analytics &amp; Reporting System (CDARS)</p>
             <p className="landing-footer-locality">
               Barangay 178, North Caloocan
             </p>
@@ -29,7 +29,9 @@ export default function LandingFooter() {
         <div className="landing-footer-col">
           <h4>Site</h4>
           <a href="#home">Home</a>
-          <a href="#features">Features</a>
+          <a href="#modules">Modules</a>
+          <a href="#workflow">How It Works</a>
+          <a href="#reporting">Reporting</a>
           <a href="#about">About</a>
         </div>
 

@@ -6,10 +6,11 @@ import logo from '../../assets/images/barangay178-logo.png';
 
 const NAV_LINKS = [
   { href: '#home', label: 'Home' },
-  { href: '#features', label: 'Features' },
-  { href: '#analytics', label: 'Analytics' },
+  { href: '#modules', label: 'Modules' },
+  { href: '#workflow', label: 'How It Works' },
+  { href: '#reporting', label: 'Reporting' },
+  { href: '#security', label: 'Security' },
   { href: '#about', label: 'About' },
-  { href: '#contact', label: 'Contact' },
 ];
 
 // Public-facing navbar for the landing page only — intentionally separate
@@ -47,7 +48,7 @@ export default function LandingNavbar() {
           />
           <span className="landing-brand-text">
             <strong>BADAC Analytics</strong>
-            <small>Barangay 178 &middot; North Caloocan</small>
+            <small>CDARS &middot; Barangay 178, North Caloocan</small>
           </span>
         </a>
 
