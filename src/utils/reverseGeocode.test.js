@@ -295,6 +295,7 @@ describe('a Sitio is never invented', () => {
         city: 'Caloocan',
       }),
       SITIOS,
+      {},
     );
 
     expect(found.street).toBe('Narra Street');
@@ -320,6 +321,7 @@ describe('a Sitio is never invented', () => {
     const found = extractLocation(
       response({ neighbourhood: 'Zone 15', village: 'Sitio 6' }),
       SITIOS,
+      {},
     );
     expect(found.sitio).toBe('Sitio 6');
   });
@@ -393,8 +395,9 @@ describe('without a street, a landmark comes before an area and a zone comes las
       SITIOS,
     );
     expect(found.street).toBe('Camarin');
-    expect(extractLocation({ name: 'Barangay 178', address: { quarter: 'Barangay 178' } }, SITIOS))
-      .toEqual({ street: null, sitio: null, streetKind: null });
+    expect(
+      extractLocation({ name: 'Barangay 178', address: { quarter: 'Barangay 178' } }, SITIOS, {}),
+    ).toEqual({ street: null, sitio: null, streetKind: null });
   });
 
   it('does not repeat the chosen Sitio in Location / Street', () => {
@@ -423,14 +426,22 @@ describe('without a street, a landmark comes before an area and a zone comes las
 describe('OpenStreetMap areas translate to official Sitios only through the table', () => {
   const table = { 'Maligaya Subdivision': 'Sitio 3', Kaybiga: 'Sitio 5' };
 
-  it('ships with no entries, so no Sitio is assigned until the client confirms one', () => {
-    // Every Barangay 178 point returns Zone 15 and Camarin; an entry for
-    // either would put one Sitio on every incident.
-    expect(OSM_TO_SITIO_MAP).toEqual({});
+  it('holds only the temporary test entries, and the table is frozen', () => {
+    // TEMPORARY TEST DATA, not client-confirmed — see OSM_TO_SITIO_MAP. Every
+    // Barangay 178 point returns Zone 15, so while these are in place every
+    // pin selects Sitio 1. When they are removed, restore this test to
+    // expect({}) and a null sitio.
+    expect(OSM_TO_SITIO_MAP).toEqual({
+      'Zone 15': 'Sitio 1',
+      Camarin: 'Sitio 2',
+      'Barangay 178': 'Sitio 3',
+    });
     expect(Object.isFrozen(OSM_TO_SITIO_MAP)).toBe(true);
     expect(
       extractLocation(response({ neighbourhood: 'Zone 15', suburb: 'Camarin' }), SITIOS).sitio,
-    ).toBeNull();
+    ).toBe('Sitio 1');
+    expect(extractLocation(response({ suburb: 'Camarin' }), SITIOS).sitio).toBe('Sitio 2');
+    expect(extractLocation(response({ quarter: 'Barangay 178' }), SITIOS).sitio).toBe('Sitio 3');
   });
 
   it('selects the translated Sitio when an area is a key of the table', () => {

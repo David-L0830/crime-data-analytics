@@ -142,8 +142,17 @@ const ZONE_NAME = /^zone\s*\d+$/i;
  * returns neighbourhood "Zone 15" and suburb "Camarin", so mapping either of
  * those would put the same Sitio on every incident in the barangay. Add one
  * line per confirmed area, e.g. `'Some Subdivision': 'Sitio 3',`.
+ *
+ * TEMPORARY TEST DATA, NOT CLIENT-CONFIRMED. The three entries below exist only
+ * to watch the Sitio dropdown auto-fill in the browser. "Zone 15" matches every
+ * pin in the barangay, so while they are here EVERY pin selects Sitio 1.
+ * Remove them before this reaches production.
  */
-export const OSM_TO_SITIO_MAP = Object.freeze({});
+export const OSM_TO_SITIO_MAP = Object.freeze({
+  'Zone 15': 'Sitio 1',
+  Camarin: 'Sitio 2',
+  'Barangay 178': 'Sitio 3',
+});
 
 /**
  * The address keys that can carry a sitio-sized area.
