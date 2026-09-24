@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useTheme } from '../hooks/useTheme';
 import { useToast } from '../hooks/useToast';
 import {
   isAuthApiError,
@@ -8,7 +7,7 @@ import {
 } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { Icons } from '../components/icons';
-import logo from '../assets/images/barangay178-logo.png';
+import AuthLayout from '../components/auth/AuthLayout';
 
 // The client-side minimum length below is a fast, non-authoritative UX gate,
 // not a security boundary — Supabase Auth's password policy (Authentication
@@ -57,7 +56,6 @@ function passwordUpdateMessage(error) {
 }
 
 export default function ResetPassword() {
-  const { theme, toggleTheme } = useTheme();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -125,143 +123,87 @@ export default function ResetPassword() {
   };
 
   return (
-    <div className="login-screen">
-      <div className="login-container">
-        <div className="login-illustration">
-          <img
-            src={logo}
-            alt="Barangay 178 Seal — Makabagong Barangay"
-            className="login-seal"
-          />
-          <p className="seal-motto">Faith · Love · Service</p>
-          <p className="tagline">
-            Public Safety · Data-Driven Justice · Transparent Governance
-          </p>
-        </div>
-
-        <div className="login-card-wrapper">
-          <div className="login-card">
-            <button
-              type="button"
-              className="login-theme-toggle"
-              title={
-                theme === 'dark'
-                  ? 'Switch to light mode'
-                  : 'Switch to dark mode'
-              }
-              aria-label={
-                theme === 'dark'
-                  ? 'Switch to light mode'
-                  : 'Switch to dark mode'
-              }
-              onClick={toggleTheme}
-            >
-              {theme === 'dark' ? (
-                <Icons.Sun size={17} strokeWidth={2} />
-              ) : (
-                <Icons.Moon size={17} strokeWidth={2} />
-              )}
-            </button>
-            <div className="login-header">
-              <div className="login-brand">
-                <img
-                  src={logo}
-                  alt=""
-                  className="brand-logo-img login-brand-logo"
-                />
-                <div>
-                  <h1>BADAC Analytics</h1>
-                  <p className="subtitle">
-                    Crime Data Analytics &amp; Reporting System
-                  </p>
-                </div>
-              </div>
-              <span className="badge">Barangay 178 · North Caloocan</span>
-            </div>
-
-            {missingLinkParams ? (
-              <div className="login-form">
-                <div className="login-error">
-                  This reset link is invalid or has expired. Please request a
-                  new password reset link.
-                </div>
-                <Link
-                  to="/forgot-password"
-                  className="btn-login"
-                  style={{
-                    marginTop: 16,
-                    textAlign: 'center',
-                    textDecoration: 'none',
-                    display: 'block',
-                  }}
-                >
-                  <span>Request New Link</span>
-                </Link>
-              </div>
-            ) : (
-              <form
-                className="login-form"
-                autoComplete="off"
-                onSubmit={handleSubmit}
-              >
-                <div className="form-group">
-                  <label htmlFor="new-password">New Password</label>
-                  <div className="input-wrapper">
-                    <span className="input-icon">
-                      <Icons.Lock size={16} strokeWidth={2} />
-                    </span>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      id="new-password"
-                      placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="password-toggle"
-                      title={showPassword ? 'Hide password' : 'Show password'}
-                      onClick={() => setShowPassword((s) => !s)}
-                    >
-                      {showPassword ? (
-                        <Icons.EyeOff size={16} strokeWidth={2} />
-                      ) : (
-                        <Icons.Eye size={16} strokeWidth={2} />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="confirm-password">Confirm New Password</label>
-                  <div className="input-wrapper">
-                    <span className="input-icon">
-                      <Icons.Lock size={16} strokeWidth={2} />
-                    </span>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      id="confirm-password"
-                      placeholder="Re-enter new password"
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  className="btn-login"
-                  disabled={submitting}
-                  style={{ marginTop: 8 }}
-                >
-                  <span>{submitting ? 'Resetting…' : 'Reset Password'}</span>
-                </button>
-                {error && <div className="login-error">{error}</div>}
-              </form>
-            )}
+    <AuthLayout subtitle="Set a new password">
+      {missingLinkParams ? (
+        <div className="login-form">
+          <div className="login-error">
+            This reset link is invalid or has expired. Please request a
+            new password reset link.
           </div>
+          <Link
+            to="/forgot-password"
+            className="btn-login"
+            style={{
+              marginTop: 16,
+              textAlign: 'center',
+              textDecoration: 'none',
+              display: 'block',
+            }}
+          >
+            <span>Request New Link</span>
+          </Link>
         </div>
-      </div>
-    </div>
+      ) : (
+        <form
+          className="login-form"
+          autoComplete="off"
+          onSubmit={handleSubmit}
+        >
+          <div className="form-group">
+            <label htmlFor="new-password">New Password</label>
+            <div className="input-wrapper">
+              <span className="input-icon">
+                <Icons.Lock size={16} strokeWidth={2} />
+              </span>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                id="new-password"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                title={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((s) => !s)}
+              >
+                {showPassword ? (
+                  <Icons.EyeOff size={16} strokeWidth={2} />
+                ) : (
+                  <Icons.Eye size={16} strokeWidth={2} />
+                )}
+              </button>
+            </div>
+          </div>
+          <div className="form-group">
+            <label htmlFor="confirm-password">Confirm New Password</label>
+            <div className="input-wrapper">
+              <span className="input-icon">
+                <Icons.Lock size={16} strokeWidth={2} />
+              </span>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                id="confirm-password"
+                placeholder="Re-enter new password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="btn-login"
+            disabled={submitting}
+            style={{ marginTop: 8 }}
+          >
+            <span>{submitting ? 'Resetting…' : 'Reset Password'}</span>
+          </button>
+          {error && <div className="login-error">{error}</div>}
+        </form>
+      )}
+    </AuthLayout>
   );
 }

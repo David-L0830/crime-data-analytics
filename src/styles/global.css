@@ -4892,85 +4892,8 @@ select {
   }
 }
 
-/* ============================================================
-   BADAC Analytics — Login Redesign (Split-Panel Layout)
-   Scoped entirely under .badac-login-page. The original
-   .login-screen / .login-illustration / .login-card system
-   above is left untouched — ForgotPassword.jsx and
-   ResetPassword.jsx still use it directly. This new design
-   reuses .login-card (and everything nested in it — .login-form,
-   .two-factor-form, .btn-google, .login-error, etc.) for its
-   theming and behavior, and layers new variables on top via the
-   .badac-login-card class added alongside it in Login.jsx.
-   ============================================================ */
-
-.badac-login-page {
-  --bl-left-grad: linear-gradient(
-    160deg,
-    #1b4d2e 0%,
-    #2e8b47 45%,
-    #163d24 100%
-  );
-  --bl-left-overlay: linear-gradient(
-    160deg,
-    rgba(20, 61, 36, 0.82) 0%,
-    rgba(30, 92, 49, 0.7) 45%,
-    rgba(10, 22, 13, 0.88) 100%
-  );
-  --bl-left-text: #ffffff;
-  --bl-left-text-dim: rgba(255, 255, 255, 0.82);
-  --bl-left-line: rgba(255, 255, 255, 0.35);
-  --bl-decor: rgba(255, 255, 255, 0.14);
-  --bl-dot: rgba(255, 255, 255, 0.16);
-  --bl-card-bg: #ffffff;
-  --bl-card-border: rgba(34, 41, 31, 0.08);
-  --bl-card-shadow: 0 24px 60px rgba(15, 40, 20, 0.18);
-  --bl-page-bg: #0f2a18;
-  --bl-right-bg: var(--bg-primary);
-  --bl-security-bg: rgba(46, 139, 71, 0.06);
-  --bl-security-border: rgba(46, 139, 71, 0.18);
-  --bl-security-text: var(--text-primary);
-
-  height: 100vh;
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bl-page-bg);
-  position: relative;
-  overflow-x: hidden;
-  /* Safety net only — the compact, viewport-aware spacing below is what
-     actually keeps the login page from needing to scroll on normal desktop
-     viewports. If a very short viewport genuinely can't fit the content,
-     this lets the page scroll instead of clipping it. */
-  overflow-y: auto;
-}
-
-[data-theme="dark"] .badac-login-page {
-  --bl-left-grad: linear-gradient(
-    160deg,
-    #0f2617 0%,
-    #1e5c31 45%,
-    #0a160d 100%
-  );
-  --bl-left-overlay: linear-gradient(
-    160deg,
-    rgba(10, 30, 18, 0.88) 0%,
-    rgba(15, 46, 25, 0.78) 45%,
-    rgba(5, 12, 7, 0.92) 100%
-  );
-  --bl-card-bg: #161d15;
-  --bl-card-border: rgba(255, 255, 255, 0.1);
-  --bl-card-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-  --bl-page-bg: #0a140c;
-  --bl-right-bg: var(--bg-primary);
-  --bl-security-bg: rgba(76, 175, 107, 0.08);
-  --bl-security-border: rgba(76, 175, 107, 0.22);
-}
-
-/* Small, subtle Light/Dark toggle fixed to the top-right of the whole
-   screen (not just the card) — its own class so it can't be confused
-   with .login-theme-toggle, which ForgotPassword/ResetPassword still
-   position relative to their own .login-card. */
+/* Small, subtle Light/Dark toggle fixed to the top-right of the sign-in
+   pages (components/auth/AuthLayout.jsx). */
 .badac-page-theme-toggle {
   position: fixed;
   top: 20px;
@@ -5002,7 +4925,7 @@ select {
   transform: translateY(-1px);
 }
 .badac-page-theme-toggle:focus-visible {
-  outline: 2px solid hsl(var(--primary));
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
@@ -5024,405 +4947,223 @@ select {
   }
 }
 
-.badac-login-body {
-  flex: 1;
-  display: flex;
-  align-items: stretch;
-  min-height: 0;
-}
+/* ============================================================
+   CDARS sign-in pages — Login, Forgot Password, Reset Password
+   (components/auth/AuthLayout.jsx)
+   The public safety sub-systems' shared sign-in layout: seal, system name
+   and subtitle centred above a single bordered card on a plain background.
+   Every step renders inside the same .login-card, so the forms keep the
+   shared .login-form / .btn-login / .two-factor-* rules and only the frame
+   is defined here.
 
-/* ===== Left panel — branding ===== */
-.badac-login-left {
-  flex: 1 1 56%;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(24px, 6vh, 56px) 48px;
-  background-color: var(--bl-page-bg);
-  background-image: var(--bl-left-grad);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  overflow: hidden;
-  isolation: isolate;
-}
+   The --login-* variables those shared rules read are re-pointed at the
+   shadcn tokens under .cdars-login-page, so every step follows the light
+   and dark themes without rules of its own.
+   ============================================================ */
 
-.badac-login-left::before {
-  /* Dark green/teal tint over the Barangay 178 hall photo set inline via
-     style={{ backgroundImage }} in Login.jsx — keeps the building and
-     signage recognizable (matching the reference) while still reading as
-     the brand's dark green/teal panel rather than a plain photo. Falls
-     back to the plain gradient above if no photo is set. */
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--bl-left-overlay);
-  z-index: 0;
-}
+.cdars-login-page {
+  --login-card-bg: hsl(var(--card));
+  --login-card-border: hsl(var(--border));
+  --login-card-shadow:
+    0 1px 2px rgba(34, 41, 31, 0.04), 0 10px 28px -14px rgba(34, 41, 31, 0.2);
+  --login-text-heading: hsl(var(--foreground));
+  --login-text-subtitle: hsl(var(--muted-foreground));
+  --login-text-label: hsl(var(--foreground));
+  --login-input-bg: hsl(var(--card));
+  --login-input-border: hsl(var(--input));
+  --login-input-text: hsl(var(--foreground));
+  --login-placeholder: hsl(var(--muted-foreground));
+  --login-icon-color: hsl(var(--muted-foreground));
 
-.badac-login-left::after {
-  /* Subtle dot-grid texture — the "data" motif from the reference,
-     without needing a licensed photo asset. */
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(var(--bl-dot) 1.5px, transparent 1.5px);
-  background-size: 22px 22px;
-  opacity: 0.5;
-  z-index: 0;
-}
-
-.badac-login-left-decor {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.badac-decor-shield {
-  position: absolute;
-  top: 40px;
-  left: 40px;
-  width: 44px;
-  height: 44px;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--bl-decor);
-  border: 1.5px solid var(--bl-decor);
-  border-radius: 50%;
+  padding: 48px 16px;
+  background: hsl(var(--background));
 }
 
-.badac-decor-bars {
-  position: absolute;
-  bottom: 32px;
-  left: 32px;
-  width: 160px;
-  height: 96px;
+[data-theme="dark"] .cdars-login-page {
+  --login-card-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 32px -14px rgba(0, 0, 0, 0.65);
 }
 
-.badac-decor-bars rect {
-  fill: var(--bl-decor);
+.cdars-login {
+  width: 100%;
+  max-width: 368px;
 }
 
-.badac-login-left-content {
-  position: relative;
-  z-index: 1;
-  max-width: 480px;
+.cdars-login-header {
   text-align: center;
-  color: var(--bl-left-text);
-  animation: fadeIn 0.8s ease;
+  margin-bottom: 28px;
 }
 
-.badac-left-seal-link {
+.cdars-login-logo-link {
   display: inline-block;
   border-radius: 50%;
-  cursor: pointer;
 }
 
-.badac-left-seal-link:focus-visible {
-  outline: 2px solid var(--bl-left-text, #fff);
-  outline-offset: 4px;
+.cdars-login-logo-link:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
 }
 
-/* The seal rotates slowly about its own centre.
-   Why this is safe for layout: `transform` is applied after layout, so the
-   132x132 box the seal occupies never changes and nothing around it moves.
-   The image is a circle cropped by border-radius: 50%, and the rotation
-   origin is the default 50% 50% (restated below for clarity), so the visible
-   disc is identical at every angle — it spins in place rather than wobbling
-   or drifting. The box-shadow rotates with the element, which is invisible
-   for a radially symmetric shadow.
-   10s linear: one unhurried revolution every ten seconds, about 36 degrees
-   per second. Noticeable as a deliberate touch, and still slow enough to stay
-   out of the way of somebody typing their password. */
-.badac-left-seal {
-  width: 132px;
-  height: 132px;
+.cdars-login-logo {
+  display: block;
+  width: 84px;
+  height: 84px;
   border-radius: 50%;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-  transform-origin: 50% 50%;
-  animation: badac-seal-rotate 10s linear infinite;
-  will-change: transform;
+  object-fit: cover;
 }
 
-@keyframes badac-seal-rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Continuous motion is exactly what this setting exists to suppress. The seal
-   stays at its resting angle, unrotated and identically positioned. */
-@media (prefers-reduced-motion: reduce) {
-  .badac-left-seal {
-    animation: none;
-    transform: none;
-  }
-}
-
-/* Hover glow.
-   filter: drop-shadow() rather than box-shadow on purpose: drop-shadow follows
-   the seal's own alpha channel, so the glow traces the EDGE of the seal rather
-   than painting a disc behind it. Two very soft, low-alpha shadows — one
-   white, one in the barangay green already used across this screen — read as a
-   halo around the outline instead of a light source. Neither touches the
-   seal's own pixels, so the detail inside stays exactly as sharp and as bright
-   as it is at rest.
-   The rest state declares the same filter at zero alpha so there is something
-   to transition FROM; transitioning from `none` would snap on instead of
-   fading. Only `filter` is transitioned, which is why this cannot disturb the
-   rotation — that is driven by `transform`, a separate property with its own
-   animation, and it keeps running whether or not the pointer is over the
-   seal. No geometry is involved either way, so nothing shifts and no
-   scrollbar can appear. */
-.badac-left-seal {
-  filter: drop-shadow(0 0 0 rgba(255, 255, 255, 0))
-    drop-shadow(0 0 0 rgba(46, 139, 71, 0));
-  transition: filter 0.4s ease;
-}
-
-.badac-left-seal-link:hover .badac-left-seal,
-.badac-left-seal-link:focus-visible .badac-left-seal {
-  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5))
-    drop-shadow(0 0 14px rgba(46, 139, 71, 0.45));
-}
-
-/* The glow itself is a hover affordance rather than motion, so it stays; only
-   its fade is animation, and that is what gets dropped. */
-@media (prefers-reduced-motion: reduce) {
-  .badac-left-seal {
-    transition: none;
-  }
-}
-
-.badac-left-title {
-  margin-top: 22px;
-  font-size: 2rem;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--bl-left-text);
-}
-
-.badac-left-locality {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
+.cdars-login-header h1 {
+  margin: 14px 0 4px;
   font-family: var(--font-heading);
-  font-size: 0.95rem;
+  font-size: 1.55rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
-  color: #8fe0a6;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
 }
 
-.badac-left-line {
-  width: 34px;
-  height: 1px;
-  background: var(--bl-left-line);
+.cdars-login-header p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground));
 }
 
-.badac-left-appname {
-  margin-top: 22px;
-  font-size: 2.4rem;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--bl-left-text);
-}
-
-.badac-left-tagline {
-  margin-top: 8px;
-  font-size: 1rem;
-  color: var(--bl-left-text-dim);
-}
-
-.badac-left-divider {
-  width: 64px;
-  height: 3px;
-  margin: 26px auto 30px;
-  border-radius: 99px;
-  background: linear-gradient(90deg, #8fe0a6, transparent);
-}
-
-/* Checkpoint 24 — replaces the old .badac-features icon row (Data-Driven
-   Public Safety / Transparent Governance / Stronger Communities) with a
-   compact Privacy Policy / Terms of Use / Help Desk link row. These open
-   the same PrivacyPolicyModal / TermsOfUseModal / HelpDeskModal that used
-   to be wired up from the now-removed .badac-login-footer. */
-.badac-left-links {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.badac-left-link {
-  background: none;
-  border: none;
-  padding: 2px;
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--bl-left-text-dim);
-  cursor: pointer;
-  transition: color var(--transition);
-}
-
-.badac-left-link:hover,
-.badac-left-link:focus-visible {
-  color: #fff;
-}
-
-.badac-left-link-sep {
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 0.7rem;
-}
-
-/* ===== Right panel — the login card itself ===== */
-.badac-login-right {
-  flex: 1 1 44%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(20px, 5vh, 48px) 32px;
-  background: var(--bl-right-bg);
-  overflow-y: auto;
-}
-
-/* Layered on top of the shared .login-card rule (see line ~332 above) —
-   redeclaring these custom properties on the same element overrides what
-   .login-card's `background/border/box-shadow: var(--login-card-*)`
-   resolve to here, without touching the shared rule ForgotPassword and
-   ResetPassword still rely on. */
-.badac-login-card {
-  --login-card-bg: var(--bl-card-bg);
-  --login-card-border: var(--bl-card-border);
-  --login-card-shadow: var(--bl-card-shadow);
-  width: 100%;
-  max-width: 440px;
-  padding: clamp(24px, 5vh, 40px) 38px clamp(20px, 4vh, 32px);
+.cdars-login-card {
+  padding: 24px;
+  border-radius: var(--radius);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
-.badac-login-card::before {
+.cdars-login-card::before {
   content: none;
 }
 
-.badac-login-card .login-header {
-  margin-bottom: 22px;
+/* Sentence-case labels, as in the shared template. */
+.cdars-login-page .login-form .form-group {
+  margin-bottom: 16px;
 }
 
-.badac-badge-row {
+.cdars-login-page .login-form .form-group label {
+  margin-bottom: 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Password label on the left, "Forgot password?" opposite it. */
+.cdars-label-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.badac-badge-line {
-  flex: 1;
-  max-width: 40px;
-  height: 1px;
-  background: var(--login-card-border);
-}
-
-.badac-badge-text {
-  font-family: var(--font-heading);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-text);
-  white-space: nowrap;
-}
-
-.badac-security-notice {
-  display: flex;
-  align-items: flex-start;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--login-input-border);
+  margin-bottom: 6px;
 }
 
-.badac-security-icon {
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--bl-security-bg);
-  border: 1px solid var(--bl-security-border);
-  color: var(--accent-text);
+.cdars-login-page .login-form .cdars-label-row label {
+  margin-bottom: 0;
 }
 
-.badac-security-notice strong {
-  display: block;
-  font-size: 0.82rem;
-  color: var(--login-text-heading);
-  margin-bottom: 2px;
-}
-
-.badac-security-notice p {
+/* --orange-text rather than the orange fill: small text needs 4.5:1. */
+.cdars-login-page .login-forgot-link {
   font-size: 0.78rem;
-  line-height: 1.5;
-  color: var(--login-text-subtitle);
+  font-weight: 500;
+  color: var(--orange-text);
+  text-decoration: none;
 }
 
-/* ===== Responsive ===== */
-@media (max-width: 1024px) {
-  .badac-login-body {
-    flex-direction: column;
-  }
-  .badac-login-left {
-    flex: none;
-    padding: 40px 32px;
-  }
-  .badac-login-right {
-    flex: none;
-    padding: 40px 24px;
-  }
-  .badac-left-appname {
-    font-size: 2rem;
-  }
+.cdars-login-page .login-forgot-link:hover {
+  text-decoration: underline;
+}
+
+/* Thin-bordered fields with the icon inside on the left. Scoped to
+   .input-wrapper so the six email-code boxes keep their own layout. */
+.cdars-login-page .login-form .input-wrapper input {
+  padding: 10px 12px 10px 38px;
+  border-radius: calc(var(--radius) - 4px);
+  font-size: 0.88rem;
+}
+
+.cdars-login-page .login-form .input-wrapper .input-icon {
+  left: 12px;
+  display: inline-flex;
+}
+
+.cdars-login-page .login-form input:focus {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.15);
+}
+
+/* The primary action: orange in light mode, green in dark mode, labelled
+   with --primary-foreground (7.3:1 on the orange). */
+.cdars-login-page .login-form .btn-login {
+  padding: 11px 16px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-radius: calc(var(--radius) - 4px);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.cdars-login-page .login-form .btn-login:hover:not(:disabled) {
+  transform: none;
+  filter: brightness(0.96);
+  box-shadow: 0 6px 16px -6px hsl(var(--primary) / 0.7);
+}
+
+.cdars-login-page .login-form .btn-login:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* The base .spinner is white; on this button it follows the label. */
+.cdars-login-page .btn-login .spinner {
+  border-color: hsl(var(--primary-foreground) / 0.25);
+  border-top-color: hsl(var(--primary-foreground));
+}
+
+.cdars-login-legal button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.cdars-login-legal {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.cdars-login-legal button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cdars-login-legal button:hover {
+  color: hsl(var(--foreground));
+  text-decoration: underline;
 }
 
 @media (max-width: 640px) {
-  .badac-login-left {
-    padding: 32px 20px;
+  .cdars-login-page {
+    padding: 64px 16px 32px;
   }
-  .badac-left-seal {
-    width: 100px;
-    height: 100px;
-  }
-  .badac-left-title {
-    font-size: 1.5rem;
-  }
-  .badac-left-appname {
-    font-size: 1.7rem;
-  }
-  .badac-decor-bars,
-  .badac-decor-shield {
-    display: none;
-  }
-  .badac-left-links {
-    gap: 8px;
-  }
-  .badac-left-link {
-    font-size: 0.76rem;
-  }
-  .badac-login-card {
-    padding: 30px 22px 26px;
+  .cdars-login-card {
+    padding: 20px;
   }
 }
 
