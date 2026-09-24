@@ -11,21 +11,26 @@
 //
 // WHAT IT WILL NOT DO
 //
-// It never guesses. A point with no named way at it yields `street: null`, and
-// the form leaves the field alone rather than filling in the nearest plausible
-// road — a crime record that names a street the report did not is worse than
-// one with the field blank, because nothing afterwards reveals which it was.
+// It never names a street OpenStreetMap does not. A point with no named way at
+// it is not given the nearest plausible road — a crime record that names a
+// street the report did not is worse than one with the field blank, because
+// nothing afterwards reveals which it was.
+//
+// What it DOES fall back to, because in Barangay 178 many points sit on ways
+// OpenStreetMap has no name for, is first the named PLACE at the point (a
+// landmark, building or business: `streetKind: 'place'`), then the named AREA
+// it sits in (`streetKind: 'area'`), with the broad "Zone N" areas tried last.
+// The kind is reported so the form can say it filled something other than a
+// street and the encoder can replace it.
 //
 // The same rule is why the Sitio side is so narrow. NOTHING in this repository
-// maps a coordinate to a Sitio: there is no sitio boundary file, `SITIOS` in
-// src/utils/constants.js is the placeholder list `Sitio 1`..`Sitio 7`, and
-// src/utils/mockData.js picks a sitio at random with no relation to the point
-// it generates. A sitio is therefore accepted ONLY when OpenStreetMap names an
-// area that EXACTLY matches one the form's own dropdown already offers. With
-// today's placeholder names that will essentially never match, and that is the
-// correct outcome — the alternative is fabricating an administrative division.
-// If the barangay's real sitio names are ever put into `SITIOS`, or a sitio
-// polygon file is added, this begins answering without any change here.
+// maps a coordinate to a Sitio: there is no sitio boundary file, and `SITIOS`
+// in src/utils/constants.js is the client's official list, whose names
+// OpenStreetMap does not carry. A sitio is therefore accepted ONLY when an area
+// name OpenStreetMap returns either EXACTLY matches a dropdown option or is a
+// key of OSM_TO_SITIO_MAP, the client-confirmed translation table below.
+// Anything else leaves the Sitio for the encoder to choose — the alternative is
+// fabricating an administrative division on a crime record.
 //
 // IT IS NOT A VALIDATOR, AND IT IS NOT THE BOUNDARY
 //
@@ -93,15 +98,63 @@ const LOOKUP_ZOOM = 18;
 const STREET_KEYS = ['road', 'pedestrian', 'footway', 'path'];
 
 /**
- * The address keys that can carry a sitio-sized area, in the order they are
- * tried.
+ * The address keys that can carry the name of a specific place — a landmark,
+ * building or business — tried after the response's own top-level `name` (the
+ * matched object) when no street key holds a street. A place is more precise
+ * than any area it sits in, so these come first.
+ */
+const PLACE_KEYS = [
+  'amenity',
+  'shop',
+  'office',
+  'tourism',
+  'leisure',
+  'historic',
+  'building',
+];
+
+/**
+ * The address keys that can carry a named area, in the order they are tried
+ * when neither a street nor a place is named. Most specific first.
+ *
+ * `quarter` is deliberately absent: in Barangay 178 it carries the barangay
+ * itself ("Barangay 178"), which says nothing about where in the barangay the
+ * point is. Any barangay designation is skipped wherever it appears.
+ */
+const AREA_KEYS = ['neighbourhood', 'residential', 'suburb', 'village'];
+
+/**
+ * A zone designation. Every point in Barangay 178 is in "Zone 15", so a zone
+ * says the least of any area and is used for Location / Street only when
+ * nothing more specific is named.
+ */
+const ZONE_NAME = /^zone\s*\d+$/i;
+
+/**
+ * OpenStreetMap area names -> the client's official Sitio names.
+ *
+ * Keys are compared ignoring case and runs of whitespace. A value is used only
+ * if it is also an option in the form's Sitio dropdown, so a stale entry can
+ * never put an unlisted value into the select.
+ *
+ * DELIBERATELY EMPTY until the client confirms the entries. Only an area name
+ * that lies wholly inside one sitio may be added. Every point in Barangay 178
+ * returns neighbourhood "Zone 15" and suburb "Camarin", so mapping either of
+ * those would put the same Sitio on every incident in the barangay. Add one
+ * line per confirmed area, e.g. `'Some Subdivision': 'Sitio 3',`.
+ */
+export const OSM_TO_SITIO_MAP = Object.freeze({});
+
+/**
+ * The address keys that can carry a sitio-sized area.
  *
  * Which key a Philippine sitio lands in depends on how the local mapper tagged
- * it, so all four are read. NONE of them is trusted on its own — see
- * matchKnownSitio: a value here is only ever used if the form already offers
- * that exact name.
+ * it, so every area key is read, and the first that resolves to a sitio the
+ * form offers wins. NONE of them is trusted on its own — see resolveSitio: a
+ * value is only ever used if it names a dropdown option exactly or through
+ * OSM_TO_SITIO_MAP.
  */
-const SITIO_KEYS = ['neighbourhood', 'quarter', 'suburb', 'village'];
+const SITIO_KEYS = ['neighbourhood', 'residential', 'quarter', 'suburb', 'village'];
 
 /**
  * A barangay designation, in the spellings OpenStreetMap actually carries.
@@ -185,14 +238,6 @@ function toName(value) {
   return trimmed;
 }
 
-/** The first usable name among `keys`, or null if none of them holds one. */
-function firstName(address, keys) {
-  for (const key of keys) {
-    const name = toName(address[key]);
-    if (name !== null) return name;
-  }
-  return null;
-}
 
 /**
  * Whether a response places the point in a barangay that is not 178.
@@ -290,6 +335,83 @@ export function matchKnownSitio(reported, knownSitios) {
 }
 
 /**
+ * One reported area name as an official Sitio, or null.
+ *
+ * An exact dropdown option is taken as it is; otherwise the name is looked up
+ * in `sitioMap` and the translation must itself be a dropdown option.
+ *
+ * @param {string|null} reported  what OpenStreetMap called the area.
+ * @param {string[]} knownSitios  the options the form offers.
+ * @param {Object<string, string>} [sitioMap]  OSM name -> official Sitio.
+ * @returns {string|null} the matching option, or null.
+ */
+export function resolveSitio(reported, knownSitios, sitioMap = OSM_TO_SITIO_MAP) {
+  const direct = matchKnownSitio(reported, knownSitios);
+  if (direct !== null || typeof reported !== 'string') return direct;
+  if (!sitioMap || typeof sitioMap !== 'object') return null;
+
+  const wanted = normalise(reported);
+  const key = Object.keys(sitioMap).find((osmName) => normalise(osmName) === wanted);
+  return key === undefined ? null : matchKnownSitio(sitioMap[key], knownSitios);
+}
+
+/**
+ * The first area value that resolves to a sitio the form offers, or null.
+ *
+ * Every candidate is tried, not only the first non-empty one: OpenStreetMap
+ * may put "Zone 15" in `neighbourhood` and the sitio in `village`, and stopping
+ * at the zone would miss a sitio the response does name.
+ */
+function firstKnownSitio(address, objectName, knownSitios, sitioMap) {
+  for (const value of [...SITIO_KEYS.map((key) => address[key]), objectName]) {
+    const sitio = resolveSitio(toName(value), knownSitios, sitioMap);
+    if (sitio !== null) return sitio;
+  }
+  return null;
+}
+
+/**
+ * What Location / Street holds when no street is named, as
+ * `{ street, streetKind }`.
+ *
+ * Tried in order: the matched object's own name and the place keys (a
+ * landmark, building or business), then the area keys, then a "Zone N" area.
+ * Throughout, it skips a barangay designation (the whole barangay, not a place
+ * in it) and the text already chosen as the Sitio (writing "Sitio 3" into both
+ * fields adds nothing). A place candidate that is really an area or a zone —
+ * the matched object can be the neighbourhood itself — counts as an area.
+ */
+function firstPlaceOrArea(address, objectName, sitio) {
+  const usable = (value) => {
+    const name = toName(value);
+    if (name === null || BARANGAY_NAME.test(name)) return null;
+    if (sitio !== null && normalise(name) === normalise(sitio)) return null;
+    return name;
+  };
+
+  const areas = AREA_KEYS.map((key) => usable(address[key])).filter(Boolean);
+  const isArea = (name) =>
+    ZONE_NAME.test(name) || areas.some((area) => normalise(area) === normalise(name));
+
+  for (const value of [objectName, ...PLACE_KEYS.map((key) => address[key])]) {
+    const name = usable(value);
+    if (name !== null && !isArea(name)) return { street: name, streetKind: 'place' };
+  }
+
+  // A named area before a zone; a zone only as the final answer. `areas[0]` is
+  // a zone here whenever no other area was named.
+  const objectZone = usable(objectName);
+  const area =
+    areas.find((name) => !ZONE_NAME.test(name)) ??
+    areas[0] ??
+    (objectZone !== null && ZONE_NAME.test(objectZone) ? objectZone : null);
+
+  return area === null
+    ? { street: null, streetKind: null }
+    : { street: area, streetKind: 'area' };
+}
+
+/**
  * What a Nominatim response establishes about a point.
  *
  * Pure, and the whole reason the network half is a thin wrapper around it: this
@@ -300,35 +422,40 @@ export function matchKnownSitio(reported, knownSitios) {
  * no recognised sitio fills the street and leaves the sitio alone, which is the
  * ordinary case in Barangay 178 today.
  *
+ * `streetKind` says what `street` holds: 'street' for a named way, 'place' for
+ * a landmark, building or business, 'area' for the area the point sits in, and
+ * null when there is none of those.
+ *
  * @param {unknown} payload        the parsed JSON body.
  * @param {string[]} knownSitios   the sitio options the form offers.
- * @returns {{street: string|null, sitio: string|null}}
+ * @param {Object<string, string>} [sitioMap]  OSM name -> official Sitio.
+ * @returns {{street: string|null, sitio: string|null, streetKind: 'street'|'place'|'area'|null}}
  */
-export function extractLocation(payload, knownSitios) {
+export function extractLocation(payload, knownSitios, sitioMap = OSM_TO_SITIO_MAP) {
+  const nothing = { street: null, sitio: null, streetKind: null };
   const address =
     payload && typeof payload === 'object' ? payload.address : null;
 
-  if (!address || typeof address !== 'object') {
-    return { street: null, sitio: null };
-  }
+  if (!address || typeof address !== 'object') return nothing;
 
   // A response attributed to another barangay establishes NOTHING about a
   // Barangay 178 record — not a street and not an area — so it is refused whole
   // rather than mined for the parts that look usable.
-  if (attributedToAnotherBarangay(address)) {
-    return { street: null, sitio: null };
-  }
+  if (attributedToAnotherBarangay(address)) return nothing;
 
-  return {
-    street: firstStreet(address),
-    sitio: matchKnownSitio(firstName(address, SITIO_KEYS), knownSitios),
-  };
+  const objectName = payload.name;
+  const sitio = firstKnownSitio(address, objectName, knownSitios, sitioMap);
+
+  const street = firstStreet(address);
+  if (street !== null) return { street, sitio, streetKind: 'street' };
+
+  return { sitio, ...firstPlaceOrArea(address, objectName, sitio) };
 }
 
 /**
  * Ask OpenStreetMap what is at a point.
  *
- * Resolves to `{ street, sitio }` — either or both possibly null — or to null
+ * Resolves to `{ street, sitio, streetKind }` — see extractLocation — or to null
  * when the question could not be asked or answered at all. The two outcomes are
  * deliberately different: "OpenStreetMap does not name a street here" is an
  * answer the form can report, while "the lookup failed" is not, and telling an
@@ -340,13 +467,13 @@ export function extractLocation(payload, knownSitios) {
  *
  * @param {number} latitude
  * @param {number} longitude
- * @param {{signal?: AbortSignal, fetchImpl?: typeof fetch, sitios?: string[]}} [options]
- *        `fetchImpl` exists so the wrapper can be tested without a network; it
- *        is never passed in application code.
- * @returns {Promise<{street: string|null, sitio: string|null}|null>}
+ * @param {{signal?: AbortSignal, fetchImpl?: typeof fetch, sitios?: string[], sitioMap?: Object<string, string>}} [options]
+ *        `fetchImpl` and `sitioMap` exist so the wrapper can be tested without
+ *        a network or the real table; neither is passed in application code.
+ * @returns {Promise<{street: string|null, sitio: string|null, streetKind: 'street'|'place'|'area'|null}|null>}
  */
 export async function reverseGeocode(latitude, longitude, options = {}) {
-  const { signal, fetchImpl, sitios = [] } = options;
+  const { signal, fetchImpl, sitios = [], sitioMap = OSM_TO_SITIO_MAP } = options;
   const request = fetchImpl ?? (typeof fetch === 'function' ? fetch : null);
   if (!request) return null;
 
@@ -367,7 +494,7 @@ export async function reverseGeocode(latitude, longitude, options = {}) {
 
     if (!response?.ok) return null;
 
-    return extractLocation(await response.json(), sitios);
+    return extractLocation(await response.json(), sitios, sitioMap);
   } catch {
     // Offline, blocked, rate-limited, aborted, or malformed JSON. All of them
     // mean the same thing to the form — nothing was determined — and none of

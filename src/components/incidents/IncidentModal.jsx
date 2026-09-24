@@ -670,7 +670,7 @@ const LOCATION_LOOKUP_DELAY_MS = 500;
  */
 const LOOKUP_MESSAGES = {
   looking: 'Looking up the street for this pin…',
-  none: 'OpenStreetMap does not name a street at this point. Enter the Sitio and Location / Street yourself — nothing has been filled in.',
+  none: 'OpenStreetMap does not name a street or an area at this point. Enter the Sitio and Location / Street yourself — nothing has been filled in.',
   unavailable:
     'The street lookup could not be reached, so nothing was filled in. Enter the Sitio and Location / Street yourself.',
 };
@@ -681,13 +681,26 @@ const LOOKUP_MESSAGES = {
  * Only ever describes fields this feature ACTUALLY wrote. A lookup that found a
  * street the encoder had already typed over changes nothing and says nothing,
  * rather than implying the form now holds the map's answer.
+ *
+ * When Location / Street was filled with a PLACE or an AREA because no street
+ * is named at the point, it says which, so neither is read as a street name.
  */
-function lookupFilledMessage(patch) {
+const NOT_A_STREET = {
+  place: 'the name of the landmark or building there',
+  area: 'the area or neighbourhood',
+};
+
+function lookupFilledMessage(patch, streetKind) {
   const filled = ['sitio', 'street']
     .filter((field) => typeof patch[field] === 'string' && patch[field] !== '')
     .map((field) => `${field === 'sitio' ? 'Sitio' : 'Location / Street'}: ${patch[field]}`);
 
   if (!filled.length) return null;
+
+  const streetFilled = typeof patch.street === 'string' && patch.street !== '';
+  if (streetFilled && NOT_A_STREET[streetKind]) {
+    return `Filled from the map — ${filled.join(', ')}. OpenStreetMap names no street at this point, so Location / Street holds ${NOT_A_STREET[streetKind]} instead. Replace it with the street if the report gives one.`;
+  }
   return `Filled from the map — ${filled.join(', ')}. Correct either field if the report says otherwise.`;
 }
 
@@ -734,9 +747,11 @@ function IncidentFormFields({
   //      both reading the stored boundary polygon. This runs only for points
   //      those have already accepted, and a failed or empty lookup changes
   //      nothing about what can be saved.
-  //   2. It does not invent. src/utils/reverseGeocode.js returns null rather
-  //      than a nearest-plausible answer, and a Sitio is accepted only when
-  //      OpenStreetMap names one this form's own dropdown already offers.
+  //   2. It does not invent. src/utils/reverseGeocode.js returns only names
+  //      OpenStreetMap gives for this point — the street, or where none is
+  //      named, the landmark or area there — and a Sitio is accepted only when
+  //      OpenStreetMap names one this form's dropdown offers, directly or
+  //      through the client-confirmed OSM_TO_SITIO_MAP.
   //   3. It does not overrule the encoder. autofillPatch writes only into a
   //      blank field or into a value this effect itself wrote; text somebody
   //      typed is never overwritten and never cleared.
@@ -834,7 +849,7 @@ function IncidentFormFields({
         //   determined, but the encoder's own text is in the way -> say
         //   nothing. Their values stand, and announcing a street that was not
         //   written would read as though it had been.
-        const filled = lookupFilledMessage(patch);
+        const filled = lookupFilledMessage(patch, found.streetKind);
         const determined = found.street !== null || found.sitio !== null;
 
         setLookupMessage(filled ?? (determined ? null : LOOKUP_MESSAGES.none));

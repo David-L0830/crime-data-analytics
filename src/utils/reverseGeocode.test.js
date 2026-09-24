@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   NOMINATIM_REVERSE_ENDPOINT,
+  OSM_TO_SITIO_MAP,
   attributedToAnotherBarangay,
   autofillPatch,
   buildReverseUrl,
   extractLocation,
   isStreetName,
   matchKnownSitio,
+  resolveSitio,
   reverseGeocode,
 } from './reverseGeocode';
 import { SITIOS } from './constants';
@@ -147,7 +149,7 @@ describe('a response attributed to another barangay establishes nothing', () => 
 
   it('refuses the whole result, not merely the street', () => {
     const found = extractLocation({ address: barangay187 }, SITIOS);
-    expect(found).toEqual({ street: null, sitio: null });
+    expect(found).toEqual({ street: null, sitio: null, streetKind: null });
   });
 
   it('refuses it even when the response also names a sitio the form offers', () => {
@@ -157,7 +159,7 @@ describe('a response attributed to another barangay establishes nothing', () => 
       { address: { ...barangay187, neighbourhood: 'Sitio 3' } },
       SITIOS,
     );
-    expect(found).toEqual({ street: null, sitio: null });
+    expect(found).toEqual({ street: null, sitio: null, streetKind: null });
   });
 
   it('still fills a street when the barangay agrees', () => {
@@ -305,6 +307,171 @@ describe('a Sitio is never invented', () => {
         .toBe('Sitio 7');
     }
   });
+
+  it('reads a sitio from `residential` and from the matched object name', () => {
+    expect(extractLocation(response({ residential: 'Sitio 2' }), SITIOS).sitio)
+      .toBe('Sitio 2');
+    expect(extractLocation({ name: 'Sitio 4', address: {} }, SITIOS).sitio)
+      .toBe('Sitio 4');
+  });
+
+  it('keeps looking past an area that is not a sitio', () => {
+    // "Zone 15" in `neighbourhood` must not hide the sitio in `village`.
+    const found = extractLocation(
+      response({ neighbourhood: 'Zone 15', village: 'Sitio 6' }),
+      SITIOS,
+    );
+    expect(found.sitio).toBe('Sitio 6');
+  });
+});
+
+describe('without a street, a landmark comes before an area and a zone comes last', () => {
+  it('prefers a named street over any landmark or area', () => {
+    const found = extractLocation(
+      { name: 'Camarin Health Center', address: { road: 'Narra Street', neighbourhood: 'Zone 15' } },
+      SITIOS,
+    );
+    expect(found).toMatchObject({ street: 'Narra Street', streetKind: 'street' });
+  });
+
+  it('uses the matched object name before any area', () => {
+    const found = extractLocation(
+      { name: 'North Elementary', address: { neighbourhood: 'Zone 15', suburb: 'Camarin' } },
+      SITIOS,
+    );
+    expect(found).toMatchObject({ street: 'North Elementary', streetKind: 'place' });
+  });
+
+  it('reads a landmark, building or business from the place keys', () => {
+    for (const key of ['amenity', 'shop', 'office', 'tourism', 'leisure', 'historic', 'building']) {
+      expect(
+        extractLocation(response({ [key]: 'Camarin Health Center', suburb: 'Camarin' }), SITIOS),
+        key,
+      ).toMatchObject({ street: 'Camarin Health Center', streetKind: 'place' });
+    }
+  });
+
+  it('does not count the matched area itself as a landmark', () => {
+    // When the matched object IS the neighbourhood, its name is an area.
+    expect(
+      extractLocation({ name: 'Camarin', address: { suburb: 'Camarin', neighbourhood: 'Zone 15' } }, SITIOS),
+    ).toMatchObject({ street: 'Camarin', streetKind: 'area' });
+    expect(extractLocation({ name: 'Zone 15', address: {} }, SITIOS))
+      .toMatchObject({ street: 'Zone 15', streetKind: 'area' });
+  });
+
+  it('falls back through neighbourhood, residential, suburb and village, in that order', () => {
+    const all = {
+      neighbourhood: 'Maligaya',
+      residential: 'Bagong Silang Homes',
+      suburb: 'Camarin',
+      village: 'Kaybiga',
+    };
+    const order = ['neighbourhood', 'residential', 'suburb', 'village'];
+    order.forEach((key, i) => {
+      const address = Object.fromEntries(order.slice(i).map((k) => [k, all[k]]));
+      expect(extractLocation(response(address), SITIOS)).toMatchObject({
+        street: all[key],
+        streetKind: 'area',
+      });
+    });
+  });
+
+  it('uses a "Zone N" area only when nothing more specific is named', () => {
+    // Every point in the barangay is in Zone 15, so it says the least.
+    expect(
+      extractLocation(response({ neighbourhood: 'Zone 15', suburb: 'Camarin' }), SITIOS).street,
+    ).toBe('Camarin');
+    expect(
+      extractLocation(response({ neighbourhood: 'Zone 15', quarter: 'Barangay 178' }), SITIOS),
+    ).toMatchObject({ street: 'Zone 15', streetKind: 'area' });
+  });
+
+  it('skips a barangay designation, which is the whole barangay and not a place in it', () => {
+    const found = extractLocation(
+      response({ neighbourhood: 'Barangay 178', suburb: 'Camarin' }),
+      SITIOS,
+    );
+    expect(found.street).toBe('Camarin');
+    expect(extractLocation({ name: 'Barangay 178', address: { quarter: 'Barangay 178' } }, SITIOS))
+      .toEqual({ street: null, sitio: null, streetKind: null });
+  });
+
+  it('does not repeat the chosen Sitio in Location / Street', () => {
+    const found = extractLocation(
+      response({ neighbourhood: 'Sitio 3', suburb: 'Camarin' }),
+      SITIOS,
+    );
+    expect(found).toMatchObject({ sitio: 'Sitio 3', street: 'Camarin', streetKind: 'area' });
+  });
+
+  it('refuses a house number or blank in a place or area key as it does in a street key', () => {
+    expect(
+      extractLocation({ name: '7', address: { amenity: ' ', neighbourhood: '12', suburb: '  ' } }, SITIOS),
+    ).toEqual({ street: null, sitio: null, streetKind: null });
+  });
+
+  it('uses the area when the only street key holds a facility name', () => {
+    const found = extractLocation(
+      response({ road: 'North Elementary', quarter: 'Barangay 178', neighbourhood: 'Zone 15' }),
+      SITIOS,
+    );
+    expect(found).toMatchObject({ street: 'Zone 15', streetKind: 'area' });
+  });
+});
+
+describe('OpenStreetMap areas translate to official Sitios only through the table', () => {
+  const table = { 'Maligaya Subdivision': 'Sitio 3', Kaybiga: 'Sitio 5' };
+
+  it('ships with no entries, so no Sitio is assigned until the client confirms one', () => {
+    // Every Barangay 178 point returns Zone 15 and Camarin; an entry for
+    // either would put one Sitio on every incident.
+    expect(OSM_TO_SITIO_MAP).toEqual({});
+    expect(Object.isFrozen(OSM_TO_SITIO_MAP)).toBe(true);
+    expect(
+      extractLocation(response({ neighbourhood: 'Zone 15', suburb: 'Camarin' }), SITIOS).sitio,
+    ).toBeNull();
+  });
+
+  it('selects the translated Sitio when an area is a key of the table', () => {
+    expect(resolveSitio('Maligaya Subdivision', SITIOS, table)).toBe('Sitio 3');
+    expect(resolveSitio('  maligaya   subdivision ', SITIOS, table)).toBe('Sitio 3');
+    const found = extractLocation(
+      response({ neighbourhood: 'Zone 15', village: 'Kaybiga' }),
+      SITIOS,
+      table,
+    );
+    expect(found).toMatchObject({ sitio: 'Sitio 5', street: 'Kaybiga', streetKind: 'area' });
+  });
+
+  it('still takes an area that already is an official Sitio', () => {
+    expect(resolveSitio('Sitio 7', SITIOS, table)).toBe('Sitio 7');
+  });
+
+  it('ignores a translation that is not one of the dropdown options', () => {
+    expect(
+      resolveSitio('Maligaya Subdivision', SITIOS, { 'Maligaya Subdivision': 'Sitio 99' }),
+    ).toBeNull();
+  });
+
+  it('does not match a table key by prefix or containment', () => {
+    expect(resolveSitio('Maligaya', SITIOS, table)).toBeNull();
+    expect(resolveSitio('Maligaya Subdivision Phase 2', SITIOS, table)).toBeNull();
+    expect(resolveSitio(null, SITIOS, table)).toBeNull();
+  });
+
+  it('is applied by the network wrapper too', async () => {
+    const fetchImpl = respondWith(response({ residential: 'Maligaya Subdivision' }));
+    await expect(
+      reverseGeocode(14.7559, 121.0561, { fetchImpl, sitios: SITIOS, sitioMap: table }),
+    ).resolves.toMatchObject({ sitio: 'Sitio 3' });
+  });
+
+  it('refuses a translation on a response attributed to another barangay', () => {
+    expect(
+      extractLocation(response({ quarter: 'Barangay 187', village: 'Kaybiga' }), SITIOS, table),
+    ).toEqual({ street: null, sitio: null, streetKind: null });
+  });
 });
 
 describe('a failed lookup is not an answer', () => {
@@ -359,7 +526,7 @@ describe('a failed lookup is not an answer', () => {
     const fetchImpl = respondWith(response({ road: 'Narra Street' }));
     await expect(
       reverseGeocode(14.7559, 121.0561, { fetchImpl, sitios: SITIOS }),
-    ).resolves.toEqual({ street: 'Narra Street', sitio: null });
+    ).resolves.toEqual({ street: 'Narra Street', sitio: null, streetKind: 'street' });
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(fetchImpl.mock.calls[0][0]).toBe(buildReverseUrl(14.7559, 121.0561));
   });

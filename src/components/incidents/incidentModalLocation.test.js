@@ -189,8 +189,15 @@ describe('sitio and street follow the pin without being dictated by it', () => {
   });
 
   it('says nothing was filled rather than leaving it ambiguous', () => {
-    expect(code).toMatch(/does not name a street at this point/);
+    expect(code).toMatch(/does not name a street or an area at this point/);
     expect(code).toMatch(/could not be reached, so nothing was filled in/);
+  });
+
+  it('says when Location / Street holds a landmark or an area rather than a street', () => {
+    expect(fields).toContain('lookupFilledMessage(patch, found.streetKind)');
+    expect(code).toContain("place: 'the name of the landmark or building there'");
+    expect(code).toContain("area: 'the area or neighbourhood'");
+    expect(code).toMatch(/names no street at this point, so Location \/ Street holds \$\{NOT_A_STREET\[streetKind\]\} instead/);
   });
 });
 
