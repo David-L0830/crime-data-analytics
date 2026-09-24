@@ -36,6 +36,7 @@ import {
   buildStatusInsight,
 } from '../utils/chartInsights';
 import { COLORS } from '../utils/constants';
+import { CRIMINAL_RECORDS_PATH, VICTIM_RECORDS_PATH } from '../utils/recordsNav';
 import { Icons } from '../components/icons';
 
 // Distinct names on the incidents in view — the Named Suspects / Named Victims
@@ -243,12 +244,14 @@ export default function Dashboard() {
       label: 'Named Suspects',
       value: namedSuspects,
       cls: 'danger',
+      to: CRIMINAL_RECORDS_PATH,
       hint: `Distinct suspect names on validated, non-archived incidents for ${rangeLabel}. A name on several incidents counts once; incidents with no suspect named are not counted.`,
     },
     {
       label: 'Named Victims',
       value: namedVictims,
       cls: 'info',
+      to: VICTIM_RECORDS_PATH,
       hint: `Distinct victim names on validated, non-archived incidents for ${rangeLabel}. A name on several incidents counts once; incidents with no victim named are not counted.`,
     },
   ];
