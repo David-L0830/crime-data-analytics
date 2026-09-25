@@ -25,6 +25,9 @@ RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
 
 COPY . .
 
+# Prevent local .env files from overriding Render's live environment variables
+RUN rm -f .env .env.*
+
 # Autoloader is environment-independent, so it stays a build step. config:cache
 # and route:cache deliberately do NOT — see the entrypoint.
 RUN composer dump-autoload --optimize
