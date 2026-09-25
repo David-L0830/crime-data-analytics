@@ -37,9 +37,7 @@ class EmailMfaCodeMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: app()->environment('local')
-                ? '[CDARS LOCAL DEV] Your sign-in verification code'
-                : '[CDARS] Your sign-in verification code',
+            subject: '[CDARS] Your sign-in verification code',
         );
     }
 
@@ -54,7 +52,7 @@ class EmailMfaCodeMail extends Mailable
                 'expiresAt' => $this->expiresAt->copy()
                     ->setTimezone(config('app.timezone'))
                     ->format('M j, Y g:i A T'),
-                'isLocal' => app()->environment('local'),
+                'isLocal' => false,
             ],
         );
     }
