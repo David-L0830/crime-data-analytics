@@ -191,21 +191,19 @@ class SupabaseTokenValidator
     }
 
     /**
-     * @return array<string, mixed> decoded claims
+     * @return array<string, mixed>
      *
      * @throws UnexpectedValueException|SignatureInvalidException|ExpiredException
      */
     protected function verify(string $token): array
     {
-        $projectUrl = SupabaseEndpoint::publicBase();
+        $projectUrl = rtrim(SupabaseEndpoint::publicBase(), '/');
         if ($projectUrl === '') {
             throw new UnexpectedValueException('SUPABASE_URL is not configured.');
         }
 
-        // The keys are FETCHED from wherever this backend reaches Supabase
-        // (SUPABASE_INTERNAL_URL when set); the issuer below is still checked
-        // against the public SUPABASE_URL tokens are actually issued under.
-        $decoded = $this->verifyViaJwks($token, SupabaseEndpoint::serverBase());
+        $serverBase = rtrim(SupabaseEndpoint::serverBase(), '/');
+        $decoded = $this->verifyViaJwks($token, $serverBase !== '' ? $serverBase : $projectUrl);
 
         if ($decoded === null) {
             $decoded = $this->verifyViaSharedSecret($token);
@@ -221,9 +219,12 @@ class SupabaseTokenValidator
             throw new UnexpectedValueException('Unexpected audience claim.');
         }
 
-        // Supabase issuers look like {SUPABASE_URL}/auth/v1
         $expectedIssuer = $projectUrl.'/auth/v1';
         if (($claims['iss'] ?? null) !== $expectedIssuer) {
+            Log::error('Supabase issuer mismatch.', [
+                'expected' => $expectedIssuer,
+                'received' => $claims['iss'] ?? null,
+            ]);
             throw new UnexpectedValueException('Unexpected issuer claim.');
         }
 
@@ -235,11 +236,12 @@ class SupabaseTokenValidator
      */
     protected function verifyViaJwks(string $token, string $projectUrl): ?array
     {
+        // Ensure projectUrl has no trailing slash before appending path
+        $projectUrl = rtrim($projectUrl, '/');
         $jwksUrl = $projectUrl.'/auth/v1/.well-known/jwks.json';
         $cacheKey = 'supabase:jwks:'.md5($jwksUrl);
 
         try {
-            // Only pull from cache if valid keys exist; never cache null/failures
             $jwks = Cache::get($cacheKey);
 
             if (! $jwks || empty($jwks['keys'])) {
@@ -249,10 +251,12 @@ class SupabaseTokenValidator
                     if (! empty($jwks['keys'])) {
                         Cache::put($cacheKey, $jwks, config('supabase.jwks_cache_ttl', 3600));
                     }
+                } else {
+                    Log::error('Supabase JWKS HTTP failed.', ['status' => $response->status(), 'body' => $response->body()]);
                 }
             }
         } catch (\Throwable $e) {
-            Log::debug('Supabase JWKS endpoint unreachable.', ['reason' => $e->getMessage()]);
+            Log::error('Supabase JWKS endpoint unreachable.', ['reason' => $e->getMessage()]);
 
             return null;
         }
@@ -267,7 +271,7 @@ class SupabaseTokenValidator
 
             return (array) $decoded;
         } catch (\Throwable $e) {
-            Log::debug('Supabase JWKS verification did not succeed.', ['reason' => $e->getMessage()]);
+            Log::error('Supabase JWKS verification did not succeed.', ['reason' => $e->getMessage()]);
 
             return null;
         }
