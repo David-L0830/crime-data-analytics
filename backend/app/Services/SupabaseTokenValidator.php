@@ -236,21 +236,22 @@ class SupabaseTokenValidator
     protected function verifyViaJwks(string $token, string $projectUrl): ?array
     {
         $jwksUrl = $projectUrl.'/auth/v1/.well-known/jwks.json';
-
         $cacheKey = 'supabase:jwks:'.md5($jwksUrl);
 
         try {
-            $jwks = Cache::remember($cacheKey, config('supabase.jwks_cache_ttl', 3600), function () use ($jwksUrl) {
-                $response = Http::timeout(5)->get($jwksUrl);
+            // Only pull from cache if valid keys exist; never cache null/failures
+            $jwks = Cache::get($cacheKey);
 
-                return $response->successful() ? $response->json() : null;
-            });
+            if (! $jwks || empty($jwks['keys'])) {
+                $response = Http::timeout(5)->get($jwksUrl);
+                if ($response->successful()) {
+                    $jwks = $response->json();
+                    if (! empty($jwks['keys'])) {
+                        Cache::put($cacheKey, $jwks, config('supabase.jwks_cache_ttl', 3600));
+                    }
+                }
+            }
         } catch (\Throwable $e) {
-            // Http::get() throws (rather than returning a failed response)
-            // on a connection-level failure: unreachable host, DNS failure,
-            // timeout, TLS error, etc. This must fall through to the
-            // shared-secret path below, same as "JWKS returned no keys"
-            // does — not abort verification entirely.
             Log::debug('Supabase JWKS endpoint unreachable.', ['reason' => $e->getMessage()]);
 
             return null;
@@ -266,8 +267,6 @@ class SupabaseTokenValidator
 
             return (array) $decoded;
         } catch (\Throwable $e) {
-            // Falls through to the shared-secret path (if configured) or
-            // ultimately fails verification in verify().
             Log::debug('Supabase JWKS verification did not succeed.', ['reason' => $e->getMessage()]);
 
             return null;
