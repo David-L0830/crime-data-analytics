@@ -127,3 +127,14 @@ php-fpm -D
 
 echo "[entrypoint] starting nginx in foreground"
 exec nginx -g 'daemon off;'
+
+# ... existing code in entrypoint.sh ...
+
+mkdir -p /var/www/html/storage/framework/sessions
+mkdir -p /var/www/html/storage/framework/views
+mkdir -p /var/www/html/storage/framework/cache
+mkdir -p /var/www/html/storage/logs
+chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+
+exec "$@"
