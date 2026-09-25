@@ -1,0 +1,478 @@
+// Shared constants mirroring the original CDARS data model.
+// Centralized here so backend integration later only needs to change /src/utils/mockData.js
+// and the DataContext data-fetching functions — components consume these same shapes.
+
+export const SITIOS = [
+  'Sitio 1',
+  'Sitio 2',
+  'Sitio 3',
+  'Sitio 4',
+  'Sitio 5',
+  'Sitio 6',
+  'Sitio 7',
+];
+
+export const DAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+export const STREETS = {
+  'Sitio 1': [
+    'Mabuhay St.',
+    'Kalayaan St.',
+    'Pascua St.',
+    'San Jose St.',
+    'Rizal St.',
+  ],
+  'Sitio 2': [
+    'Bonifacio St.',
+    'Luna St.',
+    'Jacinto St.',
+    'Mabini St.',
+    'Del Pilar St.',
+  ],
+  'Sitio 3': [
+    'Aguinaldo St.',
+    'Tupas St.',
+    'Sandoval St.',
+    'Cruz St.',
+    'Santos St.',
+  ],
+  'Sitio 4': [
+    'Gomez St.',
+    'Burgos St.',
+    'Zamora St.',
+    'Reyes St.',
+    'Tolentino St.',
+  ],
+  'Sitio 5': [
+    'Lapu-Lapu St.',
+    'Magellan St.',
+    'Legazpi St.',
+    'Rajah St.',
+    'Datu St.',
+  ],
+  'Sitio 6': [
+    'Malvar St.',
+    'Makahiya St.',
+    'Sampaguita St.',
+    'Rosal St.',
+    'Ilang-Ilang St.',
+  ],
+  'Sitio 7': [
+    'Narra St.',
+    'Mahogany St.',
+    'Acacia St.',
+    'Molave St.',
+    'Kamagong St.',
+  ],
+};
+
+export const CRIME_TYPES = [
+  'Theft',
+  'Robbery',
+  'Assault',
+  'Homicide',
+  'Murder',
+  'Drug Offense',
+  'Fraud',
+  'Vandalism',
+  'Cybercrime',
+  'Domestic Violence',
+  'Physical Injury',
+  'Carnapping',
+];
+
+export const CATEGORIES = [
+  'Property Crime',
+  'Violent Crime',
+  'Drug-Related',
+  'Financial Crime',
+  'Cybercrime',
+  'Public Order',
+];
+
+export const TYPE_CATEGORY_MAP = {
+  Theft: 'Property Crime',
+  Robbery: 'Property Crime',
+  Vandalism: 'Property Crime',
+  Carnapping: 'Property Crime',
+  Assault: 'Violent Crime',
+  Homicide: 'Violent Crime',
+  Murder: 'Violent Crime',
+  Kidnapping: 'Violent Crime',
+  'Domestic Violence': 'Violent Crime',
+  'Physical Injury': 'Violent Crime',
+  'Drug Offense': 'Drug-Related',
+  Fraud: 'Financial Crime',
+  Cybercrime: 'Cybercrime',
+};
+
+// The full incident status vocabulary — what the Status filters on the
+// Dashboard, Incident Feed, Analytics, Trends and Mapping pages offer, and
+// what a record may display. Mirrors Incident::STATUSES on the server.
+export const STATUSES = [
+  'Open',
+  'Under Investigation',
+  'Solved',
+  'Closed',
+  'Archived',
+];
+
+// The statuses an encoder may ASSIGN in the incident create/edit form.
+//
+// 'Archived' is absent on purpose: archiving is the Archive action, which is
+// the only path that also records previous_status so Restore can put the
+// incident back. Offering it in the form let a save reach 'Archived' with no
+// previous_status, no ARCHIVE audit event, and no way back except the
+// 'Open' fallback. Mirrors Incident::ASSIGNABLE_STATUSES, which is what
+// Store/UpdateIncidentRequest now validate against — the server is the
+// enforcing side; removing it here is what stops the 422 being the first
+// time anyone hears about it.
+export const ASSIGNABLE_STATUSES = [
+  'Open',
+  'Under Investigation',
+  'Solved',
+  'Closed',
+];
+// Record validation — a separate axis from the case STATUSES above. Keys are
+// the values the API returns in `validationStatus` (Incident::VALIDATION_* on
+// the server); labels are what the interface shows. Only the server ever sets
+// these: POST/PUT /incidents ignore them, and PUT /incidents/{id}/validate and
+// /return are role:badac_admin,badac_validator.
+export const VALIDATION_STATUS_LABELS = {
+  pending: 'Pending Validation',
+  validated: 'Validated',
+  returned: 'Returned for Correction',
+};
+export const VALIDATION_STATUSES = Object.keys(VALIDATION_STATUS_LABELS);
+
+// Predefined Return-for-Correction reasons — Checkpoint 2. Presented to a
+// BADAC Administrator / BADAC Validator as clickable checkboxes on
+// PUT /incidents/{id}/return, instead of asking them to type the reason from
+// scratch every time. This is a FRONTEND-ONLY vocabulary: the backend
+// endpoint still takes one free-text `reason` string (min 5 characters) and
+// is unchanged, so selecting one or more of these and/or writing custom text
+// is composed into that single string client-side — see
+// composeReturnReason() in IncidentModal.jsx. `code` is used only as the
+// React key / selection identifier and is never sent to the server; only the
+// composed text is.
+export const CORRECTION_REASONS = [
+  { code: 'incorrect_information', label: 'Incorrect incident information' },
+  { code: 'missing_information', label: 'Missing required information' },
+  { code: 'incorrect_date_time', label: 'Incorrect date/time' },
+  { code: 'incorrect_location', label: 'Incorrect incident location' },
+  { code: 'incorrect_sitio_street', label: 'Incorrect Sitio/street' },
+  {
+    code: 'incorrect_classification',
+    label: 'Incorrect crime classification',
+  },
+  { code: 'insufficient_description', label: 'Insufficient description' },
+  {
+    code: 'incorrect_complainant',
+    label: 'Incorrect complainant/respondent information',
+  },
+  {
+    code: 'incorrect_supporting_details',
+    label: 'Incorrect supporting details',
+  },
+  { code: 'other', label: 'Other' },
+];
+
+export const CRIMINAL_STATUSES = [
+  'Active',
+  'Wanted',
+  'Incarcerated',
+  'Released',
+  'Deceased',
+  'Archived',
+];
+export const VICTIM_STATUSES = ['Active', 'Archived'];
+
+export const OFFICERS = [
+  'PO1 Santos',
+  'PO2 Reyes',
+  'PO3 Cruz',
+  'SPO1 Garcia',
+  'SPO2 Mendoza',
+  'Insp. Torres',
+];
+
+// Re-exported, not defined here. This used to be the literal
+// `{ lat: 14.7323, lng: 121.027 }`, which is about 4.3 km south-west of
+// Barangay 178 — in Quezon City, not Caloocan. It is now derived from the real
+// boundary polygon in src/utils/geo.js, so the centre cannot disagree with the
+// boundary the map draws. Kept exported from here so existing importers
+// (Mapping, mockData) did not have to change their import path.
+export { BARANGAY_178_CENTER, BARANGAY_178_BOUNDS } from './geo';
+
+export const COLORS = {
+  black: '#22291F',
+  orange: '#FF8A3D',
+  green: '#2E8B47',
+  red: '#C0392B',
+  gray: '#EAF6EC',
+  white: '#FFFFFF',
+  greenLight: 'rgba(46, 139, 71, 0.15)',
+  orangeLight: 'rgba(255, 138, 61, 0.15)',
+  chartPalette: ['#2E8B47', '#FF8A3D', '#0EA5E9', '#C0392B'],
+  statusPalette: ['#2E8B47', '#FF8A3D', '#C0392B', '#94A3B8', '#0EA5E9'],
+};
+
+// Four account types in two governance tiers: Super Administrator (System
+// Governance) and Administrator, Encoder and BADAC Validator (Operational
+// Governance). Kept as a map (rather than a single hardcoded object) so
+// ProtectedRoute/hasAccess/can keep working unchanged against whatever role
+// string the backend returns — see backend app/Models/User.php for the
+// matching server-side role constants.
+export const ROLES = {
+  // Super Administrator — System Settings, the audit trail and the
+  // Administrator accounts, plus a read-only view of every other module (no
+  // entry in PERMISSIONS below grants it a create/edit/archive/validate
+  // action). Never assignable from the UI: it is in no MANAGEABLE_ROLES list,
+  // and the backend refuses it the same way.
+  super_admin: {
+    label: 'Super Administrator',
+    modules: [
+      'dashboard',
+      'incident-feed',
+      'mapping',
+      'analytics',
+      'trends',
+      'criminal-records',
+      'audit-logs',
+      'user-management',
+      'settings',
+    ],
+  },
+  badac_admin: {
+    label: 'Administrator',
+    // Checkpoint 28 — 'residents' removed (Resident Registry module
+    // removed) and 'security' removed (Security sidebar section removed;
+    // its Two-Factor Authentication content now lives under
+    // 'user-management', which badac_admin already had).
+    // 'audit-logs' and 'settings' moved to super_admin (System Governance).
+    modules: [
+      'dashboard',
+      'incident-feed',
+      'mapping',
+      'analytics',
+      'trends',
+      'criminal-records',
+      'user-management',
+    ],
+  },
+  encoder: {
+    label: 'Encoder',
+    // Encoder has 'user-management' so it can reach the self-service 2FA
+    // panel that lives on that page (see UserManagement.jsx's `if
+    // (!isAdmin)` branch, which renders only <TwoFactorSelfService /> for
+    // non-admin roles). Encoder still cannot see the admin account table
+    // or any admin controls on that page (gated by isAdmin in
+    // UserManagement.jsx), and still cannot list/edit other accounts:
+    // that stays enforced by the backend's role:badac_admin middleware on
+    // GET/PUT /users*.
+    modules: ['incident-feed', 'user-management'],
+  },
+  // BADAC Validator (username "Badac", display name "Gilbert Franco"), which
+  // replaced the former read-only BADAC role — view access from the Crime
+  // Reporting Dashboard through Records, plus record validation (see
+  // PERMISSIONS below), but no Audit Logs (Checkpoint 38 — BADAC users must
+  // not have Audit Logs access), no User Management/Settings (account
+  // administration stays badac_admin-only), and no create/edit/archive/
+  // restore capability anywhere. The backend enforces the same restriction
+  // independently — see backend/routes/api.php — and withholds contact
+  // numbers and addresses (complainant, victim, criminal) from this role in
+  // the API responses themselves; this list only controls what the UI shows.
+  badac_validator: {
+    label: 'BADAC Validator',
+    // Checkpoint 28 — 'residents' removed (Resident Registry module
+    // removed). This role never had 'security'/2FA access and still doesn't
+    // (unaffected by the Security→User Management move). Checkpoint 38 —
+    // 'audit-logs' removed.
+    modules: [
+      'dashboard',
+      'incident-feed',
+      'mapping',
+      'analytics',
+      'trends',
+      'criminal-records',
+    ],
+  },
+};
+
+// Checkpoint 20 — delete_record / delete_own_incident renamed to
+// archive_record / archive_own_incident (Task 3). These are frontend-only
+// UI-gating constants (no backend Policy class or database column holds
+// the old string), so this is a clean rename with no compatibility shim
+// needed. Real enforcement is unchanged: IncidentController::archive()'s
+// server-side ownership check and the role: middleware in routes/api.php.
+export const PERMISSIONS = {
+  // System Governance only. No record action of any kind, which is what
+  // makes every operational page read-only for this role.
+  super_admin: ['view_audit_logs', 'manage_settings'],
+  badac_admin: [
+    'edit_any_record',
+    'archive_record',
+    // Record validation (approve / return for correction). UI gating only —
+    // the real control is role:badac_admin,badac_validator on
+    // PUT /incidents/{id}/validate and /return in backend/routes/api.php.
+    'validate_record',
+  ],
+  // badac_validator's only action is record validation. View access is
+  // granted entirely through ROLES.badac_validator.modules above, and can()
+  // returns false for every other permission (create_incident,
+  // edit_any_record, edit_own_incident, archive_record, archive_own_incident,
+  // view_audit_logs, manage_settings) since none of them are listed for this
+  // role.
+  badac_validator: ['validate_record'],
+  // Encoder has no Archive capability in the UI: 'archive_own_incident' is
+  // deliberately absent here, so can() returns false and IncidentFeed hides
+  // the Archive action for this role.
+  //
+  // Note this is a FRONTEND-ONLY restriction. The backend still permits it:
+  // PUT /incidents/{incident}/archive is role:badac_admin,encoder in
+  // backend/routes/api.php, with per-record ownership enforced inside
+  // IncidentController::archive(), and that behaviour is documented in
+  // docs/API_ENDPOINTS.md and covered by
+  // tests/Feature/IncidentTest.php::test_encoder_can_archive_their_own_incident.
+  // Whether the UI restriction or the backend policy is the intended rule is
+  // an open business-rule decision; nothing here should be read as a claim
+  // that the route itself is administrator-only.
+  encoder: ['create_incident', 'edit_own_incident'],
+};
+
+// Which accounts each role may create and manage in User Management — each
+// governance tier manages the tier below it, and nobody manages a Super
+// Administrator. Mirrors User::MANAGEABLE_ROLES on the backend, which is the
+// real control (StoreUserRequest and the 'manage-account' Gate); this only
+// decides which actions and role choices the page offers.
+export const MANAGEABLE_ROLES = {
+  super_admin: ['badac_admin'],
+  badac_admin: ['encoder', 'badac_validator'],
+};
+
+export function canManageAccount(viewerRole, targetRole) {
+  return (MANAGEABLE_ROLES[viewerRole] || []).includes(targetRole);
+}
+
+// icon keys map to lucide-react components — see ICONS in components/icons.jsx
+// `section` groups items under a header in the sidebar (see Sidebar.jsx) —
+// purely a visual grouping key, does not affect routing or RBAC.
+export const NAV_ITEMS = [
+  {
+    id: 'dashboard',
+    label: 'Crime Reporting Dashboard',
+    icon: 'dashboard',
+    section: 'overview',
+  },
+  {
+    id: 'incident-feed',
+    label: 'Crime Data Collection',
+    icon: 'incidents',
+    section: 'crime-management',
+  },
+  // Checkpoint 28 — Resident Registry module removed entirely.
+  // Task 3/2 (Checkpoint 19): sidebar label changed from "Criminal Records"
+  // to "Records" — the id/moduleId stays 'criminal-records' on purpose so
+  // RBAC (ROLES[].modules, hasAccess, backend role checks) is untouched.
+  // "Records" is a sidebar navigation GROUP, not a page: it expands to
+  // Criminal Records and Victim Records (see Sidebar.jsx). The old landing
+  // page that only offered those two choices is gone; /criminal-records
+  // redirects to Criminal Records so existing bookmarks keep working.
+  {
+    id: 'criminal-records',
+    label: 'Records',
+    icon: 'criminalRecords',
+    section: 'crime-management',
+  },
+  {
+    id: 'mapping',
+    label: 'Crime Mapping and Visualization',
+    icon: 'mapping',
+    section: 'analytics',
+  },
+  {
+    id: 'analytics',
+    label: 'Statistical Analysis',
+    icon: 'analytics',
+    section: 'analytics',
+  },
+  {
+    id: 'trends',
+    label: 'Trend and Pattern Detection',
+    icon: 'trends',
+    section: 'analytics',
+  },
+  {
+    id: 'audit-logs',
+    label: 'Audit Logs',
+    icon: 'auditLogs',
+    section: 'administration',
+  },
+  // Checkpoint 28 — the standalone 'Security' sidebar entry is removed.
+  // Two-Factor Authentication (Phase 4 — Feature #4) now lives inside
+  // User Management for both roles that used to see Security (badac_admin,
+  // encoder) — see ROLES above and UserManagement.jsx.
+  {
+    id: 'user-management',
+    label: 'User Management',
+    icon: 'userManagement',
+    section: 'administration',
+  },
+  // System Settings is reachable from the sidebar again. It previously had no
+  // nav entry (Part C-11 of the design spec) even though the /settings route
+  // existed, which left the module effectively unreachable for the
+  // Administrator it was built for.
+  //
+  // This entry alone grants nothing. The sidebar renders an item only when
+  // hasAccess(item.id) passes, and 'settings' appears in ROLES.super_admin
+  // .modules and in no other role's, so no operational role sees it;
+  // ProtectedRoute enforces the same on the route. Both are conveniences on
+  // top of the real control, which is server-side: every /settings and
+  // /crime-types write is behind role:super_admin in backend/routes/api.php
+  // and returns 403 to anyone else regardless of what the UI shows.
+  {
+    id: 'settings',
+    label: 'System Settings',
+    icon: 'settings',
+    section: 'administration',
+  },
+];
+
+export const NAV_SECTION_LABELS = {
+  overview: 'Overview',
+  'crime-management': 'Crime Management',
+  analytics: 'Analytics',
+  administration: 'Administration',
+};
+
+// Kept in sync with NAV_ITEMS labels (minus "Module") so the topbar title
+// matches the sidebar entry the user just clicked.
+export const PAGE_TITLES = {
+  dashboard: 'Crime Reporting Dashboard',
+  'incident-feed': 'Crime Data Collection',
+  mapping: 'Crime Mapping and Visualization',
+  analytics: 'Statistical Analysis',
+  trends: 'Trend and Pattern Detection',
+  'criminal-records': 'Records',
+  'criminal-records/criminal': 'Criminal Records',
+  'criminal-records/victim': 'Victim Records',
+  'audit-logs': 'Audit Logs',
+  'user-management': 'User Management',
+  settings: 'System Settings',
+};
+
+// The first module in a role's allowed list is that role's landing page —
+// used for the post-login redirect and for bouncing a user off a route
+// their role can't access (see ProtectedRoute.jsx / AppRoutes.jsx / Login.jsx).
+export function defaultRouteForRole(roleKey) {
+  const mod = ROLES[roleKey]?.modules?.[0];
+  return mod ? `/${mod}` : '/login';
+}

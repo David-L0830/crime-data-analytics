@@ -1,0 +1,269 @@
+// Centralized HTTP client for the Laravel backend. Every service module in
+// this directory goes through here — no raw fetch() calls in pages/components.
+//
+// Final auth migration — this is a stateless, Bearer-token-only API now
+// (Supabase Auth is the only authentication system; see
+// AUTH_MIGRATION_STATUS.md). There is no more Sanctum session cookie, no
+// CSRF cookie/token, and no `credentials: 'include'`: a Bearer token is
+// never sent by the browser automatically the way a cookie is, so it isn't
+// forgeable by a third-party site the way cookie auth is, and doesn't need
+// CSRF protection.
+//
+// Every request automatically carries the CURRENT Supabase access token, if
+// one exists — callers don't need to look it up or thread it through
+// themselves. This is what makes every existing service function (which
+// already accepted an optional `token` param) actually work end-to-end: the
+// param still exists for the one case that genuinely needs it (a caller
+// that just obtained a brand-new token and can't wait for the Supabase
+// client's in-memory session to catch up), but nothing else needs to pass
+// it anymore.
+import { supabase } from '../lib/supabaseClient';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+
+// Render's free tier idles out after roughly 15 minutes and takes ~50 seconds
+// to wake (README "Troubleshooting"). Without a bound, a request made while
+// the backend is asleep — or one that simply stalls — waits indefinitely
+// with no feedback. 60s clears the documented wake time with headroom so a
+// genuine cold start still succeeds, while still turning an indefinite hang
+// into a finite, user-visible failure.
+const REQUEST_TIMEOUT_MS = 60_000;
+
+// supabase.auth.getSession() is not a cheap in-memory read: supabase-js
+// serialises it behind a navigator lock and may perform a token refresh
+// inside that lock. Every request in this module awaits it, so a screen that
+// loads several resources at once (DataContext fires five in one tick on
+// sign-in and two more alongside them) paid that cost once per request,
+// strictly one after another, before a single byte left the browser.
+//
+// Concurrent callers now share ONE in-flight lookup instead of queueing their
+// own. This is a deduplication, not a cache: the promise is cleared the moment
+// it settles, so the next request after that still asks Supabase for the
+// current session and still gets a refreshed token when one is due. No token
+// is stored, nothing is validated client-side, and the server keeps verifying
+// every Bearer token exactly as before.
+let inFlightSession = null;
+
+async function currentAccessToken() {
+  if (!inFlightSession) {
+    inFlightSession = supabase.auth.getSession().finally(() => {
+      inFlightSession = null;
+    });
+  }
+  // Captured before awaiting: the .finally() above nulls the module-level
+  // variable as soon as the lookup settles, so re-reading it after the await
+  // would be a race.
+  const pending = inFlightSession;
+  try {
+    const { data } = await pending;
+    return data.session?.access_token || null;
+  } catch {
+    // Treat an unreadable session as "no token": the request goes out
+    // unauthenticated and the server answers 401, which the existing
+    // ApiError handling already turns into a sign-out. Swallowing it here
+    // only avoids replacing that with an opaque throw from storage access.
+    return null;
+  }
+}
+
+// `type` classifies *why* the request failed so callers (DataContext,
+// MainLayout, ...) can show an accurate message instead of a generic one.
+// This is purely additive — existing callers that only ever read
+// `.status` / `.message` / `.errors` are unaffected.
+//   'network'         — fetch() itself threw; the server was never reached.
+//   'timeout'          — fetch() never settled within REQUEST_TIMEOUT_MS and
+//                        was aborted; the server may or may not have been
+//                        reached, but no response arrived in time.
+//   'mfa_required'     — reached the server; a valid aal1 session exists but
+//                        the route requires aal2 (see EnsureSupabaseAal2).
+//   'unauthenticated' — reached the server; no/invalid/expired session.
+//   'forbidden'        — reached the server; authenticated but not authorized.
+//   'not_found' | 'validation' | 'server' | 'unknown'
+//
+// `flags` carries the backend's boolean state flags from a refusal — e.g.
+// { passwordChangeRequired, temporaryPasswordExpired, reauthenticationRequired,
+// passwordUpdateFailed } (see EnsurePasswordChanged / PasswordController). Only
+// strictly boolean `true` values are copied, never any other part of the body.
+export class ApiError extends Error {
+  constructor(
+    message,
+    status,
+    errors,
+    type = 'unknown',
+    mfaRequired = false,
+    flags = {},
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.errors = errors || null;
+    this.type = type;
+    this.mfaRequired = Boolean(mfaRequired);
+    this.flags = flags;
+  }
+}
+
+const STATE_FLAGS = [
+  'passwordChangeRequired',
+  'temporaryPasswordExpired',
+  'reauthenticationRequired',
+  'passwordUpdateFailed',
+  'passwordChangedPendingSync',
+  'temporaryPasswordPendingSync',
+];
+
+function stateFlags(payload) {
+  const flags = {};
+  STATE_FLAGS.forEach((name) => {
+    if (payload?.[name] === true) flags[name] = true;
+  });
+  return flags;
+}
+
+// Fired on `window` when ANY request comes back 403 because the signed-in
+// account now owes a password change or its session predates one (see
+// EnsurePasswordChanged) — e.g. an administrator reissued a temporary password
+// mid-visit. AuthContext listens and re-runs its existing admission check, so
+// the screen follows the server instead of every page treating the 403 as an
+// ordinary "forbidden". The event carries no data at all.
+//
+// Not fired for POST /me/password: the change-password step handles its own
+// responses.
+export const CREDENTIAL_STATE_EVENT = 'cdars:credential-state-changed';
+
+function announceCredentialState(path, flags) {
+  if (path === '/me/password') return;
+  if (!flags.passwordChangeRequired && !flags.reauthenticationRequired) return;
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') {
+    return;
+  }
+  window.dispatchEvent(new Event(CREDENTIAL_STATE_EVENT));
+}
+
+async function request(path, { method = 'GET', body, token, ...rest } = {}) {
+  // Checkpoint 25 — avatar upload needs a multipart/form-data body
+  // (FormData), unlike every existing caller which sends JSON. Skip the
+  // JSON.stringify/Content-Type: application/json path for it and let the
+  // browser set its own multipart Content-Type (with boundary) instead —
+  // setting that header manually breaks the boundary parsing.
+  const isFormData =
+    typeof FormData !== 'undefined' && body instanceof FormData;
+
+  const accessToken = token || (await currentAccessToken());
+
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(
+    () => timeoutController.abort(),
+    REQUEST_TIMEOUT_MS,
+  );
+
+  let response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
+      signal: timeoutController.signal,
+      ...rest,
+    });
+  } catch (err) {
+    // The timeout fires by aborting timeoutController, which is what turns
+    // into this AbortError — distinguished from an ordinary network failure
+    // (DNS/connection/offline/CORS, where the server was never reached
+    // either, but not because we gave up waiting) so callers can tell the
+    // two apart instead of both reading as a generic connection problem.
+    if (err?.name === 'AbortError') {
+      throw new ApiError(
+        'The request took too long to complete. Please check your connection and try again.',
+        0,
+        null,
+        'timeout',
+      );
+    }
+    throw new ApiError(
+      'Unable to reach the server. Check your connection and try again.',
+      0,
+      null,
+      'network',
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (response.status === 204) return null;
+
+  const isJson = response.headers
+    .get('content-type')
+    ?.includes('application/json');
+  const payload = isJson ? await response.json().catch(() => null) : null;
+
+  if (!response.ok) {
+    // A 401 with { mfaRequired: true } (see EnsureSupabaseAal2) means the
+    // server WAS reached and the caller's session is valid at aal1 but
+    // hasn't completed its second factor — a materially different case
+    // from "not signed in at all", so it gets its own type and keeps the
+    // backend's own explanatory message.
+    const isMfaRequired =
+      response.status === 401 && payload?.mfaRequired === true;
+
+    const type = isMfaRequired
+      ? 'mfa_required'
+      : response.status === 401
+        ? 'unauthenticated'
+        : response.status === 403
+          ? 'forbidden'
+          : response.status === 404
+            ? 'not_found'
+            : response.status === 422
+              ? 'validation'
+              : response.status >= 500
+                ? 'server'
+                : 'unknown';
+
+    const message =
+      payload?.message ||
+      (type === 'unauthenticated' &&
+        'You are not signed in. Please log in again.') ||
+      (type === 'forbidden' && 'You do not have permission to do that.') ||
+      (type === 'not_found' && 'The requested record was not found.') ||
+      (type === 'validation' && 'Please check the form for errors.') ||
+      (type === 'server' &&
+        'Something went wrong on the server. Please try again.') ||
+      'Something went wrong.';
+    const flags = stateFlags(payload);
+    if (response.status === 403) announceCredentialState(path, flags);
+
+    throw new ApiError(
+      message,
+      response.status,
+      payload?.errors,
+      type,
+      isMfaRequired,
+      flags,
+    );
+  }
+
+  return payload;
+}
+
+// Unwraps Laravel API Resource collections/singles ({ data: ... }) into plain
+// arrays/objects, since every existing page expects plain records.
+function unwrap(payload) {
+  if (payload && typeof payload === 'object' && 'data' in payload)
+    return payload.data;
+  return payload;
+}
+
+export const api = {
+  get: (path, opts) => request(path, { method: 'GET', ...opts }).then(unwrap),
+  post: (path, body, opts) =>
+    request(path, { method: 'POST', body, ...opts }).then(unwrap),
+  put: (path, body, opts) =>
+    request(path, { method: 'PUT', body, ...opts }).then(unwrap),
+  delete: (path, opts) =>
+    request(path, { method: 'DELETE', ...opts }).then(unwrap),
+};

@@ -1,0 +1,100 @@
+import Card from '../ui/Card';
+import { Icons } from '../icons';
+import { hasSecondFactor } from '../../utils/mfaStatus';
+
+// The Security panel under the account table.
+//
+// Each line is a condition that is either true of the loaded accounts or not
+// shown at all. There is no fixed list of "checks" that always renders with a
+// green tick next to it regardless of state — an alert that is always present
+// stops being read, and one that is fabricated is worse than none in a system
+// that holds crime records.
+//
+// When nothing is wrong the panel says so once, plainly, instead of listing
+// reassurances.
+export default function SecuritySummary({ users }) {
+  const alerts = [];
+
+  // hasSecondFactor, not twoFactorEnabled: an email_otp account is challenged
+  // for an emailed code at every sign-in, so warning that it "has no second
+  // factor enrolled" would be a false alarm about a protected account.
+  const withoutFactor = users.filter((u) => !hasSecondFactor(u));
+  const adminsWithoutFactor = withoutFactor.filter((u) =>
+    ['super_admin', 'badac_admin'].includes(u.role),
+  );
+  const inactive = users.filter((u) => !u.isActive);
+
+  // Administrator and Super Administrator accounts are called out separately
+  // from the rest: without a second factor, they are the accounts that can
+  // reach User Management and, for the Super Administrator, System Settings
+  // and the full audit trail.
+  if (adminsWithoutFactor.length > 0) {
+    alerts.push({
+      key: 'admin-2fa',
+      tone: 'danger',
+      text:
+        adminsWithoutFactor.length === 1
+          ? `1 administrator account has no second factor enrolled (${adminsWithoutFactor[0].fullName}).`
+          : `${adminsWithoutFactor.length} administrator accounts have no second factor enrolled.`,
+    });
+  }
+
+  const othersWithoutFactor = withoutFactor.length - adminsWithoutFactor.length;
+  if (othersWithoutFactor > 0) {
+    alerts.push({
+      key: 'other-2fa',
+      tone: 'warning',
+      text:
+        othersWithoutFactor === 1
+          ? '1 other account has no second factor enrolled.'
+          : `${othersWithoutFactor} other accounts have no second factor enrolled.`,
+    });
+  }
+
+  if (inactive.length > 0) {
+    alerts.push({
+      key: 'inactive',
+      tone: 'warning',
+      text:
+        inactive.length === 1
+          ? `1 inactive account (${inactive[0].fullName}) — it cannot sign in, and its records and audit history are retained.`
+          : `${inactive.length} inactive accounts — they cannot sign in, and their records and audit history are retained.`,
+    });
+  }
+
+  return (
+    <Card title="Security" className="security-summary-card">
+      {alerts.length === 0 ? (
+        <p className="security-alert security-alert-ok">
+          <Icons.ShieldCheck size={16} strokeWidth={2} />
+          Account security looks good — every account is active and has a second
+          factor enrolled.
+        </p>
+      ) : (
+        <ul className="security-alert-list">
+          {alerts.map((alert) => (
+            <li
+              key={alert.key}
+              className={`security-alert security-alert-${alert.tone}`}
+            >
+              <Icons.ShieldAlert size={16} strokeWidth={2} />
+              {alert.text}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Stated once, here, rather than implied by a green tick somewhere.
+          The note used to exist to disclose that enrolment was NOT enforced at
+          sign-in; it now discloses the opposite, and the reason an
+          administrator needs it is unchanged — an account listed without a
+          factor is protected by its password alone. */}
+      <p className="security-alert-note">
+        Enrolment status is read from Supabase. An account with a verified
+        authenticator must enter a code from it at every sign-in; an account
+        without one is protected by its password alone. Enrolment is
+        self-service and cannot be performed on someone else&apos;s behalf.
+      </p>
+    </Card>
+  );
+}
