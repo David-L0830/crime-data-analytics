@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 return [
 
@@ -6,8 +6,6 @@ return [
 
     'allowed_methods' => ['*'],
 
-    // Never hardcoded — driven entirely by FRONTEND_URL / CORS_ALLOWED_ORIGINS
-    // so dev (http://localhost:5173) and production domains both work.
     'allowed_origins' => array_values(array_unique(array_filter(array_merge(
         [
             env('FRONTEND_URL', 'http://localhost:5173'),
@@ -24,10 +22,6 @@ return [
 
     'max_age' => 0,
 
-    // Final auth migration — this API is Bearer-token-only now (no more
-    // Sanctum SPA session cookie / XSRF-TOKEN), so the browser no longer
-    // needs to send credentials (cookies) on cross-origin requests. See
-    // AUTH_MIGRATION_STATUS.md and src/services/api.js.
     'supports_credentials' => false,
 
 ];
