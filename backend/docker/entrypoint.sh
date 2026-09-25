@@ -13,6 +13,11 @@ set -e
 : "${PORT:=9000}"
 export PORT
 
+# Ensure storage subdirectories exist and have correct permissions at runtime
+mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs
+chown -R www-data:www-data storage bootstrap/cache
+chmod -R 775 storage bootstrap/cache
+
 echo "[entrypoint] rendering nginx config on port ${PORT}"
 envsubst '${PORT}' \
     < /etc/nginx/http.d/default.conf.template \
