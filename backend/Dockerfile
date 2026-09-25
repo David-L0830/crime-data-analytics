@@ -38,7 +38,8 @@ RUN rm -f /etc/nginx/http.d/default.conf \
     && chmod +x /usr/local/bin/entrypoint.sh
 
 # Laravel must be able to write its own caches and logs at runtime.
-RUN chown -R www-data:www-data storage bootstrap/cache \
+RUN mkdir -p storage/framework/sessions storage/framework/views storage/framework/cache storage/logs \
+    && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R ug+rwX storage bootstrap/cache
 
 # Informational only. Render overrides this via $PORT; docker-compose keeps 9000.
